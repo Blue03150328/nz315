@@ -1,5 +1,6 @@
 // POST /api/admin/codes/import —— 追溯码入库（PRD 5.5.3：绑定产品；可选绑定批次 → 三要素齐全置为已绑定）
 import { query, execute } from '../../../utils/db'
+import { sendMessage } from '../../../utils/notify'
 import { requireBackendUser } from '../../../utils/auth'
 
 export default defineEventHandler(async (event) => {
@@ -56,6 +57,14 @@ export default defineEventHandler(async (event) => {
   const result = await execute(
     'INSERT INTO trace_code (enterprise_id, code, product_id, batch_id, produce_date, batch_no, quality_cert_no, status, abnormal_flag, abnormal_reason) VALUES ' + valuePlaceholders,
     values)
+
+  // 站内消息：导入完成通知（PRD 5.11 上传完成）
+  await sendMessage({
+    enterpriseId, type: 'upload_done',
+    title: '生产采集导入完成',
+    content: '成功导入 ' + finalCodes.length + ' 条追溯码（' + (status === 2 ? '已绑定批次' : '已生成') + '）',
+    link: '/admin/codes',
+  })
 
   return {
     ok: true,

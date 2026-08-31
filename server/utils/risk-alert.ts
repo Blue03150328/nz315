@@ -1,5 +1,6 @@
 // 风险预警工具（PRD 5.9：8 类异常实时/巡检触发；同码同类合并累计次数）
 import { query, execute } from './db'
+import { sendMessage } from './notify'
 
 // 异常类型对照（PRD 5.9 清单）
 export const ALERT_TYPES: Record<number, string> = {
@@ -33,10 +34,16 @@ export async function triggerAlert(event: any, input: {
     if (exist) {
       await execute('UPDATE risk_alert SET repeat_count = repeat_count + 1, evidence = ? WHERE id = ?',
         [evidence ? JSON.stringify(evidence) : null, exist.id])
+      // 消息：仅合并首次触发时通知（累计不重复打扰）
+      if (Number(exist.repeat_count) === 1) {
+        await sendMessage({ enterpriseId, type: 'risk', title: '风险预警：' + ALERT_TYPES[alertType], content: '预警累计触发，请前往风险预警中心处理', link: '/admin/alerts' })
+      }
     } else {
       await execute(
         'INSERT INTO risk_alert (enterprise_id, alert_type, code_id, product_id, evidence, trigger_time, repeat_count) VALUES (?,?,?,?,?,NOW(),1)',
         [enterpriseId, alertType, codeId ?? null, productId ?? null, evidence ? JSON.stringify(evidence) : null])
+      // 站内消息通知（PRD 5.12.5：风险预警 → 站内信）
+      await sendMessage({ enterpriseId, type: 'risk', title: '风险预警：' + ALERT_TYPES[alertType], content: '请前往风险预警中心核实处理', link: '/admin/alerts' })
     }
   } catch (e) {
     // 预警写入失败不影响扫码主流程

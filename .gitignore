@@ -28,6 +28,9 @@ scripts/_tmp-*
 # 截图与验证产物
 screenshots/
 
+# 数据库备份文件（含全量数据，隐私）
+backup/
+
 # DSH 工具产物
 .dsh/
 

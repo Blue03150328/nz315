@@ -129,6 +129,96 @@ const { data: logData, pending: logPending, refresh: refreshLogs } = await useFe
   })),
 })
 const logTotalPages = computed(() => Math.max(1, Math.ceil((logData.value?.total || 0) / pageSize)))
+
+// ============ 通知配置（PRD 5.12.5） ============
+const notifyForm = reactive({
+  stockThreshold: '10000', dailyReportTime: '08:00',
+  notifyCodeStock: true, notifyUpload: true, notifyRisk: true, notifyAccount: true, notifyDaily: false,
+})
+const notifySaving = ref(false)
+
+const { data: notifyData, refresh: refreshNotify } = await useFetch<any>('/api/admin/settings/notify', {
+  key: 'settings-notify',
+})
+watch(notifyData, (d) => {
+  if (d) {
+    notifyForm.stockThreshold = d.stockThreshold || '10000'
+    notifyForm.dailyReportTime = d.dailyReportTime || '08:00'
+    notifyForm.notifyCodeStock = d.notifyCodeStock !== 'off'
+    notifyForm.notifyUpload = d.notifyUpload !== 'off'
+    notifyForm.notifyRisk = d.notifyRisk !== 'off'
+    notifyForm.notifyAccount = d.notifyAccount !== 'off'
+    notifyForm.notifyDaily = d.notifyDaily === 'on'
+  }
+}, { immediate: true })
+
+const notifySwitches = [
+  { key: 'notifyCodeStock', label: '码库存预警', desc: '可用码低于阈值时提醒' },
+  { key: 'notifyUpload', label: '上传完成', desc: '生产采集导入完成通知' },
+  { key: 'notifyRisk', label: '风险预警', desc: '8 类异常触发时提醒' },
+  { key: 'notifyAccount', label: '账号安全', desc: '登录异常/密码修改/权限变更' },
+  { key: 'notifyDaily', label: '每日数据日报', desc: '每日扫码统计汇总' },
+]
+
+const saveNotify = async () => {
+  notifySaving.value = true
+  try {
+    await $fetch('/api/admin/settings/notify', {
+      method: 'PUT',
+      body: {
+        stockThreshold: notifyForm.stockThreshold,
+        dailyReportTime: notifyForm.dailyReportTime,
+        notifyCodeStock: notifyForm.notifyCodeStock ? 'on' : 'off',
+        notifyUpload: notifyForm.notifyUpload ? 'on' : 'off',
+        notifyRisk: notifyForm.notifyRisk ? 'on' : 'off',
+        notifyAccount: notifyForm.notifyAccount ? 'on' : 'off',
+        notifyDaily: notifyForm.notifyDaily ? 'on' : 'off',
+      },
+    })
+    toast.add({ title: '通知配置已保存', color: 'success' })
+    refreshNotify()
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage || '保存失败', color: 'error' })
+  } finally {
+    notifySaving.value = false
+  }
+}
+
+// ============ 数据备份（PRD 5.12.6） ============
+const backingUp = ref(false)
+const backupRows = ref<any[]>([])
+
+const refreshBackups = async () => {
+  try {
+    const d = await $fetch('/api/admin/backup')
+    backupRows.value = d.rows || []
+  } catch { /* 非平台管理员或未创建 */ }
+}
+refreshBackups()
+
+const doBackup = async () => {
+  backingUp.value = true
+  try {
+    const res = await $fetch('/api/admin/backup', { method: 'POST' })
+    toast.add({ title: '备份完成：' + res.file + '（' + (res.size / 1024).toFixed(1) + ' KB）', color: 'success' })
+    refreshBackups()
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage || '备份失败', color: 'error' })
+  } finally {
+    backingUp.value = false
+  }
+}
+
+const deleteBackup = async (b: any) => {
+  if (!window.confirm('确定删除备份 ' + b.file + ' ？')) return
+  try {
+    await $fetch('/api/admin/backup?file=' + encodeURIComponent(b.file), { method: 'DELETE' })
+    toast.add({ title: '备份已删除', color: 'success' })
+    refreshBackups()
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage || '删除失败', color: 'error' })
+  }
+}
 </script>
 
 <template>
@@ -145,6 +235,8 @@ const logTotalPages = computed(() => Math.max(1, Math.ceil((logData.value?.total
       { label: '企业信息', icon: 'i-lucide-building-2' },
       { label: '用户权限', icon: 'i-lucide-users' },
       { label: '操作日志', icon: 'i-lucide-scroll-text' },
+      { label: '通知配置', icon: 'i-lucide-bell' },
+      { label: '数据备份', icon: 'i-lucide-database-backup' },
     ]" />
 
     <!-- 企业信息 -->
@@ -386,6 +478,170 @@ const logTotalPages = computed(() => Math.max(1, Math.ceil((logData.value?.total
             <UButton variant="outline" color="neutral" size="sm" :disabled="lpage <= 1" @click="lpage--; refreshLogs()">上一页</UButton>
             <UButton variant="outline" color="neutral" size="sm" :disabled="lpage >= logTotalPages" @click="lpage++; refreshLogs()">下一页</UButton>
           </div>
+        </div>
+      </div>
+    </div>
+  
+    <!-- 通知配置（PRD 5.12.5） -->
+    <div v-if="tab === 'notify'" class="rounded-xl border border-border bg-elevated p-5 shadow-sm">
+      <h2 class="text-sm font-semibold text-default">消息通知配置</h2>
+      <p class="mt-1 text-xs text-muted">站内信通知开关与预警阈值（微信推送待公众号对接后开放）</p>
+      <div class="mt-5 space-y-4">
+        <div class="grid gap-4 md:grid-cols-2">
+          <div class="space-y-1.5">
+            <label class="block text-sm font-medium text-default">码库存预警阈值</label>
+            <UInput v-model="notifyForm.stockThreshold" type="number" placeholder="默认 10000 条" />
+            <p class="text-xs text-muted">某产品"已生成"可用码低于该值时触发库存预警</p>
+          </div>
+          <div class="space-y-1.5">
+            <label class="block text-sm font-medium text-default">每日数据日报发送时间</label>
+            <UInput v-model="notifyForm.dailyReportTime" type="time" placeholder="08:00" />
+          </div>
+        </div>
+        <div class="grid gap-3 md:grid-cols-2">
+          <div v-for="n in notifySwitches" :key="n.key" class="flex items-center justify-between rounded-lg border border-border/60 p-3">
+            <div>
+              <div class="text-sm font-medium text-default">{{ n.label }}</div>
+              <div class="text-xs text-muted">{{ n.desc }}</div>
+            </div>
+            <USwitch v-model="notifyForm[n.key]" />
+          </div>
+        </div>
+        <div class="flex justify-end">
+          <UButton color="primary" icon="i-lucide-save" :loading="notifySaving" @click="saveNotify">保存配置</UButton>
+        </div>
+      </div>
+    </div>
+
+    <!-- 数据备份（PRD 5.12.6） -->
+    <div v-if="tab === 'backup'" class="space-y-4">
+      <div v-if="!isPlatformAdmin" class="rounded-xl border border-warning/30 bg-warning/5 p-4 text-sm text-warning">
+        数据备份仅总部管理员可用
+      </div>
+      <div v-else class="rounded-xl border border-border bg-elevated p-5 shadow-sm">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-semibold text-default">手动备份</h2>
+            <p class="mt-1 text-xs text-muted">mysqldump 全库导出（--single-transaction 不锁表），备份文件仅保存在本机 backup 目录</p>
+          </div>
+          <UButton color="primary" icon="i-lucide-database-backup" :loading="backingUp" @click="doBackup">立即备份</UButton>
+        </div>
+      </div>
+
+      <div class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
+        <div class="flex items-center justify-between border-b border-border/60 px-4 py-3">
+          <span class="text-sm font-semibold text-default">备份历史</span>
+          <span class="text-xs text-muted">共 {{ backupRows.length }} 个备份</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead>
+              <tr class="border-b border-border/60 bg-muted/30 text-xs text-muted">
+                <th class="px-4 py-3 font-medium">文件名</th>
+                <th class="px-4 py-3 font-medium">大小</th>
+                <th class="px-4 py-3 font-medium">备份时间</th>
+                <th class="px-4 py-3 font-medium">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="b in backupRows" :key="b.file" class="border-b border-border/40 transition-colors hover:bg-muted/30">
+                <td class="px-4 py-3 font-code text-xs text-default">{{ b.file }}</td>
+                <td class="px-4 py-3 text-muted">{{ (b.size / 1024).toFixed(1) }} KB</td>
+                <td class="px-4 py-3 text-muted">{{ b.time }}</td>
+                <td class="px-4 py-3">
+                  <div class="flex gap-1.5">
+                    <a :href="'/api/admin/backup/download?file=' + encodeURIComponent(b.file)" class="rounded-lg px-2 py-1 text-xs text-primary hover:bg-primary/10">下载</a>
+                    <UButton variant="ghost" color="error" size="xs" @click="deleteBackup(b)">删除</UButton>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="!backupRows.length">
+                <td colspan="4" class="px-4 py-10 text-center text-sm text-muted">暂无备份，点击「立即备份」创建</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  
+    <!-- 通知配置（PRD 5.12.5） -->
+    <div v-if="tab === 'notify'" class="rounded-xl border border-border bg-elevated p-5 shadow-sm">
+      <h2 class="text-sm font-semibold text-default">消息通知配置</h2>
+      <p class="mt-1 text-xs text-muted">站内信通知开关与预警阈值（微信推送待公众号对接后开放）</p>
+      <div class="mt-5 space-y-4">
+        <div class="grid gap-4 md:grid-cols-2">
+          <div class="space-y-1.5">
+            <label class="block text-sm font-medium text-default">码库存预警阈值</label>
+            <UInput v-model="notifyForm.stockThreshold" type="number" placeholder="默认 10000 条" />
+            <p class="text-xs text-muted">某产品"已生成"可用码低于该值时触发库存预警</p>
+          </div>
+          <div class="space-y-1.5">
+            <label class="block text-sm font-medium text-default">每日数据日报发送时间</label>
+            <UInput v-model="notifyForm.dailyReportTime" type="time" placeholder="08:00" />
+          </div>
+        </div>
+        <div class="grid gap-3 md:grid-cols-2">
+          <div v-for="n in notifySwitches" :key="n.key" class="flex items-center justify-between rounded-lg border border-border/60 p-3">
+            <div>
+              <div class="text-sm font-medium text-default">{{ n.label }}</div>
+              <div class="text-xs text-muted">{{ n.desc }}</div>
+            </div>
+            <USwitch v-model="notifyForm[n.key]" />
+          </div>
+        </div>
+        <div class="flex justify-end">
+          <UButton color="primary" icon="i-lucide-save" :loading="notifySaving" @click="saveNotify">保存配置</UButton>
+        </div>
+      </div>
+    </div>
+
+    <!-- 数据备份（PRD 5.12.6） -->
+    <div v-if="tab === 'backup'" class="space-y-4">
+      <div v-if="!isPlatformAdmin" class="rounded-xl border border-warning/30 bg-warning/5 p-4 text-sm text-warning">
+        数据备份仅总部管理员可用
+      </div>
+      <div v-else class="rounded-xl border border-border bg-elevated p-5 shadow-sm">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-semibold text-default">手动备份</h2>
+            <p class="mt-1 text-xs text-muted">mysqldump 全库导出（--single-transaction 不锁表），备份文件仅保存在本机 backup 目录</p>
+          </div>
+          <UButton color="primary" icon="i-lucide-database-backup" :loading="backingUp" @click="doBackup">立即备份</UButton>
+        </div>
+      </div>
+
+      <div class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
+        <div class="flex items-center justify-between border-b border-border/60 px-4 py-3">
+          <span class="text-sm font-semibold text-default">备份历史</span>
+          <span class="text-xs text-muted">共 {{ backupRows.length }} 个备份</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead>
+              <tr class="border-b border-border/60 bg-muted/30 text-xs text-muted">
+                <th class="px-4 py-3 font-medium">文件名</th>
+                <th class="px-4 py-3 font-medium">大小</th>
+                <th class="px-4 py-3 font-medium">备份时间</th>
+                <th class="px-4 py-3 font-medium">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="b in backupRows" :key="b.file" class="border-b border-border/40 transition-colors hover:bg-muted/30">
+                <td class="px-4 py-3 font-code text-xs text-default">{{ b.file }}</td>
+                <td class="px-4 py-3 text-muted">{{ (b.size / 1024).toFixed(1) }} KB</td>
+                <td class="px-4 py-3 text-muted">{{ b.time }}</td>
+                <td class="px-4 py-3">
+                  <div class="flex gap-1.5">
+                    <a :href="'/api/admin/backup/download?file=' + encodeURIComponent(b.file)" class="rounded-lg px-2 py-1 text-xs text-primary hover:bg-primary/10">下载</a>
+                    <UButton variant="ghost" color="error" size="xs" @click="deleteBackup(b)">删除</UButton>
+                  </div>
+                </td>
+              </tr>
+              <tr v-if="!backupRows.length">
+                <td colspan="4" class="px-4 py-10 text-center text-sm text-muted">暂无备份，点击「立即备份」创建</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>

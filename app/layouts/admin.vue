@@ -17,6 +17,7 @@ const MENU_READY = [
   { path: '/admin/statistics', label: '扫码统计', icon: 'i-lucide-bar-chart-3' },
   { path: '/admin/settings', label: '系统设置', icon: 'i-lucide-settings' },
   { path: '/admin/alerts', label: '风险预警', icon: 'i-lucide-shield-alert' },
+  { path: '/admin/messages', label: '消息中心', icon: 'i-lucide-bell' },
 ]
 
 // V1.0 规划菜单（模块建设中）

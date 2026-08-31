@@ -20,6 +20,14 @@
 
 ## 变更记录
 
+### 2026-08-31 | 消息中心与通知配置 + 数据备份（PRD 5.11/5.12.5/5.12.6）
+- **工作内容**：① 站内消息系统：message 表 + 消息工具（notify.ts），风险预警触发/生产采集导入完成自动生成消息，消息中心页（/admin/messages：类型筛选/只看未读/标记已读/跳转链接/未读角标）；② 通知配置（PRD 5.12.5）：system_setting KV 表 + 配置页 Tab（库存预警阈值/日报时间/5 类通知开关），厂家/平台级隔离存储；③ 数据备份（PRD 5.12.6）：mysqldump 全库手动备份（--single-transaction 不锁表）→ backup/ 目录（已 gitignore），历史/下载/删除（文件名纯数字防穿越），仅总部管理员；④ 系统设置新增「通知配置」「数据备份」两个 Tab；菜单新增「消息中心」。
+- **修改文件**：`server/utils/notify.ts`（新增）、`server/utils/risk-alert.ts`（预警→消息）、`server/api/admin/codes/import.post.ts`（导入→消息）、`server/api/admin/messages.get.ts`、`messages/[id].patch.ts`（新增）、`server/api/admin/settings/notify.get.ts`、`notify.put.ts`（新增）、`server/api/admin/backup.post.ts`、`backup.get.ts`、`backup.delete.ts`、`backup/download.get.ts`（新增）、`app/pages/admin/messages/index.vue`（新增）、`app/pages/admin/settings/index.vue`（+2 Tab）、`app/layouts/admin.vue`、`scripts/db-init.mjs`（+message/system_setting 表）、`.gitignore`（+backup/）
+- **测试情况**：端到端全过：预警触发→自动消息（未读计数正确）→标记已读；通知配置保存/读取（厂家/平台隔离）；备份执行（23KB SQL）→历史→下载（200）→文件名校验；页面 SSR 全过
+- **遗留问题/待办**：自动备份调度（频率/时间/保留周期）、异地备份（OSS）、微信推送（需公众号对接）；异常类型 2/3/5/6/7/8 预警接入；码生成离线工具；外箱码管理；批量修正工具
+- **给下一个 Agent 的提示**：备份文件在 backup/（gitignore，含全量数据勿提交）；消息由 notify.ts 发送，新事件类型只需调用 sendMessage
+
+---
 ### 2026-08-31 | 异常码处理与风险预警中心（PRD 5.8/5.9）
 - **工作内容**：① 预警触发引擎（risk-alert.ts）：扫码命中异常自动写 risk_alert，同码同类未处理合并累计次数（重复查询 type=1、登记证过期 type=4 已接入，其余类型预留）；② 码异常标记操作（PRD 5.5.5）：单条/批量冻结·作废·恢复正常（作废必填原因、终态不可恢复、整批含作废码拒绝）；③ 风险预警中心（/admin/alerts）：列表筛选（类型/状态/关键词/日期）、证据摘要、处理对话框（核实合规 / 确认违规 + 一键作废关联码）、待处理统计；④ 码库管理页增强：批量勾选 + 冻结/作废/恢复正常操作。菜单「风险预警」已启用。
 - **修改文件**：`server/utils/risk-alert.ts`（新增）、`server/api/trace.get.ts`（预警触发）、`server/api/admin/codes/[id].patch.ts`、`codes/batch-flag.post.ts`（新增）、`server/api/admin/alerts.get.ts`、`alerts/[id].patch.ts`（新增）、`app/pages/admin/alerts/index.vue`（新增）、`app/pages/admin/codes/index.vue`（增强）、`app/layouts/admin.vue`
