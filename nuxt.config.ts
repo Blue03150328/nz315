@@ -16,7 +16,7 @@ export default defineNuxtConfig({
   // 图标使用本地 lucide 集合（离线，避免依赖 google fonts）
   icon: {
     serverBundle: { collections: ['lucide'] },
-    clientBundle: { collections: ['lucide'] },
+    clientBundle: { scan: true, sizeLimitKb: 512 },
   },
 
   runtimeConfig: {

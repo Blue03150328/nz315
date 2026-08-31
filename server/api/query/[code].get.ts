@@ -1,6 +1,6 @@
 // 演示版扫码查询接口：按追溯码规则分发 4 种结果页，支撑前端界面开发
 // 后端需求确认后将替换为真实查询逻辑（数据库查询 + 判定规则）
-import type { QueryOutcome } from '#shared/types/compare'
+import type { QueryOutcome, ICompareItem, ICompareResult } from '#shared/types/compare'
 
 // 32 位数字校验（农业农村部第 1049 号公告单元识别代码）
 const CODE_RE = /^\d{32}$/
@@ -53,8 +53,8 @@ function formatCode(code: string): string {
   return code.replace(/(\d{8})(?=\d)/g, '$1 ')
 }
 
-function buildCompare(product: any, fails: string[] = []) {
-  const items = [
+function buildCompare(product: any, fails: string[] = []): ICompareResult {
+  const items: ICompareItem[] = [
     { key: 'existence', label: '登记证存在性', result: 'pass', description: '登记证号在农业农村部登记证数据库中是否存在', scannedValue: product.registrationNo, dbValue: product.registrationNo },
     { key: 'validity', label: '登记证有效期', result: fails.includes('validity') ? 'fail' : 'pass', description: '登记证是否在有效期内', scannedValue: '有效期内', dbValue: '有效期内' },
     { key: 'name', label: '产品名称', result: 'pass', description: '扫码产品名称与登记证是否一致', scannedValue: product.name, dbValue: product.name },
