@@ -70,11 +70,12 @@
 - H5 扫码为真实链路：查库 + 写 scan_log + 异常判定 + 自动触发风险预警（重复查询/登记证过期已接入）
 - **生产构建验证通过**（2026-08-31）：npm run build 全量构建成功（.output 6.24MB），生产服务器登录/扫码/后台全链路 200；修复 .env 的 SESSION_SECRET 未改默认值导致的生产登录 500（已换 64 字符强随机密钥，不入库）
 - **数据概览板块增强**（2026-08-31）：近 30 天扫码趋势折线图（SVG 自绘+补零）、8 个快捷入口、码库存预警（低库存阈值 stockThreshold 默认 10000 + 作废占比 10% 告警，PRD 5.2/5.5.8 差距项补齐）
+- **追溯码生成板块增强**（2026-08-31，对齐离线工具 + PRD 3.2/5.5.1）：自定义段全配置（时间戳段+随机数字段 8位随机/6位随机+2位校验+校验位段 MD5/CRC16）、二维码图片输出（QR/DM PNG 批量生成 + zip 打包下载 + 预览 + 一次性凭证）、导出增强（TXT 强制命名 企业ID_产品名_规格_日期、urls.txt 完整扫码 URL、CSV sn 清单）、生成统计（总数/唯一/重码/耗时）；扫码域名 NUXT_PUBLIC_TRACE_BASE_URL 可配；生产链路 18 项验证全过，提交 af6bc7e
 - **码库管理页已完成企业级 B 端改造**（2026-08-31，两轮）：①筛选卡片化+吸底批量操作条+内容区 max-w-[1600px]；②彻底剥离小程序风格：白底细边框小圆角、细分割线分区、状态标签浅底深字（bg-*-50+text-*-700）、操作列纯文字按钮、批量条浅灰底、主按钮 neutral solid 深灰黑；全局主色降饱和 hsl(142 32% 30%)、--ui-radius 0.375rem、后台底色 #f0f2f5。其他列表页仍为旧风格，迁移模式见 PROJECT_LOG
 
 **待办（按 PRD 版本规划）**：
 - 自动备份调度与异地备份（OSS）、微信推送（需公众号对接）、异常类型 2/3/5/6/7/8 预警触发接入（依赖 D2 登记证库/IP 归属地）
-- 码生成离线 EXE 版（可复用 code-generator.ts 引擎打包）
+- 码生成离线 EXE 版（参考工具 E:\wokeplace\二维码生成离线软件 已有 electron 工程，Web 引擎已对齐可移植打包）
 - 待决项：D1 亿级数据方案（上线前定）、D2 登记证数据库对接、D3 限用农药、D4 旧规迁移
 
 ### ⚠️ 踩坑记录
@@ -92,3 +93,8 @@
 | DSH 沙箱内构建报 esbuild spawn EPERM | 沙箱禁止子进程管道（非项目问题）；构建在沙箱外运行或申请全权模式 |
 | 生产登录 500「必须配置独立 SESSION_SECRET」 | `.env` 的 SESSION_SECRET 仍是默认值 dev-session-secret-change-me；换强随机值后**重新构建**（runtimeConfig 构建时内嵌）；运行期覆盖用 NUXT_SESSION_SECRET 环境变量 |
 | 本机 MySQL | 服务 MySQL80，root/ruijie（**凭据只在 `.env`，不提交**） |
+| **dev 模式在本机不可用**（Nitro 2.13.4 + Node 24 + 中文路径） | CJS external 依赖生成 `file://E:/`（少一个斜杠）→ ESM loader 500；nitro.inline 触发 renderer TDZ（已回退）。**开发验证用生产构建 + node .output/server/index.mjs**；待升级 nitro 后恢复 |
+| TS7 模块化 d.ts 三斜线引用失效 | `server/types/cjs-modules.d.ts` 必须保持无 import 的全局脚本形态（实验证实：带 import 的 d.ts 经 /// reference 不生效） |
+| npx/npm wrapper 损坏 | tsc 直调 `node node_modules/typescript/bin/tsc`；dev/构建直调 npm-cli.js |
+| 沙箱内 node 命令勿用管道 | 管道/重定向会吞输出或 EPERM；全权模式跑 dev/构建（AGENTS.md 原记录） |
+| 二维码图片临时文件 | 在系统 tmpdir（nz315-qr-*），zip 下载后自动清理；下载凭证 token 一次性 + 60 分钟过期 |
