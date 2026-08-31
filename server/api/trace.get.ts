@@ -1,6 +1,7 @@
 // 扫码查询接口（H5）：/trace?code=xxx —— 真实查询链路（PRD 5.9）
 // 流程：格式校验 → 查 trace_code → 写扫码日志(scan_log) → 异常判定（作废/冻结优先）→ 联查产品/批次 → 返回展示数据
 import { query, execute } from '../utils/db'
+import { triggerAlert } from '../utils/risk-alert'
 import type { TraceOutcome, TraceResultType } from '#shared/types/trace'
 
 const CODE_RE = /^\d{32}$/
@@ -126,6 +127,11 @@ export default defineEventHandler(async (event) => {
   // 7) 登记证已过期（8类异常-4：登记证有效期至 < 今天）
   const today = new Date().toISOString().slice(0, 10)
   if (prod?.registration_expire && String(prod.registration_expire).slice(0, 10) < today) {
+    // 触发风险预警（同码同类未处理合并累计）
+    await triggerAlert(event, {
+      alertType: 4, enterpriseId: tc.enterprise_id, code, codeId: tc.id, productId: tc.product_id,
+      evidence: { code, registrationNo: prod.registration_no, expireDate: String(prod.registration_expire).slice(0, 10), scanTime: new Date().toISOString() },
+    })
     const out: TraceOutcome = {
       ...baseOutcome, resultType: 'reg-expired', status, abnormalFlag: 0,
       queryCount, firstQuery, product, batch: batchInfo, recentScans: scans,
@@ -148,6 +154,11 @@ export default defineEventHandler(async (event) => {
 
   // 9) 重复查询（≥3 次且 ≥2 个省份）
   if (queryCount >= 3 && provinces.length >= 2) {
+    // 触发风险预警（8类异常-1）
+    await triggerAlert(event, {
+      alertType: 1, enterpriseId: tc.enterprise_id, code, codeId: tc.id, productId: tc.product_id,
+      evidence: { code, queryCount, provinces, scanTime: new Date().toISOString() },
+    })
     const out: TraceOutcome = {
       ...baseOutcome, resultType: 'repeat', status, abnormalFlag: 0,
       queryCount, firstQuery, product, batch: batchInfo, recentScans: scans,
