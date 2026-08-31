@@ -94,7 +94,8 @@ const onLogout = async () => {
 
     <!-- 右侧内容区 -->
     <div class="ml-60 min-w-0 flex-1">
-      <main class="mx-auto max-w-6xl px-8 py-8">
+      <!-- 内容区：放宽容器适配 PC 大屏（企业后台信息密度），批量操作条吸底依赖此处 px-8 -->
+      <main class="mx-auto max-w-[1600px] px-8 py-8">
         <slot />
       </main>
     </div>
