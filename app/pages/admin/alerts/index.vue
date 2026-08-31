@@ -182,20 +182,24 @@ const resetSearch = () => { filters.keyword = ''; filters.alertType = ''; filter
           {{ current?.alertTypeLabel }} · {{ current?.code || '-' }}
         </p>
         <div class="mt-4 space-y-3">
-          <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-border/60 p-3 text-sm" :class="handleStatus === 1 ? 'border-success/40 bg-success/5' : ''">
-            <URadio v-model="handleStatus" :value="1" />
+          <button type="button" class="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-border/60 p-3 text-left text-sm transition-colors" :class="handleStatus === 1 ? 'border-success/40 bg-success/5' : 'hover:bg-muted/30'" @click="handleStatus = 1">
+            <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border" :class="handleStatus === 1 ? 'border-success bg-success text-white' : 'border-border'">
+              <UIcon v-if="handleStatus === 1" name="i-lucide-check" class="h-3 w-3" />
+            </span>
             <span class="flex-1">
               <span class="font-medium text-success">已核实（合规）</span>
               <span class="block text-xs text-muted">核实后确认无异常，预警关闭</span>
             </span>
-          </label>
-          <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-border/60 p-3 text-sm" :class="handleStatus === 2 ? 'border-error/40 bg-error/5' : ''">
-            <URadio v-model="handleStatus" :value="2" />
+          </button>
+          <button type="button" class="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-border/60 p-3 text-left text-sm transition-colors" :class="handleStatus === 2 ? 'border-error/40 bg-error/5' : 'hover:bg-muted/30'" @click="handleStatus = 2">
+            <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border" :class="handleStatus === 2 ? 'border-error bg-error text-white' : 'border-border'">
+              <UIcon v-if="handleStatus === 2" name="i-lucide-check" class="h-3 w-3" />
+            </span>
             <span class="flex-1">
               <span class="font-medium text-error">已确认违规</span>
               <span class="block text-xs text-muted">确认异常属实，可一键作废关联追溯码</span>
             </span>
-          </label>
+          </button>
           <label v-if="handleStatus === 2" class="flex items-center gap-2 rounded-lg bg-error/5 p-3 text-sm">
             <UCheckbox v-model="voidCode" />
             <span class="text-error">同时将关联追溯码标记为「已作废」（终态，不可恢复）</span>

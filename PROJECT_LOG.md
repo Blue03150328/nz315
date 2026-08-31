@@ -20,6 +20,14 @@
 
 ## 变更记录
 
+### 2026-08-31 | 修复预警页 URadio 组件（Nuxt UI v4 无 URadio，Vue warn + 处理对话框不可用）
+- **工作内容**：风险预警处理对话框使用 `URadio`（Nuxt UI v3 组件，v4 已移除）导致组件解析失败。改为自绘单选卡片（点击切换 + 选中态圆圈勾选图标）。
+- **修改文件**：`app/pages/admin/alerts/index.vue`
+- **测试情况**：dev 重启后预警页 200 无组件警告；后台各页正常
+- **遗留问题/待办**：无
+- **给下一个 Agent 的提示**：Nuxt UI v4 无 URadio/URadioButton，单选用 URadioGroup 或自绘；dev 服务器退出多为外部原因（并行 Agent/字体超时），重启即可
+
+---
 ### 2026-08-31 | 修复 dev 崩溃：禁用 google 字体提供器（离线环境 fonts.google.com 超时）
 - **工作内容**：dev 服务器因 unifont 的 google/googleicons 提供器连接 fonts.google.com 超时（3 次重试耗尽）导致进程退出（exit 1）。在 nuxt.config.ts 增加 `fonts.providers.google/googleicons = false`（@nuxt/fonts 配置），图标仍用本地 lucide 集合不受影响。
 - **修改文件**：`nuxt.config.ts`
