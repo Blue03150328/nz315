@@ -35,7 +35,7 @@ const onLogout = async () => {
 </script>
 
 <template>
-  <div class="flex min-h-screen bg-[#f0f0f8]">
+  <div class="flex min-h-screen bg-[#f0f2f5]">
     <!-- 左侧深色导航栏 -->
     <aside class="fixed inset-y-0 left-0 z-40 flex w-60 flex-col bg-[#283850] text-white">
       <div class="border-b border-white/10 px-6 py-5">

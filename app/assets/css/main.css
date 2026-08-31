@@ -7,14 +7,15 @@
   --background: hsl(60 20% 97%);
   --foreground: hsl(210 24% 16%);
   --card: hsl(0 0% 100%);
-  --primary: hsl(142 45% 38%);
+  /* 主色：沉稳深绿（中后台克制基调，饱和度/亮度下调，避免鲜艳） */
+  --primary: hsl(142 32% 30%);
   --primary-foreground: hsl(0 0% 100%);
-  --secondary: hsl(140 35% 94%);
-  --secondary-foreground: hsl(142 45% 28%);
+  --secondary: hsl(140 25% 95%);
+  --secondary-foreground: hsl(142 32% 26%);
   --muted: hsl(60 15% 94%);
   --muted-foreground: hsl(215 12% 45%);
-  --accent: hsl(140 35% 94%);
-  --accent-foreground: hsl(142 45% 28%);
+  --accent: hsl(140 25% 95%);
+  --accent-foreground: hsl(142 32% 26%);
   --destructive: hsl(0 84% 60%);
   --destructive-foreground: hsl(0 0% 100%);
   --success: hsl(130 54% 42%);
@@ -22,7 +23,7 @@
   --warning: hsl(26 90% 49%);
   --warning-foreground: hsl(33 100% 96%);
   --border: hsl(210 14% 90%);
-  --ring: hsl(142 45% 38%);
+  --ring: hsl(142 32% 30%);
   --info: hsl(202 65% 46%);
   --info-soft: hsl(202 65% 46% / 0.10);
   --brown: hsl(28 50% 38%);
@@ -62,7 +63,8 @@
   --ui-error: var(--destructive);
   --ui-error-foreground: var(--destructive-foreground);
   --ui-info: var(--info);
-  --ui-radius: 0.5rem;
+  /* 圆角：收小至中后台标准（原 0.5rem 偏小程序圆润） */
+  --ui-radius: 0.375rem;
 }
 
 html {
