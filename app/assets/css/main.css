@@ -1,0 +1,122 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+/* 农资315主题：对齐 demo 色板（绿色农业风） */
+:root {
+  /* demo 原始色板 */
+  --background: hsl(60 20% 97%);
+  --foreground: hsl(210 24% 16%);
+  --card: hsl(0 0% 100%);
+  --primary: hsl(142 45% 38%);
+  --primary-foreground: hsl(0 0% 100%);
+  --secondary: hsl(140 35% 94%);
+  --secondary-foreground: hsl(142 45% 28%);
+  --muted: hsl(60 15% 94%);
+  --muted-foreground: hsl(215 12% 45%);
+  --accent: hsl(140 35% 94%);
+  --accent-foreground: hsl(142 45% 28%);
+  --destructive: hsl(0 84% 60%);
+  --destructive-foreground: hsl(0 0% 100%);
+  --success: hsl(130 54% 42%);
+  --success-foreground: hsl(115 77% 97%);
+  --warning: hsl(26 90% 49%);
+  --warning-foreground: hsl(33 100% 96%);
+  --border: hsl(210 14% 90%);
+  --ring: hsl(142 45% 38%);
+  --info: hsl(202 65% 46%);
+  --info-soft: hsl(202 65% 46% / 0.10);
+  --brown: hsl(28 50% 38%);
+  --sky: hsl(202 65% 46%);
+  --success-soft: hsl(130 54% 42% / 0.10);
+  --warning-soft: hsl(26 90% 49% / 0.10);
+  --destructive-soft: hsl(0 84% 60% / 0.10);
+
+  /* Nuxt UI v4 变量映射 */
+  /* 背景层级 */
+  --ui-bg: var(--background);
+  --ui-bg-muted: var(--muted);
+  --ui-bg-elevated: var(--card);
+  --ui-bg-accented: var(--accent);
+  --ui-bg-inverted: var(--foreground);
+  /* 文本层级 */
+  --ui-text: var(--foreground);
+  --ui-text-muted: var(--muted-foreground);
+  --ui-text-dimmed: var(--muted-foreground);
+  --ui-text-toned: var(--foreground);
+  --ui-text-highlighted: var(--foreground);
+  --ui-text-inverted: hsl(0 0% 100%);
+  /* 边框层级 */
+  --ui-border: var(--border);
+  --ui-border-muted: var(--border);
+  --ui-border-accented: var(--border);
+  --ui-border-inverted: var(--foreground);
+  /* 语义色 */
+  --ui-primary: var(--primary);
+  --ui-primary-foreground: var(--primary-foreground);
+  --ui-secondary: var(--secondary);
+  --ui-secondary-foreground: var(--secondary-foreground);
+  --ui-success: var(--success);
+  --ui-success-foreground: var(--success-foreground);
+  --ui-warning: var(--warning);
+  --ui-warning-foreground: var(--warning-foreground);
+  --ui-error: var(--destructive);
+  --ui-error-foreground: var(--destructive-foreground);
+  --ui-info: var(--info);
+  --ui-radius: 0.5rem;
+}
+
+html {
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft Yahei',
+    'Helvetica Neue', Arial, sans-serif;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* 手机壳：移动端页面居中限宽 */
+.mobile-shell {
+  max-width: 480px;
+  margin: 0 auto;
+  min-height: 100vh;
+  background: var(--background);
+}
+
+/* 数字等宽用于追溯码展示 */
+.font-code {
+  font-family: 'SF Mono', Consolas, 'Courier New', monospace;
+  letter-spacing: 0.05em;
+}
+
+/* tailwind v4 主题映射：让 bg-primary/text-foreground 等工具类生效（兼容层，引用 UI4 变量） */
+@theme inline {
+  --color-background: var(--ui-bg);
+  --color-foreground: var(--ui-text);
+  --color-card: var(--ui-bg-elevated);
+  --color-card-foreground: var(--ui-text);
+  --color-primary: var(--ui-primary);
+  --color-primary-foreground: var(--ui-primary-foreground);
+  --color-secondary: var(--ui-secondary);
+  --color-secondary-foreground: var(--ui-secondary-foreground);
+  --color-muted: var(--ui-bg-muted);
+  --color-muted-foreground: var(--ui-text-muted);
+  --color-accent: var(--ui-bg-accented);
+  --color-accent-foreground: var(--ui-text);
+  --color-destructive: var(--ui-error);
+  --color-destructive-foreground: var(--ui-error-foreground);
+  --color-success: var(--ui-success);
+  --color-success-foreground: var(--ui-success-foreground);
+  --color-warning: var(--ui-warning);
+  --color-warning-foreground: var(--ui-warning-foreground);
+  --color-border: var(--ui-border);
+  --color-input: var(--ui-border);
+  --color-ring: var(--ring);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-brown: var(--brown);
+  --color-sky: var(--sky);
+  --color-success-soft: var(--success-soft);
+  --color-warning-soft: var(--warning-soft);
+  --color-destructive-soft: var(--destructive-soft);
+}

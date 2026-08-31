@@ -1,0 +1,36 @@
+# 依赖与构建
+node_modules/
+.nuxt/
+.output/
+.nitro/
+.cache/
+dist/
+
+# 环境与敏感信息（数据库凭据、会话密钥等）
+.env
+.env.*
+!.env.example
+
+# 数据库相关
+*.sql
+*.dump
+
+# 日志与临时文件
+logs/
+*.log
+.tmp/
+docs/.edge-tmp*/
+docs/_tmp-*
+.dsh-vision-router/
+scripts/_tmp-*
+.npm-cache/
+
+# 截图与验证产物
+screenshots/
+
+# DSH 工具产物
+.dsh/
+
+# 系统文件
+.DS_Store
+Thumbs.db
