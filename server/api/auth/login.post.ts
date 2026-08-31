@@ -1,6 +1,7 @@
 // POST /api/auth/login —— 账号密码登录（PRD 5.1）
 import { query } from '../../utils/db'
 import { verifyPassword, setAuthCookie, getCurrentUser } from '../../utils/auth'
+import { logLogin } from '../../utils/audit'
 
 // 登录失败限速：同账号+IP 5 次/分钟，超限锁定 15 分钟（防暴力破解）
 const MAX_FAILS = 5
@@ -68,6 +69,8 @@ export default defineEventHandler(async (event) => {
   // 记录最后登录时间与 IP（PRD 5.1 登录日志）
   const ip = clientIp(event)
   await query('UPDATE `user` SET last_login_at = NOW(), last_login_ip = ? WHERE id = ?', [ip, u.id])
+  // 操作日志（PRD 5.12.4 登录日志：时间/IP/设备/结果）
+  await logLogin(event, u.id, u.enterprise_id ?? null, true)
   const user = await getCurrentUser(event)
   return { ok: true, user }
 })

@@ -15,12 +15,12 @@ const MENU_READY = [
   { path: '/admin/batches', label: '生产批次', icon: 'i-lucide-boxes' },
   { path: '/admin/collection', label: '生产采集', icon: 'i-lucide-factory' },
   { path: '/admin/statistics', label: '扫码统计', icon: 'i-lucide-bar-chart-3' },
+  { path: '/admin/settings', label: '系统设置', icon: 'i-lucide-settings' },
 ]
 
 // V1.0 规划菜单（模块建设中）
 const MENU_PLANNED = [
   { label: '异常码处理', icon: 'i-lucide-shield-alert' },
-  { label: '系统设置', icon: 'i-lucide-settings' },
 ]
 
 const isActive = (path: string) => route.path === path || route.path.startsWith(path + '/')
