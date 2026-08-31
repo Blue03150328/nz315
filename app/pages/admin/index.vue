@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 数据概览仪表盘（PRD 5.2）
+// 数据概览仪表盘（PRD 5.2：统计卡片/状态分布/产品分布/30 天趋势/快捷入口；5.5.8：码库存预警）
 definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
 useHead({ title: '数据概览' })
 
@@ -40,8 +40,56 @@ const cards = computed(() => [
   { label: '待处理预警', value: stats.value?.pendingAlerts ?? '--', icon: 'i-lucide-bell-ring', color: 'text-error', bg: 'bg-error/10' },
 ])
 
-// 近 7 天扫码趋势（简单条形图）
-const trendMax = computed(() => Math.max(1, ...(stats.value?.scanTrend || []).map((t: any) => Number(t.count))))
+// 快捷入口（PRD 5.2 P2）
+const quickLinks = [
+  { label: '生产采集', to: '/admin/collection', icon: 'i-lucide-upload-cloud', color: 'text-primary' },
+  { label: '追溯码生成', to: '/admin/generator', icon: 'i-lucide-qr-code', color: 'text-success' },
+  { label: '码库管理', to: '/admin/codes', icon: 'i-lucide-database', color: 'text-sky' },
+  { label: '产品管理', to: '/admin/products', icon: 'i-lucide-package', color: 'text-warning' },
+  { label: '生产批次', to: '/admin/batches', icon: 'i-lucide-layers', color: 'text-info' },
+  { label: '扫码统计', to: '/admin/statistics', icon: 'i-lucide-bar-chart-3', color: 'text-purple' },
+  { label: '风险预警', to: '/admin/alerts', icon: 'i-lucide-shield-alert', color: 'text-error' },
+  { label: '消息中心', to: '/admin/messages', icon: 'i-lucide-bell', color: 'text-emerald' },
+]
+
+// 近 30 天扫码趋势折线图（SVG 自绘：面积渐变 + 折线 + 数据点 + 轴刻度）
+const trend = computed(() => stats.value?.scanTrend || [])
+const trendMax = computed(() => Math.max(1, ...trend.value.map((t: any) => Number(t.count))))
+const CHART_W = 640
+const CHART_H = 200
+const PAD = { l: 36, r: 12, t: 12, b: 26 }
+// 折线点坐标：x 均匀分布，y 按最大值归一化
+const trendPoints = computed(() => {
+  const n = trend.value.length
+  if (!n) return []
+  const innerW = CHART_W - PAD.l - PAD.r
+  const innerH = CHART_H - PAD.t - PAD.b
+  return trend.value.map((t: any, i: number) => {
+    const x = PAD.l + (n === 1 ? innerW / 2 : i / (n - 1) * innerW)
+    const y = PAD.t + innerH - (Number(t.count) / trendMax.value) * innerH
+    return { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 }
+  })
+})
+const trendLine = computed(() => trendPoints.value.map(p => p.x + ',' + p.y).join(' '))
+const trendArea = computed(() => {
+  const pts = trendPoints.value
+  if (!pts.length) return ''
+  const bottom = CHART_H - PAD.b
+  return PAD.l + ',' + bottom + ' ' + trendLine.value + ' ' + pts[pts.length - 1].x + ',' + bottom
+})
+// x 轴日期刻度：每 5 天显示一个
+const trendXTicks = computed(() => trend.value.map((t: any, i: number) => ({
+  label: String(t.date).slice(5),
+  show: i % 5 === 0 || i === trend.value.length - 1,
+  x: trendPoints.value[i]?.x || 0,
+})))
+// y 轴刻度：0 与最大值
+const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.value, y: PAD.t }])
+
+// 码库存预警（PRD 5.5.8）：可用码低于阈值标红；作废占比超 10% 告警
+const stockAlerts = computed(() => stats.value?.stockAlerts || [])
+const stockThreshold = computed(() => Number(stats.value?.stockThreshold ?? 10000))
+const pct = (n: number) => Math.round(n * 100) + '%'
 </script>
 
 <template>
@@ -56,6 +104,15 @@ const trendMax = computed(() => Math.max(1, ...(stats.value?.scanTrend || []).ma
           {{ isPlatformAdmin ? '平台全局数据' : '本企业数据' }} · {{ user?.name || user?.username }}
         </p>
       </div>
+    </div>
+
+    <!-- 快捷入口（PRD 5.2 P2） -->
+    <div class="grid grid-cols-4 gap-3 lg:grid-cols-8">
+      <NuxtLink v-for="l in quickLinks" :key="l.to" :to="l.to"
+        class="group flex flex-col items-center gap-1.5 rounded-xl border border-border bg-elevated py-3 text-xs text-muted shadow-sm transition hover:border-primary/40 hover:text-default">
+        <UIcon :name="l.icon" class="h-5 w-5 transition group-hover:scale-110" :class="l.color" />
+        {{ l.label }}
+      </NuxtLink>
     </div>
 
     <!-- 统计卡片 -->
@@ -124,16 +181,58 @@ const trendMax = computed(() => Math.max(1, ...(stats.value?.scanTrend || []).ma
         </div>
       </div>
 
-      <!-- 扫码趋势 -->
+      <!-- 近 30 天扫码趋势（折线图） -->
       <div class="rounded-xl border border-border bg-elevated p-5 shadow-sm">
-        <h2 class="mb-4 text-sm font-semibold text-default">近 7 天扫码趋势</h2>
-        <div v-if="!stats?.scanTrend?.length" class="py-8 text-center text-sm text-muted">暂无扫码数据</div>
-        <div v-else class="flex h-40 items-end gap-2">
-          <div v-for="t in stats.scanTrend" :key="t.date" class="flex flex-1 flex-col items-center gap-1">
-            <span class="text-xs font-medium text-default">{{ t.count }}</span>
-            <div class="w-full rounded-t-md bg-primary/80" :style="{ height: Math.max(4, Math.round(t.count / trendMax * 120)) + 'px' }" />
-            <span class="text-[10px] text-muted">{{ t.date.slice(5) }}</span>
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="text-sm font-semibold text-default">近 30 天扫码趋势</h2>
+          <span class="text-xs text-muted">按日统计，折线图</span>
+        </div>
+        <div v-if="!trend.length" class="py-8 text-center text-sm text-muted">暂无扫码数据</div>
+        <div v-else>
+          <svg :viewBox="`0 0 ${CHART_W} ${CHART_H}`" class="w-full">
+            <!-- 网格线（3 等分水平线） -->
+            <line v-for="i in 3" :key="i" :x1="PAD.l" :x2="CHART_W - PAD.r"
+              :y1="PAD.t + (CHART_H - PAD.t - PAD.b) / 4 * i" :y2="PAD.t + (CHART_H - PAD.t - PAD.b) / 4 * i"
+              class="stroke-border" stroke-width="1" stroke-dasharray="4 4" />
+            <!-- 面积渐变 -->
+            <defs>
+              <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="hsl(142 32% 30%)" stop-opacity="0.25" />
+                <stop offset="100%" stop-color="hsl(142 32% 30%)" stop-opacity="0.02" />
+              </linearGradient>
+            </defs>
+            <polygon :points="trendArea" fill="url(#trendGrad)" />
+            <polyline :points="trendLine" fill="none" class="stroke-primary" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+            <!-- 数据点 -->
+            <circle v-for="(p, i) in trendPoints" :key="i" :cx="p.x" :cy="p.y" r="2.5" fill="hsl(142 32% 30%)" />
+            <!-- y 轴刻度 -->
+            <text v-for="t in trendYTicks" :key="t.v" :x="PAD.l - 6" :y="t.y + 3" text-anchor="end" class="fill-muted text-[10px]">{{ t.v }}</text>
+            <!-- x 轴日期刻度（每 5 天显示） -->
+            <text v-for="t in trendXTicks" v-show="t.show" :key="t.label + t.x" :x="t.x" :y="CHART_H - 8" text-anchor="middle" class="fill-muted text-[10px]">{{ t.label }}</text>
+          </svg>
+        </div>
+      </div>
+
+      <!-- 码库存预警（PRD 5.5.8） -->
+      <div class="rounded-xl border border-border bg-elevated p-5 shadow-sm">
+        <div class="mb-4 flex items-center justify-between">
+          <h2 class="text-sm font-semibold text-default">码库存预警</h2>
+          <span class="text-xs text-muted">可用码阈值 {{ stockThreshold }} · 作废占比 &gt; 10%</span>
+        </div>
+        <div v-if="!stockAlerts.length" class="py-8 text-center text-sm text-muted">库存正常，暂无预警</div>
+        <div v-else class="space-y-2">
+          <div v-for="a in stockAlerts" :key="a.name"
+            class="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2 text-sm">
+            <span class="w-40 truncate text-default">{{ a.name }}</span>
+            <span class="text-muted">可用 {{ a.generated }} / 共 {{ a.total }}</span>
+            <span class="flex items-center gap-1.5">
+              <span v-if="a.lowStock" class="rounded bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700">低库存</span>
+              <span v-if="a.voidAbnormal" class="rounded bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">作废占比 {{ pct(a.voidRatio) }}</span>
+            </span>
           </div>
+        </div>
+        <div class="mt-4 rounded-lg bg-muted/40 p-3 text-xs text-muted">
+          可用码（已生成）低于阈值时标红提醒及时补码；作废占比超 10% 时提示排查印刷/采集环节问题
         </div>
       </div>
     </div>
