@@ -37,3 +37,5 @@ backup/
 # 系统文件
 .DS_Store
 Thumbs.db
+# 临时截图产物（DSH 会话验证用）
+.tmp-shot/
