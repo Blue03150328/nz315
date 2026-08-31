@@ -229,7 +229,7 @@ async function seed(conn) {
     const [r] = await conn.query(
       `INSERT INTO product (enterprise_id, trademark, name, registration_no, registration_expire, reg_category, holder_name, produce_type, original_company, original_reg_no, dosage, content, spec_id, shelf_life, category, toxicity)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [enterpriseId, '绿丰', '25%多·酮可湿性粉剂', 'PD20040767', '2026-08-23', 1, '山东绿丰生物科技有限公司', 1, '江苏原药化工有限公司', 'PD20080708', '可湿性粉剂', '25%', specId, '2年', '杀菌剂', '低毒']
+      [enterpriseId, '绿丰', '25%多·酮可湿性粉剂', 'PD20040767', '2031-08-23', 1, '山东绿丰生物科技有限公司', 1, '江苏原药化工有限公司', 'PD20080708', '可湿性粉剂', '25%', specId, '2年', '杀菌剂', '低毒']
     );
     productId = r.insertId;
   } else {

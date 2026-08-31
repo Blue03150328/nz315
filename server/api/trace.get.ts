@@ -1,95 +1,167 @@
-// 扫码查询接口（H5）：/trace?code=xxx
-// 当前为演示数据（模拟 8 种场景），后端需求落地后替换为数据库查询
-import type { TraceOutcome } from '#shared/types/trace'
+// 扫码查询接口（H5）：/trace?code=xxx —— 真实查询链路（PRD 5.9）
+// 流程：格式校验 → 查 trace_code → 写扫码日志(scan_log) → 异常判定（作废/冻结优先）→ 联查产品/批次 → 返回展示数据
+import { query, execute } from '../utils/db'
+import type { TraceOutcome, TraceResultType } from '#shared/types/trace'
 
 const CODE_RE = /^\d{32}$/
-
-// 演示产品（字段对齐 PRD 7.3 product 表）
-const DEMO_PRODUCT = {
-  trademark: '绿丰',
-  name: '25%多·酮可湿性粉剂',
-  registrationNo: 'PD20040767',
-  holderName: '山东绿丰生物科技有限公司',
-  formulation: '可湿性粉剂',
-  toxicity: '低毒',
-  spec: '200ml/瓶',
-  netContent: '200ml',
-  content: '25%',
-  category: '杀菌剂',
-  originalRegNo: 'PD20080708',
-  originalCompany: '江苏原药化工有限公司',
-  labelImage: '',
-  manualImage: '',
-}
-
-// 演示批次（PRD 7.4 batch 表字段）
-const DEMO_BATCH = {
-  batchNo: '2026080101',
-  produceDate: '2026-08-20',
-  expireDate: '2028-08-19',
-  qcResult: '合格',
-  qualityCertNo: '质检(鲁)2026-081001',
-  qcReportNo: 'BG-2026-081001',
-}
 
 function fmt(code: string) {
   return code.replace(/(\d{8})(?=\d)/g, '$1 ')
 }
 
-export default defineEventHandler((event) => {
+// 判断扫码设备（PRD 7.8 scan_device：微信/支付宝/浏览器）
+function detectDevice(event: any): string {
+  const ua = String(getHeader(event, 'user-agent') || '')
+  if (ua.includes('MicroMessenger')) return '微信'
+  if (ua.includes('AlipayClient')) return '支付宝'
+  return '浏览器'
+}
+
+// 最近 N 次扫码记录（时间/地域）
+async function recentScans(code: string, limit = 5) {
+  const rows = await query<any[]>(
+    'SELECT scan_time, province, city FROM scan_log WHERE code = ? ORDER BY id DESC LIMIT ?',
+    [code, limit])
+  return rows.map(r => ({ time: String(r.scan_time).slice(0, 19), province: r.province || '', city: r.city || '' }))
+}
+
+export default defineEventHandler(async (event) => {
   const code = String(getQuery(event).code || '')
   const formatValid = CODE_RE.test(code)
 
+  // 基础响应
+  const baseOutcome = { code, formattedCode: fmt(code), formatValid }
+
+  // 1) 格式校验：非 32 位数字 → 查无此码
   if (!formatValid) {
     const out: TraceOutcome = {
-      resultType: 'not-found', code, formattedCode: code, formatValid: false,
-      status: null, abnormalFlag: 0, queryCount: 0, firstQuery: false,
-      recentScans: [], reasons: ['追溯码格式不符合 32 位阿拉伯数字规则'], generatedReport: null,
+      ...baseOutcome, resultType: 'not-found', status: null, abnormalFlag: 0,
+      queryCount: 0, firstQuery: false, recentScans: [],
+      reasons: ['追溯码格式不符合 32 位阿拉伯数字规则'], generatedReport: null,
     }
     return out
   }
 
-  const suffix = code.slice(-4)
-  const baseOutcome = { code, formattedCode: fmt(code), formatValid: true, product: DEMO_PRODUCT }
+  // 2) 查码
+  const [tc] = await query<any[]>('SELECT * FROM trace_code WHERE code = ? LIMIT 1', [code])
+  if (!tc) {
+    const out: TraceOutcome = {
+      ...baseOutcome, resultType: 'not-found', status: null, abnormalFlag: 0,
+      queryCount: 0, firstQuery: false, recentScans: [],
+      reasons: ['该追溯码未在追溯系统中登记'], generatedReport: null,
+    }
+    return out
+  }
 
-  // 0001 查无此码
-  if (suffix === '0001') {
-    return { ...baseOutcome, resultType: 'not-found', status: null, abnormalFlag: 0, queryCount: 0, firstQuery: false, recentScans: [], reasons: ['该追溯码未在追溯系统中登记'], generatedReport: null }
+  // 3) 写扫码日志（扫码不改变码状态，仅记录；PRD 5.9 H5 业务规则2）
+  const ip = String(getHeader(event, 'x-forwarded-for') || getHeader(event, 'x-real-ip') || '').split(',')[0].trim()
+  await execute(
+    'INSERT INTO scan_log (enterprise_id, code, product_id, scan_time, scan_device, scan_subject, ip_location) VALUES (?,?,?,NOW(),?,1,?)',
+    [tc.enterprise_id, code, tc.product_id, detectDevice(event), ip || null])
+
+  // 4) 查询统计（含本次；重复查询判定 PRD 8类异常-1：≥3次且≥2归属地）
+  const [statRow] = await query<any[]>(
+    `SELECT COUNT(*) AS c, COUNT(DISTINCT province) AS p, COUNT(DISTINCT city) AS cities
+     FROM scan_log WHERE code = ?`, [code])
+  const queryCount = Number(statRow?.c || 0)
+  const provinceRows = await query<any[]>('SELECT DISTINCT province FROM scan_log WHERE code = ? AND province <> \'\'', [code])
+  const provinces = provinceRows.map((r: any) => r.province)
+  const firstQuery = queryCount <= 1
+
+  const scans = await recentScans(code)
+
+  // 5) 异常标记优先（PRD 5.5.5：作废不展示产品与批次；冻结展示基础信息）
+  if (Number(tc.abnormal_flag) === 2) {
+    const out: TraceOutcome = {
+      ...baseOutcome, resultType: 'voided', status: Number(tc.status) === 2 ? 'bound' : 'generated',
+      abnormalFlag: 2, queryCount, firstQuery, recentScans: scans,
+      reasons: [tc.abnormal_reason || '该追溯码已作废，请勿购买'], generatedReport: null,
+    }
+    return out
   }
-  // 0002 登记证已过期（8类异常第4类）
-  if (suffix === '0002') {
-    return { ...baseOutcome, resultType: 'reg-expired', status: 'bound', abnormalFlag: 0, queryCount: 1, firstQuery: true, batch: { ...DEMO_BATCH, produceDate: '2026-05-01' }, recentScans: [{ time: '2026-08-28 10:23:41', province: '山东', city: '济南' }], reasons: ['登记证 PD20040767 已于 2026-08-23 到期'], generatedReport: null }
+  if (Number(tc.abnormal_flag) === 1) {
+    const out: TraceOutcome = {
+      ...baseOutcome, resultType: 'frozen', status: Number(tc.status) === 2 ? 'bound' : 'generated',
+      abnormalFlag: 1, queryCount, firstQuery, recentScans: scans,
+      reasons: [tc.abnormal_reason || '该追溯码暂不可用，请联系企业（生产厂家）'], generatedReport: null,
+    }
+    return out
   }
-  // 0003 重复查询（≥3次且≥2归属地）
-  if (suffix === '0003') {
-    return { ...baseOutcome, resultType: 'repeat', status: 'bound', abnormalFlag: 0, queryCount: 7, firstQuery: false, batch: DEMO_BATCH, recentScans: [
-      { time: '2026-08-29 09:12:05', province: '山东', city: '济南' },
-      { time: '2026-08-28 21:47:33', province: '河南', city: '郑州' },
-      { time: '2026-08-27 08:30:12', province: '山东', city: '临沂' },
-      { time: '2026-08-26 19:15:48', province: '河北', city: '石家庄' },
-      { time: '2026-08-25 11:02:27', province: '山东', city: '济南' },
-    ], reasons: ['该追溯码已被查询 7 次，超过 3 次阈值', '查询地域跨 3 个省份'], generatedReport: null }
+
+  // 6) 联查产品（含规格）与批次
+  const [prod] = tc.product_id ? await query<any[]>(
+    `SELECT p.*, s.spec_name, s.net_content, s.content_unit, s.pack_unit
+     FROM product p LEFT JOIN product_spec s ON p.spec_id = s.id WHERE p.id = ? LIMIT 1`, [tc.product_id]) : []
+  const [batch] = tc.batch_id ? await query<any[]>('SELECT * FROM batch WHERE id = ? LIMIT 1', [tc.batch_id]) : []
+
+  // 产品展示字段（PRD 5.9 展示结构）
+  const product = prod ? {
+    trademark: prod.trademark || '',
+    name: prod.name,
+    registrationNo: prod.registration_no,
+    holderName: prod.holder_name || '',
+    formulation: prod.dosage || '',
+    toxicity: prod.toxicity || '',
+    spec: prod.spec_name || '',
+    netContent: prod.net_content !== null && prod.net_content !== undefined ? String(Number(prod.net_content)) + (prod.content_unit || '') + '/' + (prod.pack_unit || '') : '',
+    content: prod.content || '',
+    category: prod.category || '',
+    originalRegNo: prod.original_reg_no || '',
+    originalCompany: prod.original_company || '',
+    labelImage: prod.label_image || '',
+    manualImage: prod.manual_image || '',
+  } : undefined
+
+  const batchInfo = batch ? {
+    batchNo: batch.batch_no,
+    produceDate: String(batch.produce_date || '').slice(0, 10),
+    expireDate: String(batch.expire_date || '').slice(0, 10),
+    qcResult: Number(batch.qc_result) === 1 ? '合格' : '不合格',
+    qualityCertNo: batch.quality_cert_no || '',
+    qcReportNo: batch.qc_report_no || '',
+  } : undefined
+
+  const status: 'bound' | 'generated' = Number(tc.status) === 2 ? 'bound' : 'generated'
+
+  // 7) 登记证已过期（8类异常-4：登记证有效期至 < 今天）
+  const today = new Date().toISOString().slice(0, 10)
+  if (prod?.registration_expire && String(prod.registration_expire).slice(0, 10) < today) {
+    const out: TraceOutcome = {
+      ...baseOutcome, resultType: 'reg-expired', status, abnormalFlag: 0,
+      queryCount, firstQuery, product, batch: batchInfo, recentScans: scans,
+      reasons: ['登记证 ' + prod.registration_no + ' 已于 ' + String(prod.registration_expire).slice(0, 10) + ' 到期，请勿购买使用'],
+      generatedReport: null,
+    }
+    return out
   }
-  // 0004 已冻结（异常标记）
-  if (suffix === '0004') {
-    return { ...baseOutcome, resultType: 'frozen', status: 'bound', abnormalFlag: 1, queryCount: 1, firstQuery: true, batch: DEMO_BATCH, recentScans: [{ time: '2026-08-20 10:00:00', province: '山东', city: '潍坊' }], reasons: ['该码已被企业冻结，暂不可用'], generatedReport: null }
+
+  // 8) 产品已过有效期（批次有效期至 < 今天）
+  if (batch?.expire_date && String(batch.expire_date).slice(0, 10) < today) {
+    const out: TraceOutcome = {
+      ...baseOutcome, resultType: 'expired', status, abnormalFlag: 0,
+      queryCount, firstQuery, product, batch: batchInfo, recentScans: scans,
+      reasons: ['该产品已过有效期（' + String(batch.expire_date).slice(0, 10) + '），请勿使用'],
+      generatedReport: null,
+    }
+    return out
   }
-  // 0005 已作废（异常标记）
-  if (suffix === '0005') {
-    return { ...baseOutcome, resultType: 'voided', status: 'generated', abnormalFlag: 2, queryCount: 2, firstQuery: false, recentScans: [], reasons: ['该追溯码已作废，请勿购买'], generatedReport: null }
+
+  // 9) 重复查询（≥3 次且 ≥2 个省份）
+  if (queryCount >= 3 && provinces.length >= 2) {
+    const out: TraceOutcome = {
+      ...baseOutcome, resultType: 'repeat', status, abnormalFlag: 0,
+      queryCount, firstQuery, product, batch: batchInfo, recentScans: scans,
+      reasons: ['该追溯码已被查询 ' + queryCount + ' 次，超过 3 次阈值', '查询地域跨 ' + provinces.length + ' 个省份（' + provinces.join('、') + '）'],
+      generatedReport: null,
+    }
+    return out
   }
-  // 0006 产品已过有效期
-  if (suffix === '0006') {
-    return { ...baseOutcome, resultType: 'expired', status: 'bound', abnormalFlag: 0, queryCount: 1, firstQuery: true, batch: { ...DEMO_BATCH, produceDate: '2023-06-15', expireDate: '2025-06-14' }, recentScans: [{ time: '2026-07-18 14:20:09', province: '山东', city: '青岛' }], reasons: ['该产品已过有效期，请勿使用'], generatedReport: null }
+
+  // 10) 正常结果（已绑定完整展示 / 已生成提示未绑定）
+  const out: TraceOutcome = {
+    ...baseOutcome, resultType: 'genuine', status, abnormalFlag: 0,
+    queryCount, firstQuery, product, batch: status === 'bound' ? batchInfo : null, recentScans: scans,
+    reasons: [], generatedReport: null,
   }
-  // 0007 扫码信息与标签不符（信息反馈入口）
-  if (suffix === '0007') {
-    return { ...baseOutcome, resultType: 'mismatch', status: 'bound', abnormalFlag: 0, queryCount: 1, firstQuery: true, batch: DEMO_BATCH, recentScans: [{ time: '2026-08-27 16:44:30', province: '山东', city: '烟台' }], reasons: ['扫码信息与包装标签标注可能存在不一致，可提交反馈'], generatedReport: null }
-  }
-  // 1001 正品·已绑定（完整展示）
-  if (suffix === '1001') {
-    return { ...baseOutcome, resultType: 'genuine', status: 'bound', abnormalFlag: 0, queryCount: 1, firstQuery: true, batch: DEMO_BATCH, recentScans: [{ time: '2026-08-29 08:02:15', province: '山东', city: '济南' }], reasons: [], generatedReport: null }
-  }
-  // 1002 正品·已生成（未绑定批次，展示缺项提示）
-  return { ...baseOutcome, resultType: 'genuine', status: 'generated', abnormalFlag: 0, queryCount: 2, firstQuery: false, batch: null, recentScans: [{ time: '2026-08-29 07:55:00', province: '山东', city: '济南' }, { time: '2026-08-28 18:30:22', province: '山东', city: '济南' }], reasons: [], generatedReport: null }
+  return out
 })
