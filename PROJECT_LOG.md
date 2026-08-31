@@ -20,6 +20,13 @@
 
 ## 变更记录
 
+### 2026-08-31 | 修复 10 处类型错误与统计接口 GROUP BY 兼容问题
+- **工作内容**：全量 typecheck 发现 9 处类型错误（新增模块引入）+ 1 处逻辑 bug——catch(e) 隐式类型、split 索引可能 undefined、FLAG_LABEL 索引类型、map(Number) 隐式 any、pairs[prev] 可能 undefined；statistics.get.ts 产品分布 GROUP BY 缺 p.name（ONLY_FULL_GROUP_BY 兼容）。
+- **修改文件**：server/utils/{audit,notify,risk-alert}.ts、server/api/admin/{boxes/parse.post, codes/[id].patch, codes/batch-correct.post, codes/batch-flag.post, statistics.get}.ts、server/api/trace.get.ts
+- **测试情况**：nuxi typecheck 0 错误、semgrep（security-audit+secrets）0 发现、code-generator 长度数学验证通过、git 提交 c7e9aa2
+- **遗留问题/待办**：见 AGENTS.md 项目进度待办段
+- **给下一个 Agent 的提示**：本机类型检查用 npx tsc --noEmit -p .nuxt/tsconfig.json；catch(e) 需 (e as any)；split(',')[0] 需 (…[0] || '')；GROUP BY 需列出全部非聚合列
+
 ### 2026-08-31 | 上线文档（README / 部署指南 / 1049 合规自检表）
 - **工作内容**：① README.md（项目总览/功能清单/快速开始/演示账号/目录结构/文档索引/上线注意事项）；② docs/DEPLOYMENT.md（环境要求/部署步骤/nginx HTTPS 配置/PM2 守护/安全清单 8 项/备份恢复/性能容量提醒/FAQ）；③ docs/COMPLIANCE.md（1049 公告 13 项条款逐条核对：9 项 ✅、3 项 🟡 依赖外部、1 项上线倒排；合规验收指标对照）。
 - **修改文件**：`README.md`、`docs/DEPLOYMENT.md`、`docs/COMPLIANCE.md`（新增）
