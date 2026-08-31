@@ -16,6 +16,6 @@ export async function sendMessage(input: NotifyInput) {
       'INSERT INTO message (enterprise_id, user_id, type, title, content, link, is_read) VALUES (?,NULL,?,?,?,?,0)',
       [input.enterpriseId, input.type, input.title, input.content || null, input.link || null])
   } catch (e) {
-    console.warn('[notify] 消息发送失败:', e?.message || e)
+    console.warn('[notify] 消息发送失败:', (e as any)?.message || e)
   }
 }

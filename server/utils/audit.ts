@@ -14,19 +14,19 @@ export async function logOperation(event: any, input: AuditInput) {
   try {
     const userId = (event.context as any)?.authUser?.id ?? null
     const enterpriseId = (event.context as any)?.authUser?.enterprise_id ?? null
-    const ip = String(getHeader(event, 'x-forwarded-for') || getHeader(event, 'x-real-ip') || '').split(',')[0].trim()
+    const ip = (String(getHeader(event, 'x-forwarded-for') || getHeader(event, 'x-real-ip') || '').split(',')[0] || '').trim()
     await execute(
       'INSERT INTO operation_log (enterprise_id, user_id, module, action, content, ip, result) VALUES (?,?,?,?,?,?,?)',
       [enterpriseId, userId, input.module, input.action, input.content || null, ip || null, input.result ?? 1])
   } catch (e) {
     // 日志写入失败不影响主流程
-    console.warn('[audit] 操作日志写入失败:', e?.message || e)
+    console.warn('[audit] 操作日志写入失败:', (e as any)?.message || e)
   }
 }
 
 /** 记录登录日志（PRD 5.1 登录日志：时间/IP/设备） */
 export async function logLogin(event: any, userId: number, enterpriseId: number | null, success: boolean, note?: string) {
-  const ip = String(getHeader(event, 'x-forwarded-for') || getHeader(event, 'x-real-ip') || '').split(',')[0].trim()
+  const ip = (String(getHeader(event, 'x-forwarded-for') || getHeader(event, 'x-real-ip') || '').split(',')[0] || '').trim()
   const ua = String(getHeader(event, 'user-agent') || '')
   const device = ua.includes('MicroMessenger') ? '微信' : ua.includes('AlipayClient') ? '支付宝' : '浏览器'
   await execute(

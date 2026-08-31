@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
   const productRows = await query<any[]>(
     `SELECT p.name AS name, COUNT(*) AS c FROM scan_log s
      LEFT JOIN product p ON s.product_id = p.id
-     WHERE 1=1` + fidSql + ' GROUP BY s.product_id ORDER BY c DESC LIMIT 10', fidParams)
+     WHERE 1=1` + fidSql + ' GROUP BY s.product_id, p.name ORDER BY c DESC LIMIT 10', fidParams)
 
   // 地区分布 Top 10（省）
   const regionRows = await query<any[]>(

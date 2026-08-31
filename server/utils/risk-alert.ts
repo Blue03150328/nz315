@@ -47,6 +47,6 @@ export async function triggerAlert(event: any, input: {
     }
   } catch (e) {
     // 预警写入失败不影响扫码主流程
-    console.warn('[risk-alert] 预警触发失败:', e?.message || e)
+    console.warn('[risk-alert] 预警触发失败:', (e as any)?.message || e)
   }
 }

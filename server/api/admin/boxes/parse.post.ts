@@ -69,7 +69,8 @@ export default defineEventHandler(async (event) => {
       const prev = seenInner.get(p.inner)
       if (prev !== undefined) {
         p.error = '文件内单品码重复'
-        pairs[prev].error = '文件内单品码重复'
+        const dup = pairs[prev]
+        if (dup) dup.error = '文件内单品码重复'
       } else {
         seenInner.set(p.inner, pairs.indexOf(p))
       }

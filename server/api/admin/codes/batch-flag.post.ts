@@ -6,7 +6,7 @@ import { logOperation } from '../../../utils/audit'
 export default defineEventHandler(async (event) => {
   const user = await requireBackendUser(event)
   const body = await readBody(event) || {}
-  const ids = Array.isArray(body.ids) ? body.ids.map(Number).filter(n => Number.isInteger(n) && n > 0) : []
+  const ids = Array.isArray(body.ids) ? body.ids.map((n: any) => Number(n)).filter((n: number) => Number.isInteger(n) && n > 0) : []
   const flag = Number(body.flag)
   const reason = String(body.reason || '').trim()
   if (ids.length === 0) throw createError({ statusCode: 400, statusMessage: '请选择追溯码' })

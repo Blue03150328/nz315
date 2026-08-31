@@ -29,10 +29,11 @@ export default defineEventHandler(async (event) => {
   await execute('UPDATE trace_code SET abnormal_flag = ?, abnormal_reason = ? WHERE id = ?', [flag, flag === 0 ? null : reason, id])
 
   const FLAG_LABEL: Record<number, string> = { 0: '恢复正常', 1: '冻结', 2: '作废' }
+  const flagLabel = FLAG_LABEL[flag] || '标记'
   await logOperation(event, {
     module: '码库管理',
-    action: FLAG_LABEL[flag],
-    content: JSON.stringify({ code: code.code, flag, reason, flagLabel: FLAG_LABEL[flag] }),
+    action: flagLabel,
+    content: JSON.stringify({ code: code.code, flag, reason, flagLabel }),
   })
-  return { ok: true, flag, flagLabel: FLAG_LABEL[flag] }
+  return { ok: true, flag, flagLabel }
 })

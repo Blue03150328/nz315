@@ -55,7 +55,7 @@ export default defineEventHandler(async (event) => {
   }
 
   // 3) 写扫码日志（扫码不改变码状态，仅记录；PRD 5.9 H5 业务规则2）
-  const ip = String(getHeader(event, 'x-forwarded-for') || getHeader(event, 'x-real-ip') || '').split(',')[0].trim()
+  const ip = (String(getHeader(event, 'x-forwarded-for') || getHeader(event, 'x-real-ip') || '').split(',')[0] || '').trim()
   await execute(
     'INSERT INTO scan_log (enterprise_id, code, product_id, scan_time, scan_device, scan_subject, ip_location) VALUES (?,?,?,NOW(),?,1,?)',
     [tc.enterprise_id, code, tc.product_id, detectDevice(event), ip || null])
