@@ -29,6 +29,7 @@
 | 技术栈 | **Nuxt 4.5**（Vue 3 + Nitro SSR）+ **Nuxt UI v4**（Tailwind v4）+ MySQL 8.0 + mysql2 + bcryptjs |
 | 域名 | www.nz315.cn（扫码 URL 格式：`https://{域名}/trace?code={32位码}`） |
 | 参考前端 | 农码查（E:\wokeplace\二维码跳转网站）：界面 1:1 复用（绿色农业风、移动壳+PC 响应式）；后端全部重做 |
+| 文档 | README.md（总览）· docs/DEPLOYMENT.md（部署）· docs/COMPLIANCE.md（1049合规自检） |
 
 ### 🛠️ 常用命令
 
