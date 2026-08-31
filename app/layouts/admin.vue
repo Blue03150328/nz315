@@ -10,6 +10,7 @@ const { user, roleLabel, logout } = useUser()
 const MENU_READY = [
   { path: '/admin', label: '数据概览', icon: 'i-lucide-layout-dashboard' },
   { path: '/admin/codes', label: '码库管理', icon: 'i-lucide-qr-code' },
+  { path: '/admin/boxes', label: '外箱码管理', icon: 'i-lucide-box' },
   { path: '/admin/specs', label: '产品规格管理', icon: 'i-lucide-ruler' },
   { path: '/admin/products', label: '产品管理', icon: 'i-lucide-package' },
   { path: '/admin/batches', label: '生产批次', icon: 'i-lucide-boxes' },

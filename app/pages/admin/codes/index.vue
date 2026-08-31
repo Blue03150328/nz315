@@ -86,6 +86,54 @@ const FLAG_NOTE = {
   restore: '恢复正常后扫码按正常逻辑展示',
 }
 
+
+// 批量修正（PRD 5.8 场景8：关联批次/生产日期/有效期/质检）
+const showCorrectModal = ref(false)
+const correcting = ref(false)
+const correctForm = reactive({
+  batchId: null as number | null,
+  produceDate: '', expireDate: '', qcResult: '', qualityCertNo: '',
+})
+const { data: batchAll } = await useFetch<any>('/api/admin/batches', {
+  key: 'admin-batches-correct',
+  query: { page: 1, pageSize: 100 },
+})
+
+const openCorrect = () => {
+  Object.assign(correctForm, { batchId: null, produceDate: '', expireDate: '', qcResult: '', qualityCertNo: '' })
+  showCorrectModal.value = true
+}
+
+const submitCorrect = async () => {
+  const ids = selected.value
+  if (!ids.length) { toast.add({ title: '请选择追溯码', color: 'warning' }); return }
+  if (!correctForm.batchId && !correctForm.produceDate && !correctForm.expireDate && !correctForm.qcResult && !correctForm.qualityCertNo) {
+    toast.add({ title: '请至少选择一个要修改的字段', color: 'warning' }); return
+  }
+  correcting.value = true
+  try {
+    const res = await $fetch('/api/admin/codes/batch-correct', {
+      method: 'POST',
+      body: {
+        ids,
+        batchId: correctForm.batchId || undefined,
+        produceDate: correctForm.produceDate || undefined,
+        expireDate: correctForm.expireDate || undefined,
+        qcResult: correctForm.qcResult === '' ? undefined : Number(correctForm.qcResult),
+        qualityCertNo: correctForm.qualityCertNo || undefined,
+      },
+    })
+    toast.add({ title: '修正完成：绑定批次 ' + res.rebound + ' 条，字段修正 ' + res.corrected + ' 条', color: 'success' })
+    showCorrectModal.value = false
+    selected.value = []
+    refresh()
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage || '修正失败', color: 'error' })
+  } finally {
+    correcting.value = false
+  }
+}
+
 const doSearch = () => { page.value = 1; refresh() }
 const resetSearch = () => {
   filters.keyword = ''; filters.status = ''; filters.abnormalFlag = ''; filters.dateFrom = ''; filters.dateTo = ''
@@ -119,6 +167,7 @@ const resetSearch = () => {
           <UButton variant="outline" color="warning" size="sm" icon="i-lucide-snowflake" @click="openFlag('freeze', data.rows.filter((r: any) => selected.includes(r.id)))">批量冻结</UButton>
           <UButton variant="outline" color="error" size="sm" icon="i-lucide-ban" @click="openFlag('void', data.rows.filter((r: any) => selected.includes(r.id)))">批量作废</UButton>
           <UButton variant="outline" color="neutral" size="sm" icon="i-lucide-rotate-ccw" @click="openFlag('restore', data.rows.filter((r: any) => selected.includes(r.id)))">恢复正常</UButton>
+          <UButton variant="outline" color="primary" size="sm" icon="i-lucide-wrench" @click="openCorrect">批量修正</UButton>
         </div>
       </div>
     </div>
@@ -197,6 +246,49 @@ const resetSearch = () => {
           <UButton color="primary" :loading="flagging" @click="submitFlag">确认执行</UButton>
         </div>
       </div>
+    
+    <!-- 批量修正对话框（PRD 5.8） -->
+    <UModal v-model="showCorrectModal">
+      <div class="p-5">
+        <h3 class="text-base font-semibold text-default">批量修正</h3>
+        <p class="mt-1 text-xs text-muted">已选 {{ selected.length }} 条追溯码 · 已冻结/已作废码自动排除</p>
+        <div class="mt-4 space-y-4">
+          <div class="space-y-1.5">
+            <label class="block text-sm font-medium text-default">重新绑定批次（仅"已生成"码生效，绑定后自动置为"已绑定"）</label>
+            <USelect
+              v-model="correctForm.batchId"
+              :options="[{ value: '', label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
+            />
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="space-y-1.5">
+              <label class="block text-sm font-medium text-default">生产日期</label>
+              <UInput v-model="correctForm.produceDate" type="date" />
+              <p class="text-xs text-warning">修改后扫码页展示的生产日期将变更，请确认与标签喷码一致</p>
+            </div>
+            <div class="space-y-1.5">
+              <label class="block text-sm font-medium text-default">有效期至</label>
+              <UInput v-model="correctForm.expireDate" type="date" />
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="space-y-1.5">
+              <label class="block text-sm font-medium text-default">质量检验结果</label>
+              <USelect v-model="correctForm.qcResult" :options="[{ value: '', label: '不修改' }, { value: '1', label: '合格' }, { value: '0', label: '不合格' }]" />
+            </div>
+            <div class="space-y-1.5">
+              <label class="block text-sm font-medium text-default">质量合格证号</label>
+              <UInput v-model="correctForm.qualityCertNo" placeholder="不修改留空" />
+            </div>
+          </div>
+          <p class="rounded-lg bg-muted/40 p-3 text-xs text-muted">已绑定码的生产日期/质检字段修改属合规更正，将记录强审计日志（不可撤销）</p>
+        </div>
+        <div class="mt-6 flex justify-end gap-2">
+          <UButton variant="outline" color="neutral" @click="showCorrectModal = false">取消</UButton>
+          <UButton color="primary" :loading="correcting" @click="submitCorrect">确认修正</UButton>
+        </div>
+      </div>
     </UModal>
+</UModal>
   </div>
 </template>
