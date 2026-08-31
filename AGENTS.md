@@ -83,5 +83,6 @@
 | mysql2 对 JSON 列自动解析为数组 | 勿再 `JSON.parse`；BIGINT 用 `Number()` 转换 |
 | `const [rows] = await query()` 解构陷阱 | `query()` 返回行数组，取第一行用 `const [row] =`，取全部直接赋值 |
 | Vue 模板中禁止 `import.meta.*` 表达式 | 先赋值到 script 常量再用于模板（Vite 编译报错） |
+| 离线环境 dev 崩溃（fonts.google.com 超时） | nuxt.config.ts 已禁用 fonts.providers.google/googleicons，勿恢复 |
 | Chrome headless 截图挂死 | 加 `--user-data-dir` 独立 profile；一次一个进程，`Start-Process -Wait` |
 | 本机 MySQL | 服务 MySQL80，root/ruijie（**凭据只在 `.env`，不提交**） |

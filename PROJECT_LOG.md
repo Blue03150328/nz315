@@ -20,6 +20,14 @@
 
 ## 变更记录
 
+### 2026-08-31 | 修复 dev 崩溃：禁用 google 字体提供器（离线环境 fonts.google.com 超时）
+- **工作内容**：dev 服务器因 unifont 的 google/googleicons 提供器连接 fonts.google.com 超时（3 次重试耗尽）导致进程退出（exit 1）。在 nuxt.config.ts 增加 `fonts.providers.google/googleicons = false`（@nuxt/fonts 配置），图标仍用本地 lucide 集合不受影响。
+- **修改文件**：`nuxt.config.ts`
+- **测试情况**：重启后首页/后台/生成页/扫码页全部 200，无 google 超时日志
+- **遗留问题/待办**：无
+- **给下一个 Agent 的提示**：本机离线，勿恢复 google 字体提供器；HANDOFF 级踩坑已同步 AGENTS.md
+
+---
 ### 2026-08-31 | 修复 10 处类型错误与统计接口 GROUP BY 兼容问题
 - **工作内容**：全量 typecheck 发现 9 处类型错误（新增模块引入）+ 1 处逻辑 bug——catch(e) 隐式类型、split 索引可能 undefined、FLAG_LABEL 索引类型、map(Number) 隐式 any、pairs[prev] 可能 undefined；statistics.get.ts 产品分布 GROUP BY 缺 p.name（ONLY_FULL_GROUP_BY 兼容）。
 - **修改文件**：server/utils/{audit,notify,risk-alert}.ts、server/api/admin/{boxes/parse.post, codes/[id].patch, codes/batch-correct.post, codes/batch-flag.post, statistics.get}.ts、server/api/trace.get.ts

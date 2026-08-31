@@ -13,6 +13,14 @@ export default defineNuxtConfig({
     },
   },
 
+  // 字体提供器：禁用 google/googleicons（外网不可达环境会超时并导致 dev 崩溃）
+  fonts: {
+    providers: {
+      google: false,
+      googleicons: false,
+    },
+  },
+
   // 图标使用本地 lucide 集合（离线，避免依赖 google fonts）
   icon: {
     serverBundle: { collections: ['lucide'] },
