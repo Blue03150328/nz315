@@ -34,8 +34,10 @@ cp .env.example .env
 | 变量 | 说明 |
 |---|---|
 | `DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME` | MySQL 连接（数据库名建议 `nz315`） |
-| `SESSION_SECRET` | **必须改为强随机值**（`openssl rand -hex 32`），会话签名密钥 |
+| `SESSION_SECRET` | **必须改为强随机值**（`openssl rand -base64 48`），会话签名密钥 |
 | `SITE_URL` | 站点对外地址（https://www.nz315.cn） |
+
+> ⚠️ **配置验证（实战踩坑）**：若 `SESSION_SECRET` 保持 `.env.example` 的默认值 `dev-session-secret-change-me` 未修改，生产环境**登录接口将返回 500**「生产环境必须配置独立 SESSION_SECRET」——这是服务端安全保护（防会话伪造）的正确拦截。务必改为强随机值后**重新构建**（runtimeConfig 在构建时内嵌进产物）。
 
 ### 3. 创建数据库账号并初始化
 
@@ -52,15 +54,20 @@ node scripts/db-init.mjs   # 建库建表 + 演示数据（幂等）；生产可
 ### 4. 构建与启动
 
 ```bash
-npm run build              # 产物在 .output/
+npm run build              # 产物在 .output/（构建前务必确保 .env 配置正确！）
 npm run preview            # 验证生产构建（默认 3000 端口）
 ```
+
+> **重要**：Nitro 的 runtimeConfig（数据库凭据、SESSION_SECRET 等）在**构建时**从 `.env` 读取并内嵌进产物；构建产物启动时**不会自动加载 `.env`**。因此：① 构建前必须确认 `.env` 为最终正确配置；② 运行期如需覆盖（如轮换密钥），通过 `NUXT_<键名>` 环境变量注入（例：`NUXT_SESSION_SECRET`、`NUXT_DB_PASSWORD`）。
 
 **进程守护（PM2）**：
 
 ```bash
-pm2 start .output/server/index.mjs --name nz315 -- -p 3000
-pm2 save && pm2 startup
+# 方式一：环境变量随 PM2 注入（推荐，密钥轮换无需重新构建）
+pm2 start .output/server/index.mjs --name nz315 -- -p 3000 --env NUXT_SESSION_SECRET=<强随机值>
+
+# 方式二：ecosystem.config.cjs 统一管理（env 段注入 NUXT_* 变量）
+pm2 start ecosystem.config.cjs && pm2 save && pm2 startup
 ```
 
 > Windows 可用 NSSM 注册为系统服务；本项目 dev 用 3100 端口仅为避开本机 3000 残留实例，生产端口可任意（建议 3000 内网端口，由 nginx 反代）。
@@ -105,7 +112,8 @@ server {
 
 ## 三、安全清单（上线前逐项核对）
 
-- [ ] `.env` 中 `SESSION_SECRET` 为强随机值（非默认）
+- [ ] `.env` 中 `SESSION_SECRET` 为强随机值（非默认）；改后已重新构建
+- [ ] `.output/` 内含内嵌 runtimeConfig（数据库凭据明文）——部署目录权限收紧，禁止对外分发/公开访问
 - [ ] 数据库账号使用专用低权限账号（非 root），强密码
 - [ ] 全站 HTTPS（nginx 已强制跳转）
 - [ ] 防火墙仅开放 80/443（及运维端口）
@@ -145,4 +153,5 @@ mysql -u nz315 -p nz315 < backup/nz315_YYYYMMDDHHMMSS.sql
 | 白屏/无法访问 | 检查 PM2 状态与日志；确认 3000 端口未被占用；curl 本机验证 |
 | 扫码提示"查无此码" | 码未导入或导入到了其他企业（隔离）；检查码生成/导入链路 |
 | 登录提示"账号禁用" | 用户状态为禁用；联系总部管理员 |
+| 登录接口 500「生产环境必须配置独立 SESSION_SECRET」 | `.env` 的 `SESSION_SECRET` 仍为默认值 `dev-session-secret-change-me`；改为强随机值（`openssl rand -base64 48`）后**重新构建**再启动 |
 | 备份失败 | 确认 mysqldump 在本机路径（Windows：C:/Program Files/MySQL/MySQL Server 8.0/bin/） |

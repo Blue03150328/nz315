@@ -68,6 +68,7 @@
 - H5 扫码页 10 场景（正品·已绑定/已生成、查无此码、登记证过期、重复查询、冻结、作废、过有效期、信息存疑、格式错误）
 - 后台：登录、数据概览、追溯码生成（1049结构+自定义段+导出）、码库管理（异常标记/批量修正）、外箱码管理、产品规格管理、产品管理、生产批次管理、生产采集、扫码统计、系统设置（企业信息/用户权限/操作日志/通知配置/数据备份）、风险预警中心、消息中心
 - H5 扫码为真实链路：查库 + 写 scan_log + 异常判定 + 自动触发风险预警（重复查询/登记证过期已接入）
+- **生产构建验证通过**（2026-08-31）：npm run build 全量构建成功（.output 6.24MB），生产服务器登录/扫码/后台全链路 200；修复 .env 的 SESSION_SECRET 未改默认值导致的生产登录 500（已换 64 字符强随机密钥，不入库）
 - **码库管理页已完成企业级 B 端改造**（2026-08-31，两轮）：①筛选卡片化+吸底批量操作条+内容区 max-w-[1600px]；②彻底剥离小程序风格：白底细边框小圆角、细分割线分区、状态标签浅底深字（bg-*-50+text-*-700）、操作列纯文字按钮、批量条浅灰底、主按钮 neutral solid 深灰黑；全局主色降饱和 hsl(142 32% 30%)、--ui-radius 0.375rem、后台底色 #f0f2f5。其他列表页仍为旧风格，迁移模式见 PROJECT_LOG
 
 **待办（按 PRD 版本规划）**：
@@ -87,4 +88,6 @@
 | 离线环境 dev 崩溃（fonts.google.com 超时） | nuxt.config.ts 已禁用 fonts.providers.google/googleicons，勿恢复 |
 | Nuxt UI v4 无 URadio 组件 | 单选用 URadioGroup 或自绘；v3 组件名（URadio/UButton square 等）会触发 Vue warn |
 | Chrome headless 截图挂死 | 加 `--user-data-dir` 独立 profile；一次一个进程，`Start-Process -Wait` |
+| DSH 沙箱内构建报 esbuild spawn EPERM | 沙箱禁止子进程管道（非项目问题）；构建在沙箱外运行或申请全权模式 |
+| 生产登录 500「必须配置独立 SESSION_SECRET」 | `.env` 的 SESSION_SECRET 仍是默认值 dev-session-secret-change-me；换强随机值后**重新构建**（runtimeConfig 构建时内嵌）；运行期覆盖用 NUXT_SESSION_SECRET 环境变量 |
 | 本机 MySQL | 服务 MySQL80，root/ruijie（**凭据只在 `.env`，不提交**） |

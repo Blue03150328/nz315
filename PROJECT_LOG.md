@@ -20,6 +20,18 @@
 
 ## 变更记录
 
+### 2026-08-31 | V1.0 生产构建验证通过 + 修复生产登录 500（SESSION_SECRET 未改默认值）
+- **工作内容**：按 AGENTS.md 待办优先级执行生产构建验证（npm run build 全量构建 + 生产服务器运行验证），验证过程发现并修复一个生产环境登录故障。
+- **验证过程与结论**：
+  - 客户端 935 模块构建通过，Nitro server 构建成功，产物 .output 共 6.24 MB（gzip 1.63 MB）；
+  - 生产服务器（node .output/server/index.mjs, 端口 3101）验证：首页/登录/扫码页/后台页全部 200；登录→me→码库→概览 API 链路全通；扫码页正品码 resultType=genuine、无效码查无此码场景正常；
+  - **发现并修复**：登录接口 500「生产环境必须配置独立 SESSION_SECRET」——根因是 .env 的 SESSION_SECRET 一直为 .env.example 默认值（28 字符 dev-session-secret-change-me），构建时被内嵌进产物，运行时代码的正确安全拦截生效。已生成 64 字符强随机密钥（base64url，PS 加密 API）更新 .env（不入库）并重新构建，产物内默认密钥零残留，登录链路复测通过；
+  - **环境备注**：本会话沙箱下 esbuild spawn EPERM（沙箱禁止子进程管道，非项目问题），构建需在沙箱外或全权模式运行。
+- **修改文件**：.env（不入库，密钥轮换）、docs/DEPLOYMENT.md（SESSION_SECRET 配置警告 + 运行时环境变量注入说明 + 安全清单 2 条 + 常见问题 1 条）
+- **测试情况**：构建产物验证（首页/登录/扫码/后台 200，登录全链路 API 通过，正品/无效码场景正常，产物密钥内嵌检查无默认值残留）
+- **遗留问题/待办**：V1.1 增强按 AGENTS.md 待办推进；D1-D4 待决项待用户确认；.env 为 GBK 编码已顺手转 UTF-8（键值均为 ASCII 不受影响）
+- **给下一个 Agent 的提示**：① 构建时 runtimeConfig 从 .env 内嵌进产物（含 DB 凭据明文），构建前必须确认 .env 最终正确，.output 严禁对外分发；② 构建产物启动不加载 .env，生产运行期配置靠 NUXT_* 环境变量注入（文档已写）；③ 本机 npm wrapper（npm.ps1）损坏，构建/安装用 node 直调 npm-cli.js；④ 沙箱内构建需全权模式（esbuild spawn 限制）。
+
 ### 2026-08-31 | 码库管理页第二轮改造：彻底剥离小程序风格（Element Plus / AntD Pro 式克制中后台）
 - **工作内容**：上一轮 B 端化仍残留小程序设计语言（大圆角、柔和浅底、高饱和彩色标签、鲜艳绿按钮），本轮彻底收敛：①筛选区/表格/批量条全部改为白底细边框小圆角（rounded-sm 4px）、内部细分割线（#ebeef5）分区，去掉阴影与卡片浮层；②状态标签改为「底色浅 + 文字重」简约样式（bg-blue-50/emerald-50/amber-50/red-50 + 深色字，圆角收小，去掉圆点与边框）；③操作列改纯文字按钮（link 变体，去图标，竖线分隔）；④批量操作条低饱和浅灰底（#fafafa）+ 顶部细横线，按钮主次分明（仅批量作废用红色警示，其余中性灰）；⑤主按钮改中性深色（neutral solid），重置/取消 outline 中性；⑥全局主题：主色降饱和 hsl(142 45% 38%)→hsl(142 32% 30%)、--ui-radius 0.5rem→0.375rem、后台底色 #f0f0f8→#f0f2f5（AntD 标准底色）。逻辑零改动。
 - **修改文件**：`app/pages/admin/codes/index.vue`、`app/assets/css/main.css`、`app/layouts/admin.vue`
