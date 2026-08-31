@@ -9,6 +9,7 @@ const { user, roleLabel, logout } = useUser()
 // 已实现菜单（可点击）
 const MENU_READY = [
   { path: '/admin', label: '数据概览', icon: 'i-lucide-layout-dashboard' },
+  { path: '/admin/generator', label: '追溯码生成', icon: 'i-lucide-wand-2' },
   { path: '/admin/codes', label: '码库管理', icon: 'i-lucide-qr-code' },
   { path: '/admin/boxes', label: '外箱码管理', icon: 'i-lucide-box' },
   { path: '/admin/specs', label: '产品规格管理', icon: 'i-lucide-ruler' },
