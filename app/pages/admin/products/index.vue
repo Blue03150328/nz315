@@ -243,6 +243,9 @@ const resetSearch = () => { filters.keyword = ''; filters.category = ''; filters
               v-model="form.specId"
               :items="(specData?.rows || []).map((s: any) => ({ value: Number(s.id), label: s.spec_name + '（码 ' + s.spec_code + '）' }))"
               placeholder="选择规格"
+              class="w-full"
+              :content="{ class: 'min-w-72' }"
+              :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
             />
             <p v-if="selectedSpec" class="text-xs text-muted">
               净含量：{{ selectedSpec.net_content ?? '-' }} {{ selectedSpec.content_unit }} / {{ selectedSpec.pack_unit }}（自动带出，只读）

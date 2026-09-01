@@ -191,6 +191,9 @@ const downloadZip = () => {
               v-model="form.productId"
               :items="(productData?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name + '（' + p.registration_no + '）' }))"
               placeholder="选择产品"
+              class="w-full"
+              :content="{ class: 'min-w-72' }"
+              :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
             />
             <div v-if="headPreview" class="flex flex-wrap items-center gap-1 rounded-lg bg-muted/40 px-3 py-2 font-code text-xs">
               <span class="rounded bg-error/15 px-1 py-0.5 text-error">{{ headPreview.cat }}</span>

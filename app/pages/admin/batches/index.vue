@@ -126,6 +126,9 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = ''; page.v
           v-model="filters.productId"
           :items="[{ value: '', label: '全部产品' }, ...(productData?.rows || []).map((p: any) => ({ value: String(p.id), label: p.name }))]"
           placeholder="按产品筛选"
+          class="w-full"
+          :content="{ class: 'min-w-72' }"
+          :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
         />
       </div>
       <div class="mt-3 flex gap-2">
@@ -206,6 +209,9 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = ''; page.v
               v-model="form.productId"
               :items="(productData?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name + '（' + (p.spec_name || '') + '）' }))"
               placeholder="从已启用产品中选择"
+              class="w-full"
+              :content="{ class: 'min-w-72' }"
+              :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
             />
           </div>
           <div class="space-y-1.5">

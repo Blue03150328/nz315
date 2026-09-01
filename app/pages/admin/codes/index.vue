@@ -353,6 +353,9 @@ const resetSearch = () => {
             <USelect
               v-model="correctForm.batchId"
               :items="[{ value: '', label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
+              class="w-full"
+              :content="{ class: 'min-w-72' }"
+              :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
             />
           </div>
           <div class="grid grid-cols-2 gap-3">

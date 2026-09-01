@@ -195,6 +195,9 @@ const reasonChips = computed(() => {
               v-model="importForm.productId"
               :items="(productData?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name }))"
               placeholder="选择产品"
+              class="w-full"
+              :content="{ class: 'min-w-72' }"
+              :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
             />
           </div>
           <div class="space-y-1.5">
@@ -203,6 +206,9 @@ const reasonChips = computed(() => {
               v-model="importForm.batchId"
               :items="[{ value: '', label: '不绑定（码状态：已生成）' }, ...(batchData?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.produce_date + '）' }))]"
               placeholder="选择批次"
+              class="w-full"
+              :content="{ class: 'min-w-72' }"
+              :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
             />
           </div>
         </div>
