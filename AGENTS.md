@@ -72,7 +72,8 @@
 - **数据概览板块增强**（2026-08-31）：近 30 天扫码趋势折线图（SVG 自绘+补零）、8 个快捷入口、码库存预警（低库存阈值 stockThreshold 默认 10000 + 作废占比 10% 告警，PRD 5.2/5.5.8 差距项补齐）
 - **追溯码生成板块增强**（2026-08-31，对齐离线工具 + PRD 3.2/5.5.1）：自定义段全配置（时间戳段+随机数字段 8位随机/6位随机+2位校验+校验位段 MD5/CRC16）、二维码图片输出（QR/DM PNG 批量生成 + zip 打包下载 + 预览 + 一次性凭证）、导出增强（TXT 强制命名 企业ID_产品名_规格_日期、urls.txt 完整扫码 URL、CSV sn 清单）、生成统计（总数/唯一/重码/耗时）；扫码域名 NUXT_PUBLIC_TRACE_BASE_URL 可配；生产链路 18 项验证全过，提交 af6bc7e
 - **码库管理页已完成企业级 B 端改造**（2026-08-31，两轮）：①筛选卡片化+吸底批量操作条+内容区 max-w-[1600px]；②彻底剥离小程序风格：白底细边框小圆角、细分割线分区、状态标签浅底深字（bg-*-50+text-*-700）、操作列纯文字按钮、批量条浅灰底、主按钮 neutral solid 深灰黑；全局主色降饱和 hsl(142 32% 30%)、--ui-radius 0.375rem、后台底色 #f0f2f5。其他列表页仍为旧风格，迁移模式见 PROJECT_LOG
-- **产品/规格管理新增表单弹窗化修复**（2026-09-01，提交 a7657ee）：修复 Nuxt UI v3→v4 迁移遗留三叠加 bug——①UModal 默认插槽 v4 语义=触发按钮（内容必须放 #content 插槽），原写法导致新增表单直列渲染在页面下方；②v-model 绑定无效（v4 UModal 无 modelValue prop，须 v-model:open），点击新增按钮弹窗打不开；③reka-ui 禁止 SelectItem 空字符串 value，筛选下拉「全部」选项改 placeholder。已修：products/specs 两页；**待办：其余 5 页 7 处 UModal（alerts/batches/codes/boxes/settings）同款 bug 未修**
+- **产品/规格管理新增表单弹窗化修复**（2026-09-01，提交 a7657ee）：修复 Nuxt UI v3→v4 迁移遗留三叠加 bug——①UModal 默认插槽 v4 语义=触发按钮（内容必须放 #content 插槽），原写法导致新增表单直列渲染在页面下方；②v-model 绑定无效（v4 UModal 无 modelValue prop，须 v-model:open），点击新增按钮弹窗打不开；③reka-ui 禁止 SelectItem 空字符串 value，筛选下拉「全部」选项改 placeholder。已修：products/specs 两页（其余 5 页 7 处已于下一条全量修复）
+- **Nuxt UI v4 迁移遗留 bug 全量清零**（2026-09-01，提交 e05ac71）：①**UModal 5 页 7 处**（alerts/batches/boxes×2/codes×2/settings）统一迁移 `v-model:open` + `#content` 插槽，弹窗恢复可用；②**空字符串 value 下拉 6 页 13 处**——筛选类改 placeholder 承载 +默认值 undefined，表单类「不修改/不绑定」改哨兵值（codes `batchId=0`/`qcResult='keep'`、collection `batchId=0`）保留可回退语义；③**新发现并修复系统设置两处缺陷**——`UTabs` items 缺 value 导致 v4 回退索引、点击任意 Tab 后 5 个面板 v-if 全部落空（用户权限/操作日志/通知配置/数据备份实际不可达），以及「通知配置+数据备份」整段重复渲染（删除重复 82 行）。验证：tsc 0 错误 + 生产构建 + CDP 真实点击 19/19 全通过 + 全后台 12 页回归无控制台错误
 
 **待办（按 PRD 版本规划）**：
 - 自动备份调度与异地备份（OSS）、微信推送（需公众号对接）、异常类型 2/3/5/6/7/8 预警触发接入（依赖 D2 登记证库/IP 归属地）
@@ -100,6 +101,9 @@
 | 沙箱内 node 命令勿用管道 | 管道/重定向会吞输出或 EPERM；全权模式跑 dev/构建（AGENTS.md 原记录） |
 | 二维码图片临时文件 | 在系统 tmpdir（nz315-qr-*），zip 下载后自动清理；下载凭证 token 一次性 + 60 分钟过期 |
 | **Nuxt UI v4 USelect 选项 prop 是 items 不是 options**（v3 迁移坑，2026-09-01 实测） | options 被透传为无效属性，下拉面板永远为空（用户反馈「点击无效」的真凶）；新页面写 `:items`；已全局修复 37 处 |
+| **Nuxt UI v4 UModal 写法**（v3 迁移坑） | 必须 `v-model:open`（无 modelValue prop）+ 内容放 `#content` 插槽（v4 默认插槽=触发按钮）；旧写法**不报错**但弹窗打不开且内容直列渲染在页面下方 |
+| **Nuxt UI v4 UTabs items 必须显式给 value** （2026-09-01 实测） | 不给 value 时回退为索引 '0'/'1'…，配 `v-if="tab === 'xxx'"` 判断会**静默全部落空、页面空白无报错**；settings 页曾因此 4 个模块不可达 |
+| **reka-ui 禁止 SelectItem 空字符串 value** | `{ value: '' }` 抛「must have a value prop that is not an empty string」500 错误页；筛选「全部」用 placeholder + 默认值 undefined，表单「不修改」用哨兵值（0 / 'keep'）提交时归一 |
 | **Nuxt UI v4 Toast 不自动注入**（v3 自动） | 必须显式 `<UToaster />`（已放 app.vue），否则 21 处 useToast 静默失效——所有操作提示丢失 |
 | reka-ui 选项用 pointerup 选择 | CDP 自动化点击下拉选项须派发 pointerup（click 无效）；面板关闭需真实 pointer 事件 |
 | headless 点击视口外元素无效 | CDP Input 点击前先 scrollIntoView |

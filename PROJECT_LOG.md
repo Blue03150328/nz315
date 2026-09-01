@@ -1,5 +1,16 @@
 ## 变更记录
 
+### 2026-09-01 | 后台剩余 7 处弹窗与 13 处空值下拉全量修复（Nuxt UI v4 迁移收尾）+ 系统设置 Tab 空白与板块重复渲染修复
+- **工作内容**：接手后按 PROJECT_LOG 头号待办清理上一轮遗留的同族迁移 bug，并在验证中新发现两处系统设置缺陷：
+  ① **UModal（5 页 7 处）**：alerts（showHandle）、batches（showModal）、boxes（showDetail/showUnbind）、codes（showFlagModal/showCorrectModal）、settings（showUserModal）全部由 v3 写法（`v-model` + 默认插槽直放内容）迁移为 v4 写法（`v-model:open` + 内容进 `#content` 插槽），修复「弹窗点不开 + 表单直列渲染在页面下方」；
+  ② **空字符串 value 下拉（6 页 13 处）**：reka-ui 禁止 `{ value: '' }`（触发 500 错误页）。筛选类「全部类型/全部状态/全部角色/全部模块/全部结果/全部产品」改由 placeholder 承载、筛选默认值改 `undefined`（alerts 2、batches 1、codes 2、settings 4、messages 1）；表单类「不修改/不绑定」不能丢失可回退语义，改用**哨兵值**——codes 批量修正 `batchId=0`/`qcResult='keep'`、collection 导入 `batchId=0`，提交时归一为 undefined（codes 2、collection 1）；
+  ③ **系统设置 UTabs 缺 value（新发现）**：`<UTabs :items="[{label:'企业信息'},…]">` 未给 value，v4 回退为索引 '0'/'1'…，而面板判断写的是 `v-if="tab === 'enterprise'"`，**点击任意 Tab 后 5 个面板全部落空、页面一片空白**（用户权限/操作日志/通知配置/数据备份四个模块实际不可达）。已补 value；
+  ④ **系统设置板块重复渲染（新发现）**：「通知配置 + 数据备份」两个板块整段重复出现两次（第 577-658 行与第 495-576 行逐字符相同），切到对应 Tab 会渲染两遍且共用同一份表单状态，已删除重复的 82 行。
+- **修改文件**：`app/pages/admin/alerts/index.vue`、`batches/index.vue`、`boxes/index.vue`、`codes/index.vue`、`collection/index.vue`、`messages/index.vue`、`settings/index.vue`（7 文件，+99 / -143 行）
+- **测试情况**：tsc 0 错误；生产构建通过（10.4 MB / gzip 2.64 MB）；生产服务器（3000）+ Edge headless CDP 真实鼠标点击**19/19 全通过**——SSR 层 5 页弹窗文案确认不再直列渲染、7 处弹窗点击后 `role=dialog` 真实弹出且内容正确（含外箱码详情/解绑：临时绑定 32 位测试外箱码验证后自动解绑清理）、settings 5 个 Tab 面板逐个切换均正常渲染且无重复、控制台零 JS 异常；另全后台 12 个页面 SSR 200 + 客户端渲染 + 控制台无错回归通过。提交 e05ac71
+- **遗留问题/待办**：①**Nuxt UI v4 迁移遗留 bug 至此清零**（UModal/USelect items/空 value/UTabs 已全量排查）；②筛选下拉改 placeholder 后无法单独清空某一项（需点「重置」），若后续要求单项清空可考虑哨兵值方案；③`.gitignore` 为 GBK 编码，中文注释在 UTF-8 编辑器下是乱码（不影响规则匹配，可择机转码）；④其余列表页 B 端风格迁移、PRD 差距项（异步任务中心/自动备份调度/剩余 6 类预警接入）待办不变
+- **给下一个 Agent 的提示**：①**Nuxt UI v4 三条硬规则**——UModal 用 `v-model:open` + `#content`；USelect 选项 prop 是 `items` 且 value 不可为空字符串；**UTabs items 必须显式给 value**（否则回退索引，配 `v-if` 判断会静默全空白，无任何报错）；②本机 dev 不可用，改 UI 必须「生产构建 + node .output/server/index.mjs + CDP 真实点击」验证，只看 SSR HTML 会漏掉 v-model 绑定类错误；③沙箱内 `Start-Process`／构建子进程被拒（Access is denied），构建需全权模式；④CDP 验证脚本模式（登录写 Cookie → 导航 → scrollIntoView 后按坐标派发 mousePressed/mouseReleased → 查 `[role=dialog]`）可直接复用，本轮临时脚本按约定未入库；⑤外箱码测试数据的外箱码本身也必须是 **32 位纯数字**（`^\d{32}$`），bind 接口入参是 `pairs:[{outer,inner}]`、unbind 是 `{outer,confirm:'确认解绑'}`
+
 ### 2026-09-01 | 产品/规格管理新增表单改为弹窗（UModal v4 迁移修复：v-model:open + #content 插槽 + 筛选下拉 placeholder）
 - **工作内容**：用户反馈「产品管理和产品规格管理板块的新增界面直勾勾展示在页面的下方不美观，点击新增按钮才弹出」。排查发现这是 Nuxt UI v3→v4 迁移遗留的**三叠加 bug**：①**UModal 默认插槽语义变化**——v3 默认插槽=弹窗内容，v4 默认插槽=触发按钮（DialogTrigger），内容必须放 #content 插槽；原代码把整个表单放默认插槽，SSR 时被当作 trigger 直列渲染在页面流中（即用户看到的「直勾勾展示在下方」）；②**v-model 绑定无效**——v4 UModal 只有 open prop + update:open 事件，无 modelValue prop，原 v-model="showModal" 绑定无效（点击新增按钮 open 状态根本不更新，弹窗打不开），必须 v-model:open；③**reka-ui SelectItem 空字符串 value 校验**——v4 底层 reka-ui 禁止 { value: '' } 选项（会抛「must have a value prop that is not an empty string」500 错误页），原筛选下拉「全部类别/全部状态」等选项全用空字符串 value，改为 placeholder 承载（筛选值默认 undefined）。
 - **修改文件**：app/pages/admin/products/index.vue、app/pages/admin/specs/index.vue（filters 默认值改 undefined、筛选 USelect 去空字符串选项改 placeholder、UModal 改 v-model:open + 表单内容包进 #content 插槽）
