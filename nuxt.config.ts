@@ -44,6 +44,10 @@ export default defineNuxtConfig({
     // 扫码 URL 前缀（PRD 3.3：https://{域名}/trace?code={32位码}），部署环境可用 NUXT_PUBLIC_TRACE_BASE_URL 覆盖
     public: {
       traceBaseUrl: process.env.NUXT_PUBLIC_TRACE_BASE_URL || 'https://www.nz315.cn/trace?code=',
+      // 高德地图 JS API（仅用于「附近农资店」地图展示；门店数据与距离均由本平台自建库计算，
+      // 未配置时页面自动降级为纯列表，功能不受影响）
+      amapJsKey: process.env.NUXT_PUBLIC_AMAP_JS_KEY || '',
+      amapSecurityCode: process.env.NUXT_PUBLIC_AMAP_SECURITY_CODE || '',
     },
   },
 

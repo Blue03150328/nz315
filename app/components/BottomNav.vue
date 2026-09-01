@@ -6,6 +6,7 @@ const toast = useToast()
 const NAV = [
   { path: '/', label: '首页', icon: 'i-lucide-home', action: 'link' },
   { path: '/q/', label: '扫码查询', icon: 'i-lucide-scan-search', action: 'scan' },
+  { path: '/nearby-stores', label: '附近门店', icon: 'i-lucide-store', action: 'link' },
   { path: '/profile', label: '我的', icon: 'i-lucide-user-round', action: 'link' },
 ]
 

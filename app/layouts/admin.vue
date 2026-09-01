@@ -17,6 +17,7 @@ const MENU_READY = [
   { path: '/admin/batches', label: '生产批次', icon: 'i-lucide-boxes' },
   { path: '/admin/collection', label: '生产采集', icon: 'i-lucide-factory' },
   { path: '/admin/statistics', label: '扫码统计', icon: 'i-lucide-bar-chart-3' },
+  { path: '/admin/stores', label: '门店管理', icon: 'i-lucide-store' },
   { path: '/admin/settings', label: '系统设置', icon: 'i-lucide-settings' },
   { path: '/admin/alerts', label: '风险预警', icon: 'i-lucide-shield-alert' },
   { path: '/admin/messages', label: '消息中心', icon: 'i-lucide-bell' },
