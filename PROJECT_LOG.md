@@ -1,5 +1,17 @@
 ## 变更记录
 
+### 2026-09-01 | 清理农码查移植遗留的 767 行死代码（含一个输出伪造核验结果的演示接口）
+- **工作内容**：本轮转向「完善前端界面」，以桌面参考项目「农码查」（`C:\Users\Administrator\Desktop\二维码展示网站\农码查-代码`）为视觉参考。调研先行，得到三条结论：
+  ① **参考项目是 React 19 + Vite + Radix/shadcn 的 Mock 原型**，与我们的 Nuxt 4 + Vue 3 + Nuxt UI v4 技术栈不同源，代码不可复用；且其业务逻辑全为假（`MOCK_PESTICIDES`、扫码结果按 45%/25%/15%/15% 随机分发、localStorage 假登录），**只能取视觉，逻辑照搬会有害**；
+  ② 我们的公众端其实**已经 1:1 复用了它的视觉骨架**（渐变大扫码卡、480px 移动壳、结果页绿色横幅、信息行卡片），视觉差距不大；
+  ③ **仓库里已存在上一次移植遗留的死代码**——正是「弄一堆不相关东西」的后果，本轮予以清除。
+- **删除清单（每一项均经全仓库引用核查确认零引用）**：`ResultGenuine.vue`(140) / `ResultAbnormal.vue`(141) / `ResultNotFound.vue`(115) / `ResultExpired.vue`(110) —— 与真正在用的 `TraceResult/TraceAlert/TraceNotFound` 功能重复的未接线组件；`RegistrationCompareCard.vue`(59) —— 仅被上述死组件引用的传递性死代码；**`server/api/query/[code].get.ts`(165)** —— 零调用方的「演示版扫码查询接口」，内含硬编码演示产品库，且 `buildCompare()` **返回伪造的登记证核验结果**（登记证存在性/产品名称/生产企业一律硬编码 `pass`），对 1049 合规项目属实质风险；`shared/types/compare.ts`(37) —— 仅服务上述死代码，其登记证比对能力依赖未决项 D2；另移除 `layouts/default.vue` 中 `hideNav` 对 `/result/` 的判断（该路由不存在，系参考项目遗留）。
+- **保留**：`/q/:code` 旧路径兼容为活链路（302 重定向至 PRD 3.3 官方格式 `/trace?code=`），未动。
+- **修改文件**：删除 7 个文件（`app/components/` 5 个、`server/api/query/` 1 个、`shared/types/compare.ts`），修改 `app/layouts/default.vue`；合计 -768 行
+- **测试情况**：引用核查 8 项全部零残留；tsc 0 错误；生产构建通过（10.4 MB / gzip 2.64 MB）；SSR 15 项回归全通过；**公众端专项 7 项全通过**——门户/登录/扫码结果/查无此码均 200、`/q/:code` 仍 302 正确重定向、已删演示接口返回 404、真实接口 `/api/trace` 正常返回 `genuine` 与产品名。提交 945d338
+- **遗留问题/待办**：本轮只做了清理（用户明确圈定范围）。调研中已筛出**有后端数据支撑**、可随时开做的两项前端增强：①**扫码结果页「合规校验清单」**——参考页有 4 项核验清单，我们全部有真实字段支撑：`formatValid`（32 位结构校验，**后端已返回但前端从未使用**）、产品解析一致、登记证有效（`resultType !== 'reg-expired'`）、重复查询记录（`firstQuery/queryCount`）；②**首页手动输入区卡片化**（加字段标签、1049 说明、「填入示例」按钮，示例用已 seed 的演示码）。其余参考页功能（用药档案 / 附近农资店 / 异常举报工单 / 登记证查询比对 / 消费者登录与个人中心 / 查询历史）**我方后端全无对应实现**，不应移植。
+- **给下一个 Agent 的提示**：①**农码查只能当视觉参考**，它的数据与判定逻辑全是 mock，照搬会把假数据带进合规系统（本轮删掉的伪造核验接口就是前车之鉴）；②移植参考项目 UI 时，**先确认我方 `shared/types/trace.ts` 有对应字段再画界面**，没有后端支撑的区块一律不做；③公众端与后台是**两套视觉基调**——公众端保留农业绿友好风（渐变、圆角 xl、移动壳），后台是本项目另一轮建立的克制 B 端风（`b-*` 类、4px 圆角、无阴影），**勿相互套用**。
+
 ### 2026-09-01 | 全后台 12 页 B 端风格统一（抽出共享设计语言 CSS 基座）+ 批次效期预警补齐
 - **工作内容**：承接「其余列表页 B 端风格迁移」这条长期待办。此前只有码库管理页完成企业级 B 端改造，其余 11 页仍是小程序轻量风格（大圆角 rounded-xl、阴影浮层 shadow-sm、高饱和彩色药丸标签、primary 绿主按钮），且上一轮记录明确指出「页面色彩全部页面级硬编码，未用主题变量」。本轮没有沿用「逐页复制硬编码 Tailwind 串」的老办法，而是**先把设计语言沉淀成共享 CSS 层再统一迁移**：
   ① **新增 B 端设计语言基座**（`app/assets/css/main.css`，+112 行）：11 个色板变量（`--b-text-title/strong/regular/muted/disabled`、`--b-border`、`--b-divider`、`--b-fill` 等，Element Plus 色板口径）+ 40 个语义类，放进 `@layer components` 保证 Tailwind 工具类仍可覆盖。类族覆盖页面标题（`b-page-title/b-page-desc`）、卡片（`b-card/b-card-clip/b-card-head/b-card-title/b-card-extra/b-card-body/b-card-foot`）、筛选表单（`b-form-grid/b-label/b-label-lg/b-help/b-required`）、表格（`b-table` 内置表头浅灰底+行分割线+hover、`is-selected/b-scroll-x/b-strong`）、标签（`b-tag` + `default/info/success/warning/danger` 五语义色）、操作列（`b-actions/b-sep`）、空状态（`b-empty` 三件套）、分页（`b-pager`）、吸底批量条（`b-bulkbar/b-count`）、提示框（`b-note`）、弹窗（`b-modal` 六件套）、指标卡（`b-stat` 四件套）；

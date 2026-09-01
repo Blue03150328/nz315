@@ -28,7 +28,7 @@
 | 定位 | 农药生产企业追溯码管理 SaaS（PRD 依据：农业农村部公告第1049号，2026-11-01 合规硬上线） |
 | 技术栈 | **Nuxt 4.5**（Vue 3 + Nitro SSR）+ **Nuxt UI v4**（Tailwind v4）+ MySQL 8.0 + mysql2 + bcryptjs |
 | 域名 | www.nz315.cn（扫码 URL 格式：`https://{域名}/trace?code={32位码}`） |
-| 参考前端 | 农码查（E:\wokeplace\二维码跳转网站）：界面 1:1 复用（绿色农业风、移动壳+PC 响应式）；后端全部重做 |
+| 参考前端 | 农码查（`C:\Users\Administrator\Desktop\二维码展示网站\农码查-代码`，另有 E:\wokeplace\二维码跳转网站）：**仅作视觉参考**——它是 React 19 + Vite + Radix 的 **Mock 原型**（数据与判定逻辑全为假：MOCK 产品库、扫码结果随机分发、localStorage 假登录），技术栈与我们不同源，**代码与逻辑一律不可照搬**；公众端视觉骨架已 1:1 复用完毕 |
 | 文档 | README.md（总览）· docs/DEPLOYMENT.md（部署）· docs/COMPLIANCE.md（1049合规自检） |
 
 ### 🛠️ 常用命令
@@ -75,6 +75,7 @@
 - **产品/规格管理新增表单弹窗化修复**（2026-09-01，提交 a7657ee）：修复 Nuxt UI v3→v4 迁移遗留三叠加 bug——①UModal 默认插槽 v4 语义=触发按钮（内容必须放 #content 插槽），原写法导致新增表单直列渲染在页面下方；②v-model 绑定无效（v4 UModal 无 modelValue prop，须 v-model:open），点击新增按钮弹窗打不开；③reka-ui 禁止 SelectItem 空字符串 value，筛选下拉「全部」选项改 placeholder。已修：products/specs 两页（其余 5 页 7 处已于下一条全量修复）
 - **Nuxt UI v4 迁移遗留 bug 全量清零**（2026-09-01，提交 e05ac71）：①**UModal 5 页 7 处**（alerts/batches/boxes×2/codes×2/settings）统一迁移 `v-model:open` + `#content` 插槽，弹窗恢复可用；②**空字符串 value 下拉 6 页 13 处**——筛选类改 placeholder 承载 +默认值 undefined，表单类「不修改/不绑定」改哨兵值（codes `batchId=0`/`qcResult='keep'`、collection `batchId=0`）保留可回退语义；③**新发现并修复系统设置两处缺陷**——`UTabs` items 缺 value 导致 v4 回退索引、点击任意 Tab 后 5 个面板 v-if 全部落空（用户权限/操作日志/通知配置/数据备份实际不可达），以及「通知配置+数据备份」整段重复渲染（删除重复 82 行）。验证：tsc 0 错误 + 生产构建 + CDP 真实点击 19/19 全通过 + 全后台 12 页回归无控制台错误
 - **全后台 B 端风格统一 + 共享设计语言基座**（2026-09-01，提交 0b9b12d / 248bdc0）：①`app/assets/css/main.css` 新增「B 端中后台设计语言」层——11 个色板变量 + 40 个语义类（`b-page-title`/`b-card`系/`b-form-grid`/`b-table`/`b-tag` 五语义色/`b-actions`/`b-empty`/`b-pager`/`b-bulkbar`/`b-note`/`b-modal`系/`b-stat`系），置于 `@layer components` 以便工具类覆盖；②**12 个后台页面全部迁移**（此前仅码库管理一页完成改造），连基准页 codes 也一并归一，全站只剩一种写法，页面级旧风格类与硬编码 Element 色值**清零**；③业务逻辑零改动（仅标签配色映射常量改语义类名，已用 script 块逐行比对脚本核验）；④顺带补齐 **PRD 5.6 批次效期预警**（已过期红 / ≤30 天临期黄，`expiryBadge()` 按当天零点整日差，无水合告警），按提交契约单独成一次 feat 提交。验证：tsc 0 错误 + 生产构建 + SSR 15 项 + CDP 真实点击 20 项 + DOM 客观测量 5 页全通过
+- **清理农码查移植遗留死代码**（2026-09-01，提交 945d338）：删除 767 行零引用代码——4 个与 `TraceResult/TraceAlert/TraceNotFound` 重复的未接线结果页组件、仅被它们引用的 `RegistrationCompareCard`、**零调用且返回伪造登记证核验结果的演示接口 `server/api/query/[code].get.ts`**（对 1049 合规项目属实质风险）、仅服务上述死代码的 `shared/types/compare.ts`，以及 `default.vue` 中指向不存在路由 `/result/` 的判断。`/q/:code` 旧路径重定向为活链路已保留。验证：引用核查零残留 + tsc + 构建 + SSR 15 项 + 公众端专项 7 项全通过
 
 **待办（按 PRD 版本规划）**：
 - 自动备份调度与异地备份（OSS）、微信推送（需公众号对接）、异常类型 2/3/5/6/7/8 预警触发接入（依赖 D2 登记证库/IP 归属地）
@@ -106,6 +107,8 @@
 | **Nuxt UI v4 UTabs items 必须显式给 value** （2026-09-01 实测） | 不给 value 时回退为索引 '0'/'1'…，配 `v-if="tab === 'xxx'"` 判断会**静默全部落空、页面空白无报错**；settings 页曾因此 4 个模块不可达 |
 | **reka-ui 禁止 SelectItem 空字符串 value** | `{ value: '' }` 抛「must have a value prop that is not an empty string」500 错误页；筛选「全部」用 placeholder + 默认值 undefined，表单「不修改」用哨兵值（0 / 'keep'）提交时归一 |
 | **Nuxt UI v4 Toast 不自动注入**（v3 自动） | 必须显式 `<UToaster />`（已放 app.vue），否则 21 处 useToast 静默失效——所有操作提示丢失 |
+| **农码查参考项目只能取视觉，勿取逻辑** | 它是 Mock 原型（MOCK_PESTICIDES、扫码结果 45%/25%/15%/15% 随机、假登录）。上一次移植遗留了 767 行死代码，其中含一个**对外可达却返回伪造登记证核验结果**的演示接口（已于 945d338 删除）。移植 UI 前先确认 `shared/types/trace.ts` 有对应字段，**没有后端支撑的区块一律不做**（用药档案/附近农资店/举报工单/登记证比对/消费者账号均无我方后端） |
+| **公众端与后台是两套视觉基调，勿相互套用** | 公众端保农业绿友好风（渐变、rounded-xl、480px 移动壳）；后台是克制 B 端风（`b-*` 类、4px 圆角、无阴影、中性按钮） |
 | **后台新页面必须复用 `b-*` 设计语言类** | 类清单在 `app/assets/css/main.css` 末尾「B 端中后台设计语言」段；再手写 Element 色值会产生第二套风格。`b-table` 已内置 th/td 内边距与行样式，**别再给 th/td 写 `px-4 py-3`** |
 | **「旧风格残留」检测会被 Nuxt UI 内部类误报** | `bg-elevated`（UTabs 容器）、`bg-error/10`（outline error 按钮）由框架渲染而非页面书写；字符串匹配 SSR HTML 时必须排除，否则每页都误报（2026-09-01 踩） |
 | **视觉评估勿轻信 vision 模型** | 本轮 vision 给出的「大圆角/高饱和药丸/控件不对齐/文字溢出」四条经 CDP 计算样式实测**全部证伪**（实为 4px 圆角、-50 浅底、32px 等高、零溢出）；视觉验收以 `getComputedStyle`+`getBoundingClientRect` 测量为准，vision 仅辅助且有 429 频控 |
