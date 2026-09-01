@@ -4,7 +4,8 @@ definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
 useHead({ title: '消息中心' })
 
 const toast = useToast()
-const typeFilter = ref('')
+// 类型筛选：默认 undefined（Nuxt UI v4 空值自动显示 placeholder，禁止空字符串 value 选项）
+const typeFilter = ref<string | undefined>(undefined)
 const unreadOnly = ref(false)
 const page = ref(1)
 const pageSize = 20
@@ -62,8 +63,7 @@ const doSearch = () => { page.value = 1; refresh() }
     <!-- 筛选 -->
     <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
       <div class="flex flex-wrap items-center gap-3">
-        <USelect v-model="typeFilter" :items="[
-          { value: '', label: '全部类型' },
+        <USelect v-model="typeFilter" placeholder="全部类型" :items="[
           { value: 'risk', label: '风险预警' },
           { value: 'upload_done', label: '上传完成' },
           { value: 'code_stock', label: '库存预警' },

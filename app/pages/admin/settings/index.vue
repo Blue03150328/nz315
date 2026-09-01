@@ -46,7 +46,8 @@ const saveEnterprise = async () => {
 }
 
 // ============ 用户管理（PRD 5.12.3） ============
-const ufilters = reactive({ keyword: '', role: '', status: '' })
+// 用户筛选：下拉类默认 undefined（Nuxt UI v4 空值自动显示 placeholder，禁止空字符串 value 选项）
+const ufilters = reactive({ keyword: '', role: undefined as string | undefined, status: undefined as string | undefined })
 const upage = ref(1)
 const pageSize = 20
 
@@ -113,7 +114,15 @@ const resetPw = async (row: any) => {
 }
 
 // ============ 操作日志（PRD 5.12.4） ============
-const lfilters = reactive({ keyword: '', module: '', action: '', result: '', dateFrom: '', dateTo: '' })
+// 日志筛选：下拉类默认 undefined（同上）
+const lfilters = reactive({
+  keyword: '',
+  module: undefined as string | undefined,
+  action: '',
+  result: undefined as string | undefined,
+  dateFrom: '',
+  dateTo: '',
+})
 const lpage = ref(1)
 
 const { data: logData, pending: logPending, refresh: refreshLogs } = await useFetch<any>('/api/admin/logs', {
@@ -230,13 +239,13 @@ const deleteBackup = async (b: any) => {
       </div>
     </div>
 
-    <!-- Tab 切换 -->
+    <!-- Tab 切换：Nuxt UI v4 的 UTabs 必须显式给 value，否则回退为索引（'0'/'1'…），下方面板的 v-if 会全部落空导致内容空白 -->
     <UTabs v-model="tab" :items="[
-      { label: '企业信息', icon: 'i-lucide-building-2' },
-      { label: '用户权限', icon: 'i-lucide-users' },
-      { label: '操作日志', icon: 'i-lucide-scroll-text' },
-      { label: '通知配置', icon: 'i-lucide-bell' },
-      { label: '数据备份', icon: 'i-lucide-database-backup' },
+      { label: '企业信息', icon: 'i-lucide-building-2', value: 'enterprise' },
+      { label: '用户权限', icon: 'i-lucide-users', value: 'users' },
+      { label: '操作日志', icon: 'i-lucide-scroll-text', value: 'logs' },
+      { label: '通知配置', icon: 'i-lucide-bell', value: 'notify' },
+      { label: '数据备份', icon: 'i-lucide-database-backup', value: 'backup' },
     ]" />
 
     <!-- 企业信息 -->
@@ -299,8 +308,8 @@ const deleteBackup = async (b: any) => {
         <div class="flex items-center justify-between">
           <div class="grid flex-1 gap-3 md:grid-cols-4">
             <UInput v-model="ufilters.keyword" placeholder="登录名 / 姓名 / 手机号" icon="i-lucide-search" @keyup.enter="upage = 1; refreshUsers()" />
-            <USelect v-model="ufilters.role" :items="[{ value: '', label: '全部角色' }, { value: 'enterprise_admin', label: '厂家主账号' }, { value: 'code_admin', label: '码管理员' }, { value: 'viewer', label: '只读账号' }]" />
-            <USelect v-model="ufilters.status" :items="[{ value: '', label: '全部状态' }, { value: '1', label: '启用' }, { value: '0', label: '禁用' }]" />
+            <USelect v-model="ufilters.role" :items="[{ value: 'enterprise_admin', label: '厂家主账号' }, { value: 'code_admin', label: '码管理员' }, { value: 'viewer', label: '只读账号' }]" placeholder="全部角色" class="w-full" />
+            <USelect v-model="ufilters.status" :items="[{ value: '1', label: '启用' }, { value: '0', label: '禁用' }]" placeholder="全部状态" class="w-full" />
             <div class="flex gap-2">
               <UButton color="primary" size="sm" icon="i-lucide-search" :loading="userPending" @click="upage = 1; refreshUsers()">查询</UButton>
             </div>
@@ -370,9 +379,10 @@ const deleteBackup = async (b: any) => {
         </div>
       </div>
 
-      <!-- 新增用户对话框 -->
-      <UModal v-model="showUserModal">
-        <div class="p-5">
+      <!-- 新增用户对话框（Nuxt UI v4：v-model:open 绑定 open 状态，内容必须放 #content 插槽） -->
+      <UModal v-model:open="showUserModal">
+        <template #content>
+        <div class="max-h-[80vh] overflow-y-auto p-5">
           <h3 class="text-base font-semibold text-default">新增用户</h3>
           <div class="mt-4 space-y-4">
             <div class="grid grid-cols-2 gap-3">
@@ -415,6 +425,7 @@ const deleteBackup = async (b: any) => {
             <UButton color="primary" :loading="userSaving" @click="saveUser">创建</UButton>
           </div>
         </div>
+        </template>
       </UModal>
     </div>
 
@@ -423,9 +434,9 @@ const deleteBackup = async (b: any) => {
       <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
         <div class="grid gap-3 md:grid-cols-6">
           <UInput v-model="lfilters.keyword" placeholder="操作人 / 模块 / 内容" icon="i-lucide-search" @keyup.enter="lpage = 1; refreshLogs()" />
-          <USelect v-model="lfilters.module" :items="[{ value: '', label: '全部模块' }, { value: '登录', label: '登录' }, { value: '系统设置', label: '系统设置' }, { value: '用户管理', label: '用户管理' }]" />
+          <USelect v-model="lfilters.module" :items="[{ value: '登录', label: '登录' }, { value: '系统设置', label: '系统设置' }, { value: '用户管理', label: '用户管理' }]" placeholder="全部模块" class="w-full" />
           <UInput v-model="lfilters.action" placeholder="操作类型" />
-          <USelect v-model="lfilters.result" :items="[{ value: '', label: '全部结果' }, { value: '1', label: '成功' }, { value: '0', label: '失败' }]" />
+          <USelect v-model="lfilters.result" :items="[{ value: '1', label: '成功' }, { value: '0', label: '失败' }]" placeholder="全部结果" class="w-full" />
           <UInput v-model="lfilters.dateFrom" type="date" placeholder="起" />
           <UInput v-model="lfilters.dateTo" type="date" placeholder="止" />
         </div>
@@ -478,88 +489,6 @@ const deleteBackup = async (b: any) => {
             <UButton variant="outline" color="neutral" size="sm" :disabled="lpage <= 1" @click="lpage--; refreshLogs()">上一页</UButton>
             <UButton variant="outline" color="neutral" size="sm" :disabled="lpage >= logTotalPages" @click="lpage++; refreshLogs()">下一页</UButton>
           </div>
-        </div>
-      </div>
-    </div>
-  
-    <!-- 通知配置（PRD 5.12.5） -->
-    <div v-if="tab === 'notify'" class="rounded-xl border border-border bg-elevated p-5 shadow-sm">
-      <h2 class="text-sm font-semibold text-default">消息通知配置</h2>
-      <p class="mt-1 text-xs text-muted">站内信通知开关与预警阈值（微信推送待公众号对接后开放）</p>
-      <div class="mt-5 space-y-4">
-        <div class="grid gap-4 md:grid-cols-2">
-          <div class="space-y-1.5">
-            <label class="block text-sm font-medium text-default">码库存预警阈值</label>
-            <UInput v-model="notifyForm.stockThreshold" type="number" placeholder="默认 10000 条" />
-            <p class="text-xs text-muted">某产品"已生成"可用码低于该值时触发库存预警</p>
-          </div>
-          <div class="space-y-1.5">
-            <label class="block text-sm font-medium text-default">每日数据日报发送时间</label>
-            <UInput v-model="notifyForm.dailyReportTime" type="time" placeholder="08:00" />
-          </div>
-        </div>
-        <div class="grid gap-3 md:grid-cols-2">
-          <div v-for="n in notifySwitches" :key="n.key" class="flex items-center justify-between rounded-lg border border-border/60 p-3">
-            <div>
-              <div class="text-sm font-medium text-default">{{ n.label }}</div>
-              <div class="text-xs text-muted">{{ n.desc }}</div>
-            </div>
-            <USwitch v-model="notifyForm[n.key]" />
-          </div>
-        </div>
-        <div class="flex justify-end">
-          <UButton color="primary" icon="i-lucide-save" :loading="notifySaving" @click="saveNotify">保存配置</UButton>
-        </div>
-      </div>
-    </div>
-
-    <!-- 数据备份（PRD 5.12.6） -->
-    <div v-if="tab === 'backup'" class="space-y-4">
-      <div v-if="!isPlatformAdmin" class="rounded-xl border border-warning/30 bg-warning/5 p-4 text-sm text-warning">
-        数据备份仅总部管理员可用
-      </div>
-      <div v-else class="rounded-xl border border-border bg-elevated p-5 shadow-sm">
-        <div class="flex items-center justify-between">
-          <div>
-            <h2 class="text-sm font-semibold text-default">手动备份</h2>
-            <p class="mt-1 text-xs text-muted">mysqldump 全库导出（--single-transaction 不锁表），备份文件仅保存在本机 backup 目录</p>
-          </div>
-          <UButton color="primary" icon="i-lucide-database-backup" :loading="backingUp" @click="doBackup">立即备份</UButton>
-        </div>
-      </div>
-
-      <div class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
-        <div class="flex items-center justify-between border-b border-border/60 px-4 py-3">
-          <span class="text-sm font-semibold text-default">备份历史</span>
-          <span class="text-xs text-muted">共 {{ backupRows.length }} 个备份</span>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
-            <thead>
-              <tr class="border-b border-border/60 bg-muted/30 text-xs text-muted">
-                <th class="px-4 py-3 font-medium">文件名</th>
-                <th class="px-4 py-3 font-medium">大小</th>
-                <th class="px-4 py-3 font-medium">备份时间</th>
-                <th class="px-4 py-3 font-medium">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="b in backupRows" :key="b.file" class="border-b border-border/40 transition-colors hover:bg-muted/30">
-                <td class="px-4 py-3 font-code text-xs text-default">{{ b.file }}</td>
-                <td class="px-4 py-3 text-muted">{{ (b.size / 1024).toFixed(1) }} KB</td>
-                <td class="px-4 py-3 text-muted">{{ b.time }}</td>
-                <td class="px-4 py-3">
-                  <div class="flex gap-1.5">
-                    <a :href="'/api/admin/backup/download?file=' + encodeURIComponent(b.file)" class="rounded-lg px-2 py-1 text-xs text-primary hover:bg-primary/10">下载</a>
-                    <UButton variant="ghost" color="error" size="xs" @click="deleteBackup(b)">删除</UButton>
-                  </div>
-                </td>
-              </tr>
-              <tr v-if="!backupRows.length">
-                <td colspan="4" class="px-4 py-10 text-center text-sm text-muted">暂无备份，点击「立即备份」创建</td>
-              </tr>
-            </tbody>
-          </table>
         </div>
       </div>
     </div>

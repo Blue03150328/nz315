@@ -207,8 +207,9 @@ const doSearch = () => { page.value = 1; refresh() }
       </div>
     </div>
 
-    <!-- 箱内码详情 -->
-    <UModal v-model="showDetail">
+    <!-- 箱内码详情（Nuxt UI v4：v-model:open 绑定 open 状态，内容必须放 #content 插槽） -->
+    <UModal v-model:open="showDetail">
+      <template #content>
       <div class="max-h-[70vh] overflow-y-auto p-5">
         <h3 class="text-base font-semibold text-default">外箱码详情</h3>
         <p class="mt-1 break-all font-code text-xs text-muted">{{ detail?.outerBoxCode }}</p>
@@ -233,11 +234,13 @@ const doSearch = () => { page.value = 1; refresh() }
           </table>
         </div>
       </div>
+      </template>
     </UModal>
 
-    <!-- 解绑确认 -->
-    <UModal v-model="showUnbind">
-      <div class="p-5">
+    <!-- 解绑确认（Nuxt UI v4：v-model:open 绑定 open 状态，内容必须放 #content 插槽） -->
+    <UModal v-model:open="showUnbind">
+      <template #content>
+      <div class="max-h-[80vh] overflow-y-auto p-5">
         <h3 class="text-base font-semibold text-default">解绑外箱码</h3>
         <p class="mt-1 break-all font-code text-xs text-muted">{{ unbindOuter }}</p>
         <p class="mt-2 rounded-lg bg-error/5 p-3 text-xs text-error">解绑后箱内单品码可重新归属其他外箱码，此操作不可撤销</p>
@@ -250,6 +253,7 @@ const doSearch = () => { page.value = 1; refresh() }
           <UButton color="error" :loading="unbinding" :disabled="unbindConfirm !== '确认解绑'" @click="doUnbind">确认解绑</UButton>
         </div>
       </div>
+      </template>
     </UModal>
   </div>
 </template>

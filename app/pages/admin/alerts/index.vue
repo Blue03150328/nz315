@@ -4,7 +4,14 @@ definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
 useHead({ title: '风险预警' })
 
 const toast = useToast()
-const filters = reactive({ keyword: '', alertType: '', status: '', dateFrom: '', dateTo: '' })
+// 筛选条件：下拉类默认 undefined（Nuxt UI v4 空值自动显示 placeholder，禁止空字符串 value 选项）
+const filters = reactive({
+  keyword: '',
+  alertType: undefined as string | undefined,
+  status: undefined as string | undefined,
+  dateFrom: '',
+  dateTo: '',
+})
 const page = ref(1)
 const pageSize = 20
 
@@ -63,7 +70,7 @@ const submitHandle = async () => {
 }
 
 const doSearch = () => { page.value = 1; refresh() }
-const resetSearch = () => { filters.keyword = ''; filters.alertType = ''; filters.status = ''; filters.dateFrom = ''; filters.dateTo = ''; page.value = 1; refresh() }
+const resetSearch = () => { filters.keyword = ''; filters.alertType = undefined; filters.status = undefined; filters.dateFrom = ''; filters.dateTo = ''; page.value = 1; refresh() }
 </script>
 
 <template>
@@ -104,8 +111,8 @@ const resetSearch = () => { filters.keyword = ''; filters.alertType = ''; filter
     <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
       <div class="grid gap-3 md:grid-cols-5">
         <UInput v-model="filters.keyword" placeholder="追溯码 / 产品名" icon="i-lucide-search" @keyup.enter="doSearch" />
-        <USelect v-model="filters.alertType" :items="[{ value: '', label: '全部类型' }, ...ALERT_OPTIONS.map(o => ({ value: String(o.value), label: o.label }))]" />
-        <USelect v-model="filters.status" :items="[{ value: '', label: '全部状态' }, { value: '0', label: '待处理' }, { value: '1', label: '已核实合规' }, { value: '2', label: '已确认违规' }]" />
+        <USelect v-model="filters.alertType" :items="ALERT_OPTIONS.map(o => ({ value: String(o.value), label: o.label }))" placeholder="全部类型" class="w-full" />
+        <USelect v-model="filters.status" :items="[{ value: '0', label: '待处理' }, { value: '1', label: '已核实合规' }, { value: '2', label: '已确认违规' }]" placeholder="全部状态" class="w-full" />
         <UInput v-model="filters.dateFrom" type="date" placeholder="触发起" />
         <UInput v-model="filters.dateTo" type="date" placeholder="触发止" />
       </div>
@@ -174,9 +181,10 @@ const resetSearch = () => { filters.keyword = ''; filters.alertType = ''; filter
       </div>
     </div>
 
-    <!-- 处理对话框 -->
-    <UModal v-model="showHandle">
-      <div class="p-5">
+    <!-- 处理对话框（Nuxt UI v4：v-model:open 绑定 open 状态，内容必须放 #content 插槽） -->
+    <UModal v-model:open="showHandle">
+      <template #content>
+      <div class="max-h-[80vh] overflow-y-auto p-5">
         <h3 class="text-base font-semibold text-default">处理预警</h3>
         <p class="mt-1 text-xs text-muted">
           {{ current?.alertTypeLabel }} · {{ current?.code || '-' }}
@@ -210,6 +218,7 @@ const resetSearch = () => { filters.keyword = ''; filters.alertType = ''; filter
           <UButton color="primary" :loading="handling" @click="submitHandle">确认处理</UButton>
         </div>
       </div>
+      </template>
     </UModal>
   </div>
 </template>

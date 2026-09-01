@@ -4,7 +4,8 @@ definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
 useHead({ title: '生产批次' })
 
 const toast = useToast()
-const filters = reactive({ keyword: '', productId: '' })
+// 筛选条件：下拉类默认 undefined（Nuxt UI v4 空值自动显示 placeholder，禁止空字符串 value 选项）
+const filters = reactive({ keyword: '', productId: undefined as string | undefined })
 const page = ref(1)
 const pageSize = 20
 
@@ -105,7 +106,7 @@ const removeBatch = async (row: any) => {
 }
 
 const doSearch = () => { page.value = 1; refresh() }
-const resetSearch = () => { filters.keyword = ''; filters.productId = ''; page.value = 1; refresh() }
+const resetSearch = () => { filters.keyword = ''; filters.productId = undefined; page.value = 1; refresh() }
 </script>
 
 <template>
@@ -124,8 +125,8 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = ''; page.v
         <UInput v-model="filters.keyword" placeholder="批号 / 产品名 / 合格证号" icon="i-lucide-search" @keyup.enter="doSearch" />
         <USelect
           v-model="filters.productId"
-          :items="[{ value: '', label: '全部产品' }, ...(productData?.rows || []).map((p: any) => ({ value: String(p.id), label: p.name }))]"
-          placeholder="按产品筛选"
+          :items="(productData?.rows || []).map((p: any) => ({ value: String(p.id), label: p.name }))"
+          placeholder="全部产品"
           class="w-full"
           :content="{ class: 'min-w-72' }"
           :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
@@ -198,9 +199,10 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = ''; page.v
       </div>
     </div>
 
-    <!-- 新建/编辑对话框 -->
-    <UModal v-model="showModal">
-      <div class="p-5">
+    <!-- 新建/编辑对话框（Nuxt UI v4：v-model:open 绑定 open 状态，内容必须放 #content 插槽） -->
+    <UModal v-model:open="showModal">
+      <template #content>
+      <div class="max-h-[80vh] overflow-y-auto p-5">
         <h3 class="text-base font-semibold text-default">{{ editingId ? '编辑批次' : '新建批号' }}</h3>
         <div class="mt-4 space-y-4">
           <div class="space-y-1.5">
@@ -254,6 +256,7 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = ''; page.v
           <UButton color="primary" :loading="saving" @click="save">保存</UButton>
         </div>
       </div>
+      </template>
     </UModal>
   </div>
 </template>

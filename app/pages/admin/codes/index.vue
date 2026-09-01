@@ -5,19 +5,24 @@ definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
 useHead({ title: '码库管理' })
 
 const toast = useToast()
-const filters = reactive({ keyword: '', status: '', abnormalFlag: '', dateFrom: '', dateTo: '' })
+// 筛选条件：下拉类默认 undefined（Nuxt UI v4 空值自动显示 placeholder，禁止空字符串 value 选项）
+const filters = reactive({
+  keyword: '',
+  status: undefined as string | undefined,
+  abnormalFlag: undefined as string | undefined,
+  dateFrom: '',
+  dateTo: '',
+})
 const page = ref(1)
 const pageSize = 20
 const selected = ref<number[]>([])
 
-// 筛选下拉选项
+// 筛选下拉选项（「全部」由 placeholder 承载，reka-ui 禁止空字符串 value）
 const STATUS_OPTIONS = [
-  { value: '', label: '全部状态' },
   { value: '1', label: '已生成' },
   { value: '2', label: '已绑定' },
 ]
 const FLAG_OPTIONS = [
-  { value: '', label: '全部标记' },
   { value: '0', label: '正常' },
   { value: '1', label: '已冻结' },
   { value: '2', label: '已作废' },
@@ -115,9 +120,10 @@ const FLAG_NOTE = {
 // 批量修正（PRD 5.8 场景8：关联批次/生产日期/有效期/质检）
 const showCorrectModal = ref(false)
 const correcting = ref(false)
+// 批量修正表单：batchId=0 与 qcResult='keep' 为「不修改」哨兵值（reka-ui 禁止空字符串 value）
 const correctForm = reactive({
-  batchId: null as number | null,
-  produceDate: '', expireDate: '', qcResult: '', qualityCertNo: '',
+  batchId: 0 as number,
+  produceDate: '', expireDate: '', qcResult: 'keep', qualityCertNo: '',
 })
 const { data: batchAll } = await useFetch<any>('/api/admin/batches', {
   key: 'admin-batches-correct',
@@ -125,14 +131,14 @@ const { data: batchAll } = await useFetch<any>('/api/admin/batches', {
 })
 
 const openCorrect = () => {
-  Object.assign(correctForm, { batchId: null, produceDate: '', expireDate: '', qcResult: '', qualityCertNo: '' })
+  Object.assign(correctForm, { batchId: 0, produceDate: '', expireDate: '', qcResult: 'keep', qualityCertNo: '' })
   showCorrectModal.value = true
 }
 
 const submitCorrect = async () => {
   const ids = selected.value
   if (!ids.length) { toast.add({ title: '请选择追溯码', color: 'warning' }); return }
-  if (!correctForm.batchId && !correctForm.produceDate && !correctForm.expireDate && !correctForm.qcResult && !correctForm.qualityCertNo) {
+  if (!correctForm.batchId && !correctForm.produceDate && !correctForm.expireDate && correctForm.qcResult === 'keep' && !correctForm.qualityCertNo) {
     toast.add({ title: '请至少选择一个要修改的字段', color: 'warning' }); return
   }
   correcting.value = true
@@ -144,7 +150,7 @@ const submitCorrect = async () => {
         batchId: correctForm.batchId || undefined,
         produceDate: correctForm.produceDate || undefined,
         expireDate: correctForm.expireDate || undefined,
-        qcResult: correctForm.qcResult === '' ? undefined : Number(correctForm.qcResult),
+        qcResult: correctForm.qcResult === 'keep' ? undefined : Number(correctForm.qcResult),
         qualityCertNo: correctForm.qualityCertNo || undefined,
       },
     })
@@ -161,7 +167,7 @@ const submitCorrect = async () => {
 
 const doSearch = () => { page.value = 1; refresh() }
 const resetSearch = () => {
-  filters.keyword = ''; filters.status = ''; filters.abnormalFlag = ''; filters.dateFrom = ''; filters.dateTo = ''
+  filters.keyword = ''; filters.status = undefined; filters.abnormalFlag = undefined; filters.dateFrom = ''; filters.dateTo = ''
   page.value = 1; refresh()
 }
 </script>
@@ -188,11 +194,11 @@ const resetSearch = () => {
         </div>
         <div>
           <label class="mb-1.5 block text-xs text-[#606266]">码状态</label>
-          <USelect v-model="filters.status" :items="STATUS_OPTIONS" />
+          <USelect v-model="filters.status" :items="STATUS_OPTIONS" placeholder="全部状态" class="w-full" />
         </div>
         <div>
           <label class="mb-1.5 block text-xs text-[#606266]">异常标记</label>
-          <USelect v-model="filters.abnormalFlag" :items="FLAG_OPTIONS" />
+          <USelect v-model="filters.abnormalFlag" :items="FLAG_OPTIONS" placeholder="全部标记" class="w-full" />
         </div>
         <div>
           <label class="mb-1.5 block text-xs text-[#606266]">创建日期起</label>
@@ -308,9 +314,10 @@ const resetSearch = () => {
       </div>
     </div>
 
-    <!-- 异常标记操作对话框 -->
-    <UModal v-model="showFlagModal">
-      <div class="p-4">
+    <!-- 异常标记操作对话框（Nuxt UI v4：v-model:open 绑定 open 状态，内容必须放 #content 插槽） -->
+    <UModal v-model:open="showFlagModal">
+      <template #content>
+      <div class="max-h-[80vh] overflow-y-auto p-4">
         <div class="flex items-center gap-2.5 border-b border-[#ebeef5] pb-3">
           <div class="flex h-8 w-8 items-center justify-center rounded-sm bg-[#f5f7fa]">
             <UIcon :name="FLAG_META[flagAction].icon" class="h-4 w-4" :class="FLAG_META[flagAction].color" />
@@ -333,11 +340,13 @@ const resetSearch = () => {
           <UButton color="neutral" variant="solid" :loading="flagging" @click="submitFlag">确认执行</UButton>
         </div>
       </div>
+      </template>
     </UModal>
 
-    <!-- 批量修正对话框（PRD 5.8） -->
-    <UModal v-model="showCorrectModal">
-      <div class="p-4">
+    <!-- 批量修正对话框（PRD 5.8；Nuxt UI v4：v-model:open + #content 插槽） -->
+    <UModal v-model:open="showCorrectModal">
+      <template #content>
+      <div class="max-h-[85vh] overflow-y-auto p-4">
         <div class="flex items-center gap-2.5 border-b border-[#ebeef5] pb-3">
           <div class="flex h-8 w-8 items-center justify-center rounded-sm bg-[#f5f7fa]">
             <UIcon name="i-lucide-wrench" class="h-4 w-4 text-[#606266]" />
@@ -352,7 +361,7 @@ const resetSearch = () => {
             <label class="mb-1.5 block text-sm text-[#303133]">重新绑定批次（仅"已生成"码生效，绑定后自动置为"已绑定"）</label>
             <USelect
               v-model="correctForm.batchId"
-              :items="[{ value: '', label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
+              :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
               class="w-full"
               :content="{ class: 'min-w-72' }"
               :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
@@ -372,7 +381,7 @@ const resetSearch = () => {
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="mb-1.5 block text-sm text-[#303133]">质量检验结果</label>
-              <USelect v-model="correctForm.qcResult" :items="[{ value: '', label: '不修改' }, { value: '1', label: '合格' }, { value: '0', label: '不合格' }]" />
+              <USelect v-model="correctForm.qcResult" :items="[{ value: 'keep', label: '不修改' }, { value: '1', label: '合格' }, { value: '0', label: '不合格' }]" class="w-full" />
             </div>
             <div>
               <label class="mb-1.5 block text-sm text-[#303133]">质量合格证号</label>
@@ -389,6 +398,7 @@ const resetSearch = () => {
           <UButton color="neutral" variant="solid" :loading="correcting" @click="submitCorrect">确认修正</UButton>
         </div>
       </div>
+      </template>
     </UModal>
   </div>
 </template>

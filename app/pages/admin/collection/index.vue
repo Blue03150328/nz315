@@ -14,7 +14,8 @@ const parseResult = ref<any>(null)
 const importing = ref(false)
 
 // 导入表单
-const importForm = reactive({ productId: null as number | null, batchId: null as number | null })
+// 导入表单：batchId=0 为「不绑定批次」哨兵值（reka-ui 禁止空字符串 value，0 在提交时转 undefined）
+const importForm = reactive({ productId: null as number | null, batchId: 0 as number })
 
 const { data: productData } = await useFetch<any>('/api/admin/products', {
   key: 'admin-products-coll',
@@ -58,7 +59,7 @@ const doParse = async () => {
       body: { content, fileName: fileName.value },
     })
     importForm.productId = null
-    importForm.batchId = null
+    importForm.batchId = 0
     autoSelectProduct()
     toast.add({ title: '解析完成：有效 ' + parseResult.value.validCount + ' / 无效 ' + parseResult.value.invalidCount, color: 'success' })
   } catch (e: any) {
@@ -204,7 +205,7 @@ const reasonChips = computed(() => {
             <label class="block text-sm text-muted">绑定批次（可选；绑定后三要素齐全 → 码状态"已绑定"）</label>
             <USelect
               v-model="importForm.batchId"
-              :items="[{ value: '', label: '不绑定（码状态：已生成）' }, ...(batchData?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.produce_date + '）' }))]"
+              :items="[{ value: 0, label: '不绑定（码状态：已生成）' }, ...(batchData?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.produce_date + '）' }))]"
               placeholder="选择批次"
               class="w-full"
               :content="{ class: 'min-w-72' }"
