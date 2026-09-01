@@ -1,5 +1,12 @@
 ## 变更记录
 
+### 2026-09-01 | 产品/规格管理新增表单改为弹窗（UModal v4 迁移修复：v-model:open + #content 插槽 + 筛选下拉 placeholder）
+- **工作内容**：用户反馈「产品管理和产品规格管理板块的新增界面直勾勾展示在页面的下方不美观，点击新增按钮才弹出」。排查发现这是 Nuxt UI v3→v4 迁移遗留的**三叠加 bug**：①**UModal 默认插槽语义变化**——v3 默认插槽=弹窗内容，v4 默认插槽=触发按钮（DialogTrigger），内容必须放 #content 插槽；原代码把整个表单放默认插槽，SSR 时被当作 trigger 直列渲染在页面流中（即用户看到的「直勾勾展示在下方」）；②**v-model 绑定无效**——v4 UModal 只有 open prop + update:open 事件，无 modelValue prop，原 v-model="showModal" 绑定无效（点击新增按钮 open 状态根本不更新，弹窗打不开），必须 v-model:open；③**reka-ui SelectItem 空字符串 value 校验**——v4 底层 reka-ui 禁止 { value: '' } 选项（会抛「must have a value prop that is not an empty string」500 错误页），原筛选下拉「全部类别/全部状态」等选项全用空字符串 value，改为 placeholder 承载（筛选值默认 undefined）。
+- **修改文件**：app/pages/admin/products/index.vue、app/pages/admin/specs/index.vue（filters 默认值改 undefined、筛选 USelect 去空字符串选项改 placeholder、UModal 改 v-model:open + 表单内容包进 #content 插槽）
+- **测试情况**：生产构建通过；SSR HTML 验证两个页面不再直列渲染表单字段；CDP 真实鼠标点击（Edge headless）验证：点击「新增产品/新增规格」按钮后 role=dialog 真实弹出且可见（含完整表单字段、保存/取消按钮），无 JS 异常；提交 a7657ee
+- **遗留问题/待办**：**其余 5 个页面 7 处 UModal 仍是同款 bug 写法**（v-model + 默认插槽直放内容）：alerts/index.vue（showHandle）、batches/index.vue（showModal）、codes/index.vue（showFlagModal/showCorrectModal）、boxes/index.vue（showDetail/showUnbind）、settings/index.vue（showUserModal）——弹窗同样打不开且内容直列，需按本页模式迁移；另其他页面筛选下拉若含空字符串 value 选项（batches/alerts/statistics 等）也需改 placeholder
+- **给下一个 Agent 的提示**：①Nuxt UI v4 的 UModal 必须 v-model:open + 内容放 #content 插槽（v3 的 v-model + 默认插槽写法在 v4 完全失效且不报错）；②reka-ui SelectItem 禁止空字符串 value，「全部」类选项一律用 placeholder；③v4 USelect 空值（undefined/null）自动显示 placeholder，filters 默认值用 undefined 而非 ''；④本机 dev 不可用，改 UI 后须生产构建 + CDP 验证弹窗真实弹出（仅看 SSR HTML 不够，v-model 绑定错误在 SSR 无报错）
+
 ### 2026-09-01 | 产品/规格下拉框加宽修复（完整显示产品名）
 - **工作内容**：修复后台多处下拉选择框过窄导致产品名被截断的问题（用户反馈「看不见产品完整名字」）。根因：Nuxt UI v4 USelect 的 trigger 为 inline-flex（宽度只够显示占位符），且下拉面板宽度跟随 trigger（w-(--reka-select-trigger-width)）、选项文字默认 truncate。修复：trigger 加 w-full 撑满父容器、面板加 min-w-72 最小宽度兜底、选项文字 whitespace-normal break-words 允许换行。涉及 7 处下拉：生成页产品选择（用户反馈位置）、生产采集关联产品/绑定批次、产品管理规格选择、批次管理筛选/关联产品、码库管理重新绑定批次。
 - **修改文件**：app/pages/admin/generator/index.vue、app/pages/admin/collection/index.vue、app/pages/admin/products/index.vue、app/pages/admin/batches/index.vue、app/pages/admin/codes/index.vue（各 +3 行属性）
