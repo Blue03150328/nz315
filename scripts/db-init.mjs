@@ -1,4 +1,4 @@
-// 数据库初始化脚本：按 PRD 第七章创建 9 张表 + 演示数据
+// 数据库初始化脚本：按 PRD 第七章创建 11 张表 + 演示数据
 // 用法：node scripts/db-init.mjs
 'use strict';
 import mysql from 'mysql2/promise';
@@ -30,7 +30,7 @@ const DB = {
   database: env.DB_NAME || 'nz315',
 };
 
-// PRD 第七章 DDL（9 张表）
+// PRD 第七章 DDL（9 张核心表）+ message / system_setting（共 11 张）
 const DDL = [
   `CREATE TABLE IF NOT EXISTS enterprise (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -199,6 +199,28 @@ const DDL = [
     KEY idx_type (alert_type),
     KEY idx_trigger (trigger_time)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  // 站内消息（PRD 5.11 消息中心）——此前遗漏未纳入初始化脚本，新环境会缺表导致消息中心/风险预警通知报错
+  `CREATE TABLE IF NOT EXISTS message (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    enterprise_id BIGINT NULL,
+    user_id BIGINT NULL,
+    type VARCHAR(30) NOT NULL COMMENT 'risk风险预警/upload_done上传完成/code_stock库存预警/account账号安全/other系统通知',
+    title VARCHAR(200) NOT NULL,
+    content TEXT NULL,
+    link VARCHAR(255) NULL COMMENT '点击跳转路径',
+    is_read TINYINT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_enterprise_read (enterprise_id, is_read),
+    KEY idx_user (user_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='站内消息'`,
+  // 系统配置键值（PRD 5.12.5/5.12.7：库存预警阈值、通知配置等）——同样此前遗漏
+  `CREATE TABLE IF NOT EXISTS system_setting (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    enterprise_id BIGINT NULL,
+    k VARCHAR(50) NOT NULL COMMENT '配置键',
+    v TEXT NULL COMMENT '配置值（JSON 或标量）',
+    UNIQUE KEY uq_ent_key (enterprise_id, k)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统配置'`,
 ];
 
 // 演示数据（seed）
@@ -306,7 +328,7 @@ async function main() {
   for (const ddl of DDL) {
     await conn.query(ddl);
   }
-  console.log('[db] 9 张表创建完成');
+  console.log('[db] ' + DDL.length + ' 张表创建完成');
 
   // 3) seed
   await seed(conn);
