@@ -1,5 +1,19 @@
 ## 变更记录
 
+### 2026-09-01 | 消费者体系落地：微信登录 + 个人中心 + 附近农资店（并修复两个既有 bug）
+- **工作内容**：按用户决策为公众端补齐三项能力（微信公众号网页授权登录、个人中心、附近农资店），**均为前后端一起做**——此前这三块我方后端完全空白。四项架构决策：①微信用**公众号网页授权**（snsapi_userinfo）；②非微信环境**不做备选登录**，仅引导「请在微信中打开」；③「查询档案」与「查询历史」合并为同一份数据；④农资店采用**自建门店库**，高德只做地图与距离。
+- **实施要点**：
+  ① **消费者身份体系**（提交 6cfb410）：新增 `consumer` 表；`scan_log` 增列 `consumer_id` + 索引（新增 `migrate()` 增量迁移函数，因 `CREATE TABLE IF NOT EXISTS` 不会改动已有表）。**会话安全**：消费者独立 Cookie `nz315_consumer`，与后台共用密钥但 payload 带 `consumer:` 命名空间前缀，**两类 token 不可互换**（后台校验解析出 NaN 即拒，消费者校验强制要求前缀），已双向实测并设合法后台会话 200 作对照组；微信凭据未配置时授权接口直接 503，**不做任何模拟登录**；state 承载回跳路径并强制校验为站内相对路径，防开放重定向。
+  ② **个人中心**（提交 2e64067）：`/profile` 三态引导（未配置/非微信/微信内），已登录展示昵称头像与「我的查询记录」（数据来自真实 `scan_log`，不另建收藏表）。修了一处自己写出的 SSR bug——原 `immediate:false` + watch 触发的写法，异步刷新不会被 SSR 等待、首屏必为空列表，改为利用已 await 的登录态直接 `immediate: loggedIn.value`；同时修正 BottomNav 渲染顺序（原实现先渲染全部链接再固定渲染扫码按钮，新增入口后扫码会被挤到末位）。
+  ③ **附近农资店**（提交 019837e）：新增 `agro_store` 表与后台「门店管理」页（复用 `b-*` 设计语言）+ 公众端 `/nearby-stores`。**关键设计：不依赖高德密钥即可用**——定位用浏览器原生 API（WGS-84），经 `app/composables/useGeoConvert.ts` 转 GCJ-02 后查询，距离由服务端 haversine 计算（先用外接矩形借 `idx_geo` 缩小范围再精算），高德仅用于地图展示，未配密钥时自动降级为纯列表。
+- **顺带修复的两个既有 bug**：
+  - **db-init 缺建两张表**（提交 d799728）：脚本只建 9 张表却输出「9 张表创建完成」，而代码实际读写 11 张——`message`（消息中心）与 `system_setting`（库存预警阈值/通知配置）从未纳入初始化，本地库中这两张是当初手工建的。**任何新环境按文档初始化都会缺表**，消息中心/通知配置/数据概览均会报错。已按真实结构补入并把「9 张」改为 `DDL.length` 防再次不同步。
+  - **业务操作日志缺失操作人**（提交 5c5ac25）：`audit.logOperation()` 从 `event.context.authUser` 取操作人，但**全代码库无任何地方给它赋值**。实测 174 条日志中，登录日志 134 条完整（`logLogin` 显式传 userId），而**业务操作日志 40 条操作人全为 NULL**（码库管理 29／用户管理 5／系统设置 3／数据备份 2／风险预警 1）——批量作废、用户增删、数据备份等敏感操作无法追溯到人，违反 PRD 5.12.4 与 8.4「审计日志完整率 100%」。已在 `getCurrentUser()` 中挂载上下文，一处修复覆盖全部受保护接口。
+- **修改文件**：`scripts/db-init.mjs`、`server/utils/{auth,consumer-auth}.ts`、`server/api/consumer/*`（5 个）、`server/api/{stores/nearby,admin/stores*}`（4 个）、`server/api/trace.get.ts`、`app/pages/{profile,nearby-stores}.vue`、`app/pages/admin/stores/index.vue`、`app/composables/useGeoConvert.ts`、`app/components/{BottomNav,AppHeader}.vue`、`app/layouts/admin.vue`、`nuxt.config.ts`、`.env.example`
+- **测试情况**：tsc 0 错误；生产构建通过；db-init 幂等重跑（含迁移不重复执行）；消费者链路 6+7 项全通过（含双向 token 隔离与对照组、篡改签名失效、登录后扫码正确归属、查询记录联表）；微信分支 5 项全通过（授权 URL 含正确 appid 与 scope、**开放重定向被归一**）；个人中心配置态自适应 7 项全通过；门店 8 项 + 坐标转换 4 项全通过（**天安门转换与公认值偏差 17.7 米、境内纠偏 555 米**）；SSR 回归 16 项、CDP 22 项全通过
+- **遗留问题/待办**：①**等待用户提供凭据**——微信 AppID/AppSecret（还需在公众平台配置网页授权域名 www.nz315.cn）、高德 JS API key 与安全密钥；配好后需真机走一次授权回调与地图渲染；②`runtimeConfig` 构建时内嵌，运行期覆盖须用 `NUXT_` 前缀（`NUXT_WECHAT_APP_ID` 等），与 SESSION_SECRET 同源踩坑，部署文档需补；③门店省市区为三段手填（无地区字典与级联组件），坐标需人工录入，后续可考虑接高德地理编码自动补坐标；④演示门店 3 家为本地验证数据，上线前应清空并导入真实门店；⑤上一轮遗留项（预警类型列配色、预警统计口径、重置密码原生 prompt、产品登记证过期高亮）仍未处理。
+- **给下一个 Agent 的提示**：①**新增消费者相关接口时务必用 `requireConsumer`/`getCurrentConsumer`，不要复用后台的 `requireBackendUser`**——两套身份体系是刻意隔离的；②任何「未配置凭据」的降级路径都**不得伪造数据或假登录**（本项目已因伪造核验接口清理过一次）；③浏览器定位是 WGS-84，本项目门店库与高德是 GCJ-02，**混用会产生数百米误差**，务必经 `wgs84ToGcj02()` 转换；④`event.context.authUser` 现由 `getCurrentUser()` 挂载，新写的审计日志直接调 `logOperation(event, ...)` 即可拿到操作人。
+
 ### 2026-09-01 | 清理农码查移植遗留的 767 行死代码（含一个输出伪造核验结果的演示接口）
 - **工作内容**：本轮转向「完善前端界面」，以桌面参考项目「农码查」（`C:\Users\Administrator\Desktop\二维码展示网站\农码查-代码`）为视觉参考。调研先行，得到三条结论：
   ① **参考项目是 React 19 + Vite + Radix/shadcn 的 Mock 原型**，与我们的 Nuxt 4 + Vue 3 + Nuxt UI v4 技术栈不同源，代码不可复用；且其业务逻辑全为假（`MOCK_PESTICIDES`、扫码结果按 45%/25%/15%/15% 随机分发、localStorage 假登录），**只能取视觉，逻辑照搬会有害**；
@@ -216,13 +230,3 @@
 ### 2026-08-31 | 建立 Memory 系统与提交契约（AGENTS.md + PROJECT_LOG.md）
 - **工作内容**：按用户要求建立项目记忆系统：创建 `AGENTS.md`（用户全局偏好：JS 严格模式/中文 UI/中文注释/强制提交契约 + 项目速览/进度/踩坑），创建本变更记录档案，并注册 DSH 技能 `project-preferences`。
 - **修改文件**：`AGENTS.md`、`PROJECT_LOG.md`、`.dsh/skills/project-preferences/SKILL.md`
-- **测试情况**：git log 验证两次提交（c15eab2 V1.0 核心功能、6c859a1 Memory 系统）
-- **遗留问题/待办**：扫码统计、系统设置、异常码处理（V1.1）、码生成离线工具、外箱码管理、批量修正工具；待决项 D1-D4 见 PRD
-- **给下一个 Agent 的提示**：先读 `AGENTS.md` → `git log --oneline` → 本文件 → PRD；dev 端口 3100；.env 不入库
-
-### 2026-08-31 | 农资315追溯码管理平台 V1.0 核心功能（首个提交）
-- **工作内容**：完成平台 V1.0 核心：H5 扫码页（/trace?code=，10 场景）、后台六模块（登录/数据概览/码库/规格/产品/批次/采集）、9 张表数据库、认证与会话、码校验引擎。前端界面 1:1 复用农码查（农资315 绿色主题）。
-- **修改文件**：`app/`（全部页面与组件）、`server/`（API 与工具）、`shared/types/`、`scripts/db-init.mjs`、`nuxt.config.ts`、`package.json`
-- **测试情况**：SSR 全页面 200 验证、登录/CRUD/码解析导入端到端 Node 测试全过、Chrome 截图视觉验证
-- **遗留问题/待办**：见 AGENTS.md 项目进度段
-- **给下一个 Agent 的提示**：mysql2 JSON 列自动解析、query() 解构陷阱、模板禁 import.meta，详见 AGENTS.md 踩坑记录

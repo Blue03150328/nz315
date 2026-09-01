@@ -42,7 +42,7 @@
 
 ### 🗄️ 数据库（MySQL：`nz315`，连接配置在 `.env`，不提交仓库）
 
-11 张表（PRD 第七章 + message 消息 + system_setting 配置）：`enterprise`（企业）· `product_spec`（产品规格主数据，规格码=码第9-11位）· `product`（产品 SKU，登记证号全局唯一）· `batch`（生产批次，三要素）· `trace_code`（追溯码：两状态 status 1已生成/2已绑定 + 异常标记 abnormal_flag 0正常/1冻结/2作废，正交）· `user`（角色 platform_admin/enterprise_admin/code_admin/viewer，bcrypt 密码）· `operation_log` · `scan_log` · `risk_alert`
+13 张表（PRD 第七章 9 张 + message 消息 + system_setting 配置 + consumer 消费者 + agro_store 农资店）：`enterprise`（企业）· `product_spec`（产品规格主数据，规格码=码第9-11位）· `product`（产品 SKU，登记证号全局唯一）· `batch`（生产批次，三要素）· `trace_code`（追溯码：两状态 status 1已生成/2已绑定 + 异常标记 abnormal_flag 0正常/1冻结/2作废，正交）· `user`（角色 platform_admin/enterprise_admin/code_admin/viewer，bcrypt 密码）· `operation_log` · `scan_log`（含 `consumer_id`，登录消费者扫码归属） · `risk_alert` · `consumer`（微信 openid 唯一，公众端消费者） · `agro_store`（自建农资店库，坐标为 GCJ-02）
 
 演示账号：`admin/admin123`（总部）、`lvfeng/admin123`（厂家）、`codeop/admin123`（码管理员）
 
@@ -76,8 +76,11 @@
 - **Nuxt UI v4 迁移遗留 bug 全量清零**（2026-09-01，提交 e05ac71）：①**UModal 5 页 7 处**（alerts/batches/boxes×2/codes×2/settings）统一迁移 `v-model:open` + `#content` 插槽，弹窗恢复可用；②**空字符串 value 下拉 6 页 13 处**——筛选类改 placeholder 承载 +默认值 undefined，表单类「不修改/不绑定」改哨兵值（codes `batchId=0`/`qcResult='keep'`、collection `batchId=0`）保留可回退语义；③**新发现并修复系统设置两处缺陷**——`UTabs` items 缺 value 导致 v4 回退索引、点击任意 Tab 后 5 个面板 v-if 全部落空（用户权限/操作日志/通知配置/数据备份实际不可达），以及「通知配置+数据备份」整段重复渲染（删除重复 82 行）。验证：tsc 0 错误 + 生产构建 + CDP 真实点击 19/19 全通过 + 全后台 12 页回归无控制台错误
 - **全后台 B 端风格统一 + 共享设计语言基座**（2026-09-01，提交 0b9b12d / 248bdc0）：①`app/assets/css/main.css` 新增「B 端中后台设计语言」层——11 个色板变量 + 40 个语义类（`b-page-title`/`b-card`系/`b-form-grid`/`b-table`/`b-tag` 五语义色/`b-actions`/`b-empty`/`b-pager`/`b-bulkbar`/`b-note`/`b-modal`系/`b-stat`系），置于 `@layer components` 以便工具类覆盖；②**12 个后台页面全部迁移**（此前仅码库管理一页完成改造），连基准页 codes 也一并归一，全站只剩一种写法，页面级旧风格类与硬编码 Element 色值**清零**；③业务逻辑零改动（仅标签配色映射常量改语义类名，已用 script 块逐行比对脚本核验）；④顺带补齐 **PRD 5.6 批次效期预警**（已过期红 / ≤30 天临期黄，`expiryBadge()` 按当天零点整日差，无水合告警），按提交契约单独成一次 feat 提交。验证：tsc 0 错误 + 生产构建 + SSR 15 项 + CDP 真实点击 20 项 + DOM 客观测量 5 页全通过
 - **清理农码查移植遗留死代码**（2026-09-01，提交 945d338）：删除 767 行零引用代码——4 个与 `TraceResult/TraceAlert/TraceNotFound` 重复的未接线结果页组件、仅被它们引用的 `RegistrationCompareCard`、**零调用且返回伪造登记证核验结果的演示接口 `server/api/query/[code].get.ts`**（对 1049 合规项目属实质风险）、仅服务上述死代码的 `shared/types/compare.ts`，以及 `default.vue` 中指向不存在路由 `/result/` 的判断。`/q/:code` 旧路径重定向为活链路已保留。验证：引用核查零残留 + tsc + 构建 + SSR 15 项 + 公众端专项 7 项全通过
+- **公众端消费者体系**（2026-09-01，提交 6cfb410 / 2e64067 / 019837e）：①**微信公众号网页授权登录**（snsapi_userinfo），消费者独立 Cookie `nz315_consumer`，与后台共用密钥但 payload 带 `consumer:` 命名空间前缀，**两类 token 不可互换**（已双向实测）；凭据未配置时授权接口 503，**不做模拟登录**；state 强制校验为站内相对路径防开放重定向；②**个人中心 `/profile`**（三态引导：未配置/非微信/微信内；「查询档案」与「查询历史」按决策合并为一份，数据取自真实 `scan_log`）；③**附近农资店**：自建 `agro_store` 门店库 + 后台「门店管理」页 + 公众端 `/nearby-stores`，**不依赖高德密钥即可用**（浏览器定位 WGS-84 经 `useGeoConvert` 转 GCJ-02，距离由服务端 haversine 计算，高德仅用于地图展示，未配密钥自动降级为纯列表）
+- **两个既有 bug 修复**（2026-09-01，提交 d799728 / 5c5ac25）：①**db-init 缺建 `message` 与 `system_setting`**——新环境按文档初始化必缺表，消息中心/通知配置/数据概览会报错；②**业务操作日志操作人恒为 NULL**——`event.context.authUser` 全代码库无人赋值，实测 40 条业务日志（含批量作废/用户管理/数据备份）全部无法追溯到人，违反 PRD 5.12.4 与 8.4，已在 `getCurrentUser()` 挂载上下文
 
 **待办（按 PRD 版本规划）**：
+- **等待用户提供凭据**：微信 AppID/AppSecret（另需在公众平台配置网页授权域名 www.nz315.cn）、高德 JS API key + 安全密钥；配好后需真机验证授权回调与地图渲染
 - 自动备份调度与异地备份（OSS）、微信推送（需公众号对接）、异常类型 2/3/5/6/7/8 预警触发接入（依赖 D2 登记证库/IP 归属地）
 - 码生成离线 EXE 版（参考工具 E:\wokeplace\二维码生成离线软件 已有 electron 工程，Web 引擎已对齐可移植打包）
 - 待决项：D1 亿级数据方案（上线前定）、D2 登记证数据库对接、D3 限用农药、D4 旧规迁移
@@ -107,6 +110,10 @@
 | **Nuxt UI v4 UTabs items 必须显式给 value** （2026-09-01 实测） | 不给 value 时回退为索引 '0'/'1'…，配 `v-if="tab === 'xxx'"` 判断会**静默全部落空、页面空白无报错**；settings 页曾因此 4 个模块不可达 |
 | **reka-ui 禁止 SelectItem 空字符串 value** | `{ value: '' }` 抛「must have a value prop that is not an empty string」500 错误页；筛选「全部」用 placeholder + 默认值 undefined，表单「不修改」用哨兵值（0 / 'keep'）提交时归一 |
 | **Nuxt UI v4 Toast 不自动注入**（v3 自动） | 必须显式 `<UToaster />`（已放 app.vue），否则 21 处 useToast 静默失效——所有操作提示丢失 |
+| **两套身份体系刻意隔离，勿混用** | 后台用 `requireBackendUser`/`nz315_user`，消费者用 `requireConsumer`/`nz315_consumer`。两者共用签名密钥，靠 payload 命名空间前缀（`consumer:`）区分，**互换 token 必被拒**。新增消费者接口勿复用后台守卫 |
+| **浏览器定位是 WGS-84，门店库与高德是 GCJ-02** | 直接混用在国内有数百米偏差（实测济南纠偏 555 米），会让「附近门店」排序失真。必须经 `app/composables/useGeoConvert.ts` 的 `wgs84ToGcj02()` 转换 |
+| **runtimeConfig 运行期覆盖须用 `NUXT_` 前缀** | 构建时内嵌，`WECHAT_APP_ID` 只在构建时生效；运行期要用 `NUXT_WECHAT_APP_ID`/`NUXT_WECHAT_APP_SECRET`（与 SESSION_SECRET 同源踩坑，验证时踩过） |
+| **未配置凭据时禁止降级为假数据/假登录** | 本项目已因一个「返回伪造登记证核验结果」的演示接口清理过一次。正确做法：明确报错（如微信未配置 → 503）或功能性降级（如高德未配置 → 只是不显示地图，列表照常） |
 | **农码查参考项目只能取视觉，勿取逻辑** | 它是 Mock 原型（MOCK_PESTICIDES、扫码结果 45%/25%/15%/15% 随机、假登录）。上一次移植遗留了 767 行死代码，其中含一个**对外可达却返回伪造登记证核验结果**的演示接口（已于 945d338 删除）。移植 UI 前先确认 `shared/types/trace.ts` 有对应字段，**没有后端支撑的区块一律不做**（用药档案/附近农资店/举报工单/登记证比对/消费者账号均无我方后端） |
 | **公众端与后台是两套视觉基调，勿相互套用** | 公众端保农业绿友好风（渐变、rounded-xl、480px 移动壳）；后台是克制 B 端风（`b-*` 类、4px 圆角、无阴影、中性按钮） |
 | **后台新页面必须复用 `b-*` 设计语言类** | 类清单在 `app/assets/css/main.css` 末尾「B 端中后台设计语言」段；再手写 Element 色值会产生第二套风格。`b-table` 已内置 th/td 内边距与行样式，**别再给 th/td 写 `px-4 py-3`** |
