@@ -2,10 +2,11 @@
 const route = useRoute()
 const toast = useToast()
 
-// 当前已实现页面；查询记录/用药档案/我的等入口待后端需求确认后补充
+// 当前已实现页面（新增入口前须确认后端已有对应实现）
 const NAV = [
   { path: '/', label: '首页', icon: 'i-lucide-home', action: 'link' },
   { path: '/q/', label: '扫码查询', icon: 'i-lucide-scan-search', action: 'scan' },
+  { path: '/profile', label: '我的', icon: 'i-lucide-user-round', action: 'link' },
 ]
 
 const isActive = (path: string) => {
@@ -30,27 +31,29 @@ const handleScanTap = () => {
   <nav
     class="fixed bottom-0 left-1/2 z-50 w-full max-w-[480px] -translate-x-1/2 border-t border-border bg-elevated/95 backdrop-blur-md lg:hidden"
   >
+    <!-- 按 NAV 声明顺序统一渲染，链接与操作按钮混排（扫码为操作而非路由，需保持居中位置） -->
     <div class="grid" :style="{ gridTemplateColumns: 'repeat(' + NAV.length + ', minmax(0, 1fr))' }">
-      <NuxtLink
-        v-for="item in NAV.filter(n => n.action === 'link')"
-        :key="item.path"
-        :to="item.path"
-        class="flex flex-col items-center justify-center gap-1 py-2.5 text-xs transition-colors"
-        :class="isActive(item.path) ? 'text-primary' : 'text-muted hover:text-default'"
-      >
-        <UIcon :name="item.icon" class="h-6 w-6" />
-        <span class="text-sm font-medium">{{ item.label }}</span>
-      </NuxtLink>
-      <!-- 扫码为操作按钮而非路由 -->
-      <button
-        type="button"
-        class="flex flex-col items-center justify-center gap-1 py-2.5 text-xs transition-colors"
-        :class="route.path.startsWith('/q/') ? 'text-primary' : 'text-muted hover:text-default'"
-        @click="handleScanTap"
-      >
-        <UIcon name="i-lucide-scan-search" class="h-6 w-6" />
-        <span class="text-sm font-medium">扫码查询</span>
-      </button>
+      <template v-for="item in NAV" :key="item.path">
+        <NuxtLink
+          v-if="item.action === 'link'"
+          :to="item.path"
+          class="flex flex-col items-center justify-center gap-1 py-2.5 text-xs transition-colors"
+          :class="isActive(item.path) ? 'text-primary' : 'text-muted hover:text-default'"
+        >
+          <UIcon :name="item.icon" class="h-6 w-6" />
+          <span class="text-sm font-medium">{{ item.label }}</span>
+        </NuxtLink>
+        <button
+          v-else
+          type="button"
+          class="flex flex-col items-center justify-center gap-1 py-2.5 text-xs transition-colors"
+          :class="route.path.startsWith(item.path) ? 'text-primary' : 'text-muted hover:text-default'"
+          @click="handleScanTap"
+        >
+          <UIcon :name="item.icon" class="h-6 w-6" />
+          <span class="text-sm font-medium">{{ item.label }}</span>
+        </button>
+      </template>
     </div>
     <div class="h-[env(safe-area-inset-bottom)]" />
   </nav>

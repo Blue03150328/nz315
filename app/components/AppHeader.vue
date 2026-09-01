@@ -2,9 +2,10 @@
 // PC 顶部导航（lg+ 显示；手机端由 BottomNav 承担）
 const route = useRoute()
 
-// 当前已实现页面；登记证查询/用药档案/智能提醒/门店/查询记录等入口待后端需求确认后补充
+// 当前已实现页面（新增入口前须确认后端已有对应实现）
 const MENU = [
   { path: '/', label: '首页' },
+  { path: '/profile', label: '个人中心' },
 ]
 
 const isActive = (path: string) => (path === '/' ? route.path === '/' : route.path.startsWith(path))
