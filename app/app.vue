@@ -9,4 +9,6 @@ useHead({
   <NuxtLayout>
     <NuxtPage />
   </NuxtLayout>
+  <!-- 全局 Toast 容器（Nuxt UI v4 需显式渲染，否则 useToast 提示不显示） -->
+  <UToaster />
 </template>
