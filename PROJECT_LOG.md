@@ -1,5 +1,18 @@
 ## 变更记录
 
+### 2026-09-01 | 接入高德地图（地图渲染 + 地址自动解析坐标），并识破高德地理编码的模糊匹配陷阱
+- **工作内容**：用户提供高德两把 key（Web端 JS API、Web服务），据用途分离配置并完成接入。**真实 key 仅写入 `.env`**（已确认被 `.gitignore` 排除且未被 git 跟踪），`.env.example` 只留空占位与用途说明；提交前用 grep 全库复查无明文 key 泄露，并实测前端 HTML 中不含 Web服务 key。
+  ① **公众端地图**：`NUXT_PUBLIC_AMAP_JS_KEY` 下发浏览器，`/nearby-stores` 地图正常渲染；
+  ② **后台「按地址自动获取坐标」**（新增 `server/api/admin/stores/geocode.get.ts`）：消除上一轮遗留的「门店坐标需人工录入」痛点，高德返回的即 GCJ-02，与门店库坐标系天然一致。
+- **本轮最关键的发现——高德地理编码是模糊匹配，不校验会静默写入错误坐标**：实测传入无效地址**不会报错**，而是返回其它省市的兴趣点，且 `level` 仍为「兴趣点」（我原本据此判定为「精确」）：
+  - `zzzz不存在的地址xxxx` → 湖南省怀化市「珍珍针织」
+  - `阿斯顿发发发` → 广东省深圳市「阿斯顿」
+  即：给山东的门店填错地址，系统会把湖南某针织店的坐标当作精确结果写进门店库，公众端「附近农资店」随之失真。**这与本项目曾清理过的「伪造核验接口」属同一类风险——看似有效的假数据**。已加三重防护：①前端连同省/市提交，服务端校验高德返回的 `province`/`city` 与之一致，不一致即 404 并在文案中指出解析结果落在哪个省市；②拒绝「省」「市」级结果（会落到行政中心点）；③仅门牌号/单元号级别标记为精确，其余提示人工复核。另：未配置 key 时明确 503 不返回猜测坐标，接口要求后台登录防配额被刷。
+- **修改文件**：`server/api/admin/stores/geocode.get.ts`（新增）、`app/pages/admin/stores/index.vue`、`nuxt.config.ts`、`.env.example`、`.env`（不入库）
+- **测试情况**：地理编码 7 项全通过（正常地址解析到门牌号级、两组乱码地址被行政区校验拦截并指明落点、省级/市级精度不足被拒、跨省地址被拒、不传省市向后兼容）；地图 CDP 实测渲染成功（脚本与瓦片/图标请求全 200、`window.AMap` 已加载、容器渲染出 WebGL 画布、控制台零错误、列表 3 家门店）；提交 d630e3a
+- **遗留问题/待办**：①**微信凭据仍待用户提供**（AppID/AppSecret + 公众平台配置网页授权域名 www.nz315.cn），到位后需真机走一次授权回调；②高德免费额度有 **QPS 上限**，连续快速调用返回 `CUQPS_HAS_EXCEEDED_THE_LIMIT`（测试时触发过），错误已如实透传，后台按钮为人工低频操作不受影响，但若将来做**批量地址解析必须限速**；③JS API key 会暴露在前端，**上线前务必在高德控制台配置域名白名单**（本地 127.0.0.1 未受限可用）；④演示门店 3 家上线前应清空并导入真实数据。
+- **给下一个 Agent 的提示**：①**任何第三方「智能解析」类接口都要假设它会模糊匹配**——高德地理编码对乱码输入照样返回高置信度结果，必须用业务侧已知信息（此处是省/市）做交叉校验；②高德 Web服务 key 与 JS API key **用途不可混用**，前者绝不能下发浏览器；③坐标一律 GCJ-02，高德地理编码返回值可直接入库，但**浏览器定位仍是 WGS-84**，需经 `wgs84ToGcj02()` 转换。
+
 ### 2026-09-01 | 消费者体系落地：微信登录 + 个人中心 + 附近农资店（并修复两个既有 bug）
 - **工作内容**：按用户决策为公众端补齐三项能力（微信公众号网页授权登录、个人中心、附近农资店），**均为前后端一起做**——此前这三块我方后端完全空白。四项架构决策：①微信用**公众号网页授权**（snsapi_userinfo）；②非微信环境**不做备选登录**，仅引导「请在微信中打开」；③「查询档案」与「查询历史」合并为同一份数据；④农资店采用**自建门店库**，高德只做地图与距离。
 - **实施要点**：
@@ -197,36 +210,3 @@
 
 ---
 ### 2026-08-31 | 异常码处理与风险预警中心（PRD 5.8/5.9）
-- **工作内容**：① 预警触发引擎（risk-alert.ts）：扫码命中异常自动写 risk_alert，同码同类未处理合并累计次数（重复查询 type=1、登记证过期 type=4 已接入，其余类型预留）；② 码异常标记操作（PRD 5.5.5）：单条/批量冻结·作废·恢复正常（作废必填原因、终态不可恢复、整批含作废码拒绝）；③ 风险预警中心（/admin/alerts）：列表筛选（类型/状态/关键词/日期）、证据摘要、处理对话框（核实合规 / 确认违规 + 一键作废关联码）、待处理统计；④ 码库管理页增强：批量勾选 + 冻结/作废/恢复正常操作。菜单「风险预警」已启用。
-- **修改文件**：`server/utils/risk-alert.ts`（新增）、`server/api/trace.get.ts`（预警触发）、`server/api/admin/codes/[id].patch.ts`、`codes/batch-flag.post.ts`（新增）、`server/api/admin/alerts.get.ts`、`alerts/[id].patch.ts`（新增）、`app/pages/admin/alerts/index.vue`（新增）、`app/pages/admin/codes/index.vue`（增强）、`app/layouts/admin.vue`
-- **测试情况**：端到端全过：登记证过期扫码→自动预警（type=4/pending=1）→核实合规；冻结→扫码 frozen；作废（必填原因）→扫码 voided 产品隐藏；作废无原因 400；**作废后恢复被拒（终态保护）**；日志记录完整
-- **遗留问题/待办**：异常类型 2/3/5/6/7/8 预警触发待接入（依赖登记证库对接 D2、IP 归属地）；消息通知与数据备份（PRD 5.12.5/5.12.6）；码生成离线工具；外箱码管理；批量修正工具
-- **给下一个 Agent 的提示**：预警合并逻辑在 risk-alert.ts（handle_status=0 合并累计）；作废终态保护在 batch-flag.post.ts
-
----
-### 2026-08-31 | 系统设置模块（企业信息/用户权限/操作日志）
-- **工作内容**：① 企业信息维护（PRD 5.12.1）：enterprise 表扩展 7 字段（法人/官网/地址/LOGO/简介/生产许可证号/资质到期日）+ 查看/编辑；② 用户权限管理（PRD 5.12.3）：用户列表（角色/企业/最后登录/状态）、新增用户（角色与企业归属校验）、禁用/启用、重置密码（bcrypt）；③ 操作日志（PRD 5.12.4）：audit.ts 审计工具 + 登录日志（成功/失败、IP、设备）+ 敏感操作日志（用户管理/系统设置），日志列表筛选分页；④ 新增企业列表 API（选企业用）。菜单「系统设置」已启用。
-- **修改文件**：`server/utils/audit.ts`（新增）、`server/api/auth/login.post.ts`（登录审计+失败限速）、`server/api/admin/settings/enterprise.get.ts`、`settings/enterprise/[id].patch.ts`、`server/api/admin/users*.ts`（4个）、`server/api/admin/logs.get.ts`、`server/api/admin/factories.get.ts`、`app/pages/admin/settings/index.vue`（新增三Tab页）、`app/layouts/admin.vue`、`scripts/db-init.mjs`（enterprise 表扩展）
-- **测试情况**：Node 端到端全过：企业信息读/改、用户创建/重复名拒绝/重置密码后新密码可登录/禁用后登录 403、厂家账号权限隔离（不可建管理员、可建码管理员）、日志查询含登录记录；设置页 SSR 200
-- **遗留问题/待办**：异常码处理与风险预警中心（PRD 5.8，V1.1）、码生成离线工具、外箱码管理、批量修正工具；消息通知配置与数据备份（PRD 5.12.5/5.12.6）本期未做
-- **给下一个 Agent 的提示**：⚠️ 存在并行 Agent 会话修改本项目（login.post.ts 限速、icon 配置等）——修改文件前先 `git status` 与 `git log` 核对，提交时精确 `git add` 指定文件避免混合；db-init.mjs 曾被并行覆盖，已重新应用 enterprise 扩展字段
-
----
-### 2026-08-31 | 扫码统计模块 + H5 扫码真实化
-- **工作内容**：① H5 扫码链路真实化：`/api/trace` 从 mock 改为查库（trace_code/product/batch 联查）→ 写扫码日志（scan_log，设备识别/IP 记录）→ 异常判定链（作废/冻结优先 → 登记证过期 → 产品过有效期 → 重复查询≥3次且≥2省）；② 新增扫码统计页（/admin/statistics）：累计/今日卡片、近30天趋势、24小时时段、产品分布、地区分布、明细（分页+筛选）。菜单「扫码统计」已启用。
-- **修改文件**：`server/api/trace.get.ts`（重写）、`server/api/admin/statistics.get.ts`（新增）、`app/pages/admin/statistics/index.vue`（新增）、`app/layouts/admin.vue`、`scripts/db-init.mjs`（seed 登记证有效期改未来日期）
-- **测试情况**：端到端 Node 测试全过：扫码已绑定码→正品（批次信息完整）、作废码→作废页（产品隐藏）、连续扫码查询计数正确、统计 API 聚合正确（累计/今日/产品分布/明细）；统计页 SSR 200
-- **遗留问题/待办**：扫码地区分布依赖 IP 归属地（province 暂空，接入后生效）；重复查询跨省判定同；下一步：系统设置（企业信息/用户权限/操作日志）
-- **给下一个 Agent 的提示**：扫码日志在 `scan_log` 表；H5 判定链在 trace.get.ts，异常优先级：作废>冻结>登记证过期>产品过期>重复查询>正常
-
----
-### 2026-08-31 | 修复类型错误：icon 客户端打包配置与查询接口类型标注
-- **工作内容**：按 code-review 遗留项修复两处类型错误——nuxt.config.ts 的 icon clientBundle.collections 为 @nuxt/icon 2.5.1 不支持的选项（TS2353），改用 scan 自动收集 lucide 图标；server/api/query/[code].get.ts 的 buildCompare 缺返回类型标注导致 riskLevel 推断为宽类型（TS2322），补 ICompareResult/ICompareItem 标注。
-- **修改文件**：nuxt.config.ts、server/api/query/[code].get.ts
-- **测试情况**：nuxi typecheck 0 错误（此前 4 个类型错误清零）、semgrep 安全扫描 0 发现、git 提交 9f9e0a0
-- **遗留问题/待办**：扫码统计、系统设置、异常码处理（V1.1）、码生成离线工具、外箱码管理、批量修正工具；待决项 D1-D4 见 PRD
-- **给下一个 Agent 的提示**：icon 配置 clientBundle 不支持 collections（仅 serverBundle 支持）；类型检查用 npx tsc --noEmit -p .nuxt/tsconfig.json
-
-### 2026-08-31 | 建立 Memory 系统与提交契约（AGENTS.md + PROJECT_LOG.md）
-- **工作内容**：按用户要求建立项目记忆系统：创建 `AGENTS.md`（用户全局偏好：JS 严格模式/中文 UI/中文注释/强制提交契约 + 项目速览/进度/踩坑），创建本变更记录档案，并注册 DSH 技能 `project-preferences`。
-- **修改文件**：`AGENTS.md`、`PROJECT_LOG.md`、`.dsh/skills/project-preferences/SKILL.md`
