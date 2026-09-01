@@ -32,6 +32,20 @@ const STATUS_STYLE: Record<string, string> = {
   '已完成': 'b-tag-success',
 }
 
+// 效期预警（PRD 5.6）：距有效期 ≤30 天标「临期」（黄），已过有效期标「已过期」（红）
+// 判定统一按「当天零点」做整日差，避免服务端渲染与客户端水合因毫秒级时间差产生不一致
+const expiryBadge = (expireDate: unknown): { cls: string; label: string } | null => {
+  if (!expireDate) return null
+  const target = new Date(String(expireDate).slice(0, 10) + 'T00:00:00')
+  if (Number.isNaN(target.getTime())) return null
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const days = Math.round((target.getTime() - today.getTime()) / 86400000)
+  if (days < 0) return { cls: 'b-tag-danger', label: '已过期' }
+  if (days <= 30) return { cls: 'b-tag-warning', label: '临期' }
+  return null
+}
+
 // 新建/编辑对话框
 const showModal = ref(false)
 const editingId = ref<number | null>(null)
@@ -177,7 +191,14 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
               <td class="b-strong font-medium">{{ r.batch_no }}</td>
               <td>{{ r.product_name || '-' }}</td>
               <td>{{ r.produce_date ? String(r.produce_date).slice(0, 10) : '-' }}</td>
-              <td>{{ r.expire_date ? String(r.expire_date).slice(0, 10) : '-' }}</td>
+              <!-- 有效期至：已过期标红、30 天内临期标黄（PRD 5.6 效期预警） -->
+              <td>
+                <template v-if="r.expire_date">
+                  {{ String(r.expire_date).slice(0, 10) }}
+                  <span v-if="expiryBadge(r.expire_date)" class="b-tag ml-1.5" :class="expiryBadge(r.expire_date)?.cls">{{ expiryBadge(r.expire_date)?.label }}</span>
+                </template>
+                <template v-else>-</template>
+              </td>
               <td class="font-code">{{ r.quality_cert_no || '-' }}</td>
               <td>
                 <span class="b-tag" :class="Number(r.qc_result) === 1 ? 'b-tag-success' : 'b-tag-danger'">
