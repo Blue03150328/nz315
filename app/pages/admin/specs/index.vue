@@ -4,7 +4,7 @@ definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
 useHead({ title: '产品规格管理' })
 
 const toast = useToast()
-const filters = reactive({ keyword: '', contentUnit: '', packUnit: '', status: '' })
+const filters = reactive({ keyword: '', contentUnit: undefined as string | undefined, packUnit: undefined as string | undefined, status: undefined as string | undefined })
 const page = ref(1)
 const pageSize = 20
 
@@ -82,7 +82,7 @@ const toggleStatus = async (row: any) => {
 }
 
 const doSearch = () => { page.value = 1; refresh() }
-const resetSearch = () => { filters.keyword = ''; filters.contentUnit = ''; filters.packUnit = ''; filters.status = ''; page.value = 1; refresh() }
+const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefined; filters.packUnit = undefined; filters.status = undefined; page.value = 1; refresh() }
 </script>
 
 <template>
@@ -99,9 +99,9 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = ''; filt
     <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
       <div class="grid gap-3 md:grid-cols-4">
         <UInput v-model="filters.keyword" placeholder="规格名称 / 规格码" icon="i-lucide-search" @keyup.enter="doSearch" />
-        <USelect v-model="filters.contentUnit" :items="[{ value: '', label: '全部含量单位' }, ...UNITS.map(u => ({ value: u, label: u }))]" />
-        <USelect v-model="filters.packUnit" :items="[{ value: '', label: '全部包装单位' }, ...PACKS.map(p => ({ value: p, label: p }))]" />
-        <USelect v-model="filters.status" :items="[{ value: '', label: '全部状态' }, { value: '1', label: '启用' }, { value: '0', label: '停用' }]" />
+        <USelect v-model="filters.contentUnit" :items="UNITS.map(u => ({ value: u, label: u }))" placeholder="全部含量单位" />
+        <USelect v-model="filters.packUnit" :items="PACKS.map(p => ({ value: p, label: p }))" placeholder="全部包装单位" />
+        <USelect v-model="filters.status" :items="[{ value: '1', label: '启用' }, { value: '0', label: '停用' }]" placeholder="全部状态" />
       </div>
       <div class="mt-3 flex gap-2">
         <UButton color="primary" icon="i-lucide-search" :loading="pending" @click="doSearch">查询</UButton>
@@ -167,8 +167,9 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = ''; filt
       </div>
     </div>
 
-    <!-- 新增/编辑对话框 -->
-    <UModal v-model="showModal">
+    <!-- 新增/编辑对话框（Nuxt UI v4：v-model:open 绑定 open 状态，内容放 #content 插槽） -->
+    <UModal v-model:open="showModal">
+      <template #content>
       <div class="p-5">
         <h3 class="text-base font-semibold text-default">{{ editingId ? '编辑规格' : '新增规格' }}</h3>
         <div class="mt-4 space-y-4">
@@ -209,6 +210,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = ''; filt
           <UButton color="primary" :loading="saving" @click="save">保存</UButton>
         </div>
       </div>
+      </template>
     </UModal>
   </div>
 </template>

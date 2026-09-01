@@ -4,7 +4,7 @@ definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
 useHead({ title: '产品管理' })
 
 const toast = useToast()
-const filters = reactive({ keyword: '', category: '', status: '' })
+const filters = reactive({ keyword: '', category: undefined as string | undefined, status: undefined as string | undefined })
 const page = ref(1)
 const pageSize = 20
 
@@ -102,7 +102,7 @@ const toggleStatus = async (row: any) => {
 }
 
 const doSearch = () => { page.value = 1; refresh() }
-const resetSearch = () => { filters.keyword = ''; filters.category = ''; filters.status = ''; page.value = 1; refresh() }
+const resetSearch = () => { filters.keyword = ''; filters.category = undefined; filters.status = undefined; page.value = 1; refresh() }
 </script>
 
 <template>
@@ -119,8 +119,8 @@ const resetSearch = () => { filters.keyword = ''; filters.category = ''; filters
     <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
       <div class="grid gap-3 md:grid-cols-4">
         <UInput v-model="filters.keyword" placeholder="产品名称 / 商标 / 登记证号" icon="i-lucide-search" @keyup.enter="doSearch" />
-        <USelect v-model="filters.category" :items="[{ value: '', label: '全部类别' }, ...CATEGORIES.map(c => ({ value: c, label: c }))]" />
-        <USelect v-model="filters.status" :items="[{ value: '', label: '全部状态' }, { value: '1', label: '启用' }, { value: '0', label: '停用' }]" />
+        <USelect v-model="filters.category" :items="CATEGORIES.map(c => ({ value: c, label: c }))" placeholder="全部类别" />
+        <USelect v-model="filters.status" :items="[{ value: '1', label: '启用' }, { value: '0', label: '停用' }]" placeholder="全部状态" />
       </div>
       <div class="mt-3 flex gap-2">
         <UButton color="primary" icon="i-lucide-search" :loading="pending" @click="doSearch">查询</UButton>
@@ -188,8 +188,9 @@ const resetSearch = () => { filters.keyword = ''; filters.category = ''; filters
       </div>
     </div>
 
-    <!-- 新增/编辑对话框 -->
-    <UModal v-model="showModal">
+    <!-- 新增/编辑对话框（Nuxt UI v4：v-model:open 绑定 open 状态，内容放 #content 插槽） -->
+    <UModal v-model:open="showModal">
+      <template #content>
       <div class="max-h-[80vh] overflow-y-auto p-5">
         <h3 class="text-base font-semibold text-default">{{ editingId ? '编辑产品' : '新增产品' }}</h3>
         <div class="mt-4 space-y-4">
@@ -290,6 +291,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = ''; filters
           <UButton color="primary" :loading="saving" @click="save">保存</UButton>
         </div>
       </div>
+      </template>
     </UModal>
   </div>
 </template>
