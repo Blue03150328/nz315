@@ -231,11 +231,12 @@ const deleteBackup = async (b: any) => {
 </script>
 
 <template>
-  <div class="space-y-5">
+  <div class="space-y-4">
+    <!-- 页面标题区 -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-xl font-bold text-default">系统设置</h1>
-        <p class="mt-1 text-sm text-muted">企业信息 · 用户权限 · 操作日志（日志保留至少 3 年，不可删除）</p>
+        <h1 class="b-page-title">系统设置</h1>
+        <p class="b-page-desc">企业信息 · 用户权限 · 操作日志 · 通知配置 · 数据备份（日志保留至少 3 年，不可删除）</p>
       </div>
     </div>
 
@@ -249,130 +250,158 @@ const deleteBackup = async (b: any) => {
     ]" />
 
     <!-- 企业信息 -->
-    <div v-if="tab === 'enterprise'" class="rounded-xl border border-border bg-elevated p-5 shadow-sm">
-      <div class="grid gap-4 md:grid-cols-2">
-        <div class="space-y-1.5">
-          <label class="block text-sm font-medium text-default">企业名称 <span class="text-error">*</span></label>
+    <div v-if="tab === 'enterprise'" class="b-card">
+      <div class="b-card-head">
+        <span class="b-card-title">企业基本信息</span>
+        <span class="b-card-extra">1049 号公告主体信息，扫码页展示的企业资料以此为准</span>
+      </div>
+      <div class="b-form-grid md:grid-cols-2">
+        <div>
+          <label class="b-label">企业名称 <span class="b-required">*</span></label>
           <UInput v-model="entForm.name" placeholder="企业全称" />
         </div>
-        <div class="space-y-1.5">
-          <label class="block text-sm font-medium text-default">统一社会信用代码</label>
+        <div>
+          <label class="b-label">统一社会信用代码</label>
           <UInput v-model="entForm.creditCode" placeholder="18 位信用代码" />
         </div>
-        <div class="space-y-1.5">
-          <label class="block text-sm font-medium text-default">单元识别码</label>
+        <div>
+          <label class="b-label">单元识别码</label>
           <UInput v-model="entForm.unitCode" placeholder="1049号公告口径（登记类别+登记证后6位+生产类型）" />
         </div>
-        <div class="space-y-1.5">
-          <label class="block text-sm font-medium text-default">联系人</label>
+        <div>
+          <label class="b-label">联系人</label>
           <UInput v-model="entForm.contact" placeholder="联系人姓名" />
         </div>
-        <div class="space-y-1.5">
-          <label class="block text-sm font-medium text-default">联系电话</label>
+        <div>
+          <label class="b-label">联系电话</label>
           <UInput v-model="entForm.phone" placeholder="联系电话" />
         </div>
-        <div class="space-y-1.5">
-          <label class="block text-sm font-medium text-default">法定代表人</label>
+        <div>
+          <label class="b-label">法定代表人</label>
           <UInput v-model="entForm.legalPerson" placeholder="法人姓名" />
         </div>
-        <div class="space-y-1.5">
-          <label class="block text-sm font-medium text-default">企业官网</label>
+        <div>
+          <label class="b-label">企业官网</label>
           <UInput v-model="entForm.website" placeholder="https://..." />
         </div>
-        <div class="space-y-1.5">
-          <label class="block text-sm font-medium text-default">农药生产许可证号</label>
+        <div>
+          <label class="b-label">农药生产许可证号</label>
           <UInput v-model="entForm.licenseNo" placeholder="生产许可证号" />
         </div>
-        <div class="space-y-1.5">
-          <label class="block text-sm font-medium text-default">资质到期日</label>
+        <div>
+          <label class="b-label">资质到期日</label>
           <UInput v-model="entForm.qualificationExpire" type="date" />
-          <p class="text-xs text-muted">到期前 30/60/90 天提醒</p>
+          <p class="b-help">到期前 30/60/90 天提醒</p>
         </div>
-        <div class="space-y-1.5 md:col-span-2">
-          <label class="block text-sm font-medium text-default">注册地址</label>
+        <div class="md:col-span-2">
+          <label class="b-label">注册地址</label>
           <UInput v-model="entForm.address" placeholder="企业注册地址" />
         </div>
-        <div class="space-y-1.5 md:col-span-2">
-          <label class="block text-sm font-medium text-default">企业简介</label>
+        <div class="md:col-span-2">
+          <label class="b-label">企业简介</label>
           <UTextarea v-model="entForm.description" :rows="3" placeholder="企业简介" />
         </div>
       </div>
-      <div class="mt-5 flex justify-end">
-        <UButton color="primary" icon="i-lucide-save" :loading="entSaving" @click="saveEnterprise">保存企业信息</UButton>
+      <div class="b-card-foot">
+        <span class="b-card-extra">带 <span class="b-required">*</span> 的为必填项，保存后立即生效</span>
+        <UButton color="neutral" variant="solid" icon="i-lucide-save" :loading="entSaving" @click="saveEnterprise">保存企业信息</UButton>
       </div>
     </div>
 
     <!-- 用户权限 -->
     <div v-if="tab === 'users'" class="space-y-4">
-      <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
-        <div class="flex items-center justify-between">
-          <div class="grid flex-1 gap-3 md:grid-cols-4">
-            <UInput v-model="ufilters.keyword" placeholder="登录名 / 姓名 / 手机号" icon="i-lucide-search" @keyup.enter="upage = 1; refreshUsers()" />
-            <USelect v-model="ufilters.role" :items="[{ value: 'enterprise_admin', label: '厂家主账号' }, { value: 'code_admin', label: '码管理员' }, { value: 'viewer', label: '只读账号' }]" placeholder="全部角色" class="w-full" />
-            <USelect v-model="ufilters.status" :items="[{ value: '1', label: '启用' }, { value: '0', label: '禁用' }]" placeholder="全部状态" class="w-full" />
-            <div class="flex gap-2">
-              <UButton color="primary" size="sm" icon="i-lucide-search" :loading="userPending" @click="upage = 1; refreshUsers()">查询</UButton>
-            </div>
+      <!-- 筛选查询区 -->
+      <div class="b-card">
+        <div class="b-card-head">
+          <span class="b-card-title">筛选查询</span>
+        </div>
+        <div class="b-form-grid md:grid-cols-2 xl:grid-cols-3">
+          <div>
+            <label class="b-label">登录名 / 姓名 / 手机号</label>
+            <UInput v-model="ufilters.keyword" placeholder="输入登录名、姓名或手机号" icon="i-lucide-search" @keyup.enter="upage = 1; refreshUsers()" />
           </div>
-          <UButton color="primary" icon="i-lucide-user-plus" class="ml-3 shrink-0" @click="openCreateUser">新增用户</UButton>
+          <div>
+            <label class="b-label">角色</label>
+            <USelect v-model="ufilters.role" :items="[{ value: 'enterprise_admin', label: '厂家主账号' }, { value: 'code_admin', label: '码管理员' }, { value: 'viewer', label: '只读账号' }]" placeholder="全部角色" class="w-full" />
+          </div>
+          <div>
+            <label class="b-label">状态</label>
+            <USelect v-model="ufilters.status" :items="[{ value: '1', label: '启用' }, { value: '0', label: '禁用' }]" placeholder="全部状态" class="w-full" />
+          </div>
+        </div>
+        <div class="b-card-foot">
+          <span class="b-card-extra">共 <span class="font-medium b-strong">{{ userData?.total || 0 }}</span> 个账号</span>
+          <div class="flex items-center gap-2">
+            <UButton color="neutral" variant="solid" :loading="userPending" @click="upage = 1; refreshUsers()">查询</UButton>
+            <UButton color="neutral" variant="outline" icon="i-lucide-user-plus" @click="openCreateUser">新增用户</UButton>
+          </div>
         </div>
       </div>
 
-      <div class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
-        <div class="flex items-center justify-between border-b border-border/60 px-4 py-3">
-          <span class="text-sm font-semibold text-default">用户列表</span>
-          <span class="text-xs text-muted">共 {{ userData?.total || 0 }} 条</span>
+      <!-- 用户列表 -->
+      <div class="b-card b-card-clip">
+        <div class="b-card-head">
+          <span class="b-card-title">用户列表</span>
+          <span class="b-card-extra">每页 {{ pageSize }} 条 · 共 {{ userData?.total || 0 }} 条</span>
         </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
+        <div class="b-scroll-x">
+          <table class="b-table">
             <thead>
-              <tr class="border-b border-border/60 bg-muted/30 text-xs text-muted">
-                <th class="px-4 py-3 font-medium">登录名</th>
-                <th class="px-4 py-3 font-medium">姓名</th>
-                <th class="px-4 py-3 font-medium">手机号</th>
-                <th class="px-4 py-3 font-medium">角色</th>
-                <th class="px-4 py-3 font-medium">所属企业</th>
-                <th class="px-4 py-3 font-medium">最后登录</th>
-                <th class="px-4 py-3 font-medium">状态</th>
-                <th class="px-4 py-3 font-medium">操作</th>
+              <tr>
+                <th>登录名</th>
+                <th>姓名</th>
+                <th>手机号</th>
+                <th>角色</th>
+                <th>所属企业</th>
+                <th>最后登录</th>
+                <th>状态</th>
+                <th class="text-right">操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="r in userData?.rows || []" :key="r.id" class="border-b border-border/40 transition-colors hover:bg-muted/30">
-                <td class="px-4 py-3 font-medium text-default">{{ r.username }}</td>
-                <td class="px-4 py-3 text-muted">{{ r.name || '-' }}</td>
-                <td class="px-4 py-3 text-muted">{{ r.phone || '-' }}</td>
-                <td class="px-4 py-3">
-                  <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="r.role === 'platform_admin' ? 'bg-error/10 text-error' : r.role === 'enterprise_admin' ? 'bg-primary/10 text-primary' : 'bg-sky/10 text-sky'">
+              <tr v-for="r in userData?.rows || []" :key="r.id">
+                <td class="b-strong font-medium">{{ r.username }}</td>
+                <td>{{ r.name || '-' }}</td>
+                <td>{{ r.phone || '-' }}</td>
+                <td>
+                  <span class="b-tag" :class="r.role === 'platform_admin' ? 'b-tag-danger' : r.role === 'enterprise_admin' ? 'b-tag-success' : 'b-tag-info'">
                     {{ r.roleLabel }}
                   </span>
                 </td>
-                <td class="px-4 py-3 text-muted">{{ r.enterprise_name || '-' }}</td>
-                <td class="px-4 py-3 text-muted">{{ r.last_login_at ? String(r.last_login_at).slice(0, 19) : '-' }}</td>
-                <td class="px-4 py-3">
-                  <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="Number(r.status) === 1 ? 'bg-success/10 text-success' : 'bg-error/10 text-error'">
+                <td>{{ r.enterprise_name || '-' }}</td>
+                <td>{{ r.last_login_at ? String(r.last_login_at).slice(0, 19) : '-' }}</td>
+                <td>
+                  <span class="b-tag" :class="Number(r.status) === 1 ? 'b-tag-success' : 'b-tag-danger'">
                     {{ Number(r.status) === 1 ? '启用' : '禁用' }}
                   </span>
                 </td>
-                <td class="px-4 py-3">
-                  <div v-if="r.role !== 'platform_admin'" class="flex gap-1.5">
-                    <UButton variant="ghost" color="neutral" size="xs" icon="i-lucide-key-round" @click="resetPw(r)">重置密码</UButton>
-                    <UButton variant="ghost" color="neutral" size="xs" :icon="Number(r.status) === 1 ? 'i-lucide-ban' : 'i-lucide-check-circle'" @click="toggleUserStatus(r)">
+                <td>
+                  <div v-if="r.role !== 'platform_admin'" class="b-actions">
+                    <UButton variant="link" color="neutral" size="xs" @click="resetPw(r)">重置密码</UButton>
+                    <span class="b-sep" />
+                    <UButton variant="link" color="neutral" size="xs" @click="toggleUserStatus(r)">
                       {{ Number(r.status) === 1 ? '禁用' : '启用' }}
                     </UButton>
                   </div>
-                  <span v-else class="text-xs text-muted">总部账号</span>
+                  <div v-else class="b-actions">
+                    <span class="text-xs text-[var(--b-text-muted)]">总部账号</span>
+                  </div>
                 </td>
               </tr>
               <tr v-if="!userPending && !userData?.rows?.length">
-                <td colspan="8" class="px-4 py-10 text-center text-sm text-muted">暂无用户</td>
+                <td colspan="8" class="b-empty">
+                  <div class="b-empty-inner">
+                    <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
+                    <span class="text-sm">暂无用户，点击「新增用户」创建账号</span>
+                  </div>
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <div v-if="userData?.total" class="flex items-center justify-between border-t border-border/60 px-4 py-3">
-          <span class="text-xs text-muted">第 {{ userData.page }} / {{ userTotalPages }} 页</span>
-          <div class="flex gap-2">
+        <div v-if="userData?.total" class="b-pager">
+          <span class="b-card-extra">共 {{ userData?.total || 0 }} 条 · 第 {{ userData.page }} / {{ userTotalPages }} 页</span>
+          <div class="flex items-center gap-2">
             <UButton variant="outline" color="neutral" size="sm" :disabled="upage <= 1" @click="upage--; refreshUsers()">上一页</UButton>
             <UButton variant="outline" color="neutral" size="sm" :disabled="upage >= userTotalPages" @click="upage++; refreshUsers()">下一页</UButton>
           </div>
@@ -382,47 +411,55 @@ const deleteBackup = async (b: any) => {
       <!-- 新增用户对话框（Nuxt UI v4：v-model:open 绑定 open 状态，内容必须放 #content 插槽） -->
       <UModal v-model:open="showUserModal">
         <template #content>
-        <div class="max-h-[80vh] overflow-y-auto p-5">
-          <h3 class="text-base font-semibold text-default">新增用户</h3>
-          <div class="mt-4 space-y-4">
+        <div class="b-modal">
+          <div class="b-modal-head">
+            <div class="b-modal-icon">
+              <UIcon name="i-lucide-user-plus" class="h-4 w-4 text-[var(--b-text-regular)]" />
+            </div>
+            <div>
+              <h3 class="b-modal-title">新增用户</h3>
+              <p class="b-modal-sub">账号创建后可重置密码或禁用，登录名不可重复</p>
+            </div>
+          </div>
+          <div class="b-modal-body">
             <div class="grid grid-cols-2 gap-3">
-              <div class="space-y-1.5">
-                <label class="block text-sm font-medium text-default">登录名 <span class="text-error">*</span></label>
+              <div>
+                <label class="b-label-lg">登录名 <span class="b-required">*</span></label>
                 <UInput v-model="uform.username" placeholder="3-30 位字母/数字/下划线" />
               </div>
-              <div class="space-y-1.5">
-                <label class="block text-sm font-medium text-default">初始密码 <span class="text-error">*</span></label>
+              <div>
+                <label class="b-label-lg">初始密码 <span class="b-required">*</span></label>
                 <UInput v-model="uform.password" type="password" placeholder="至少 6 位" />
               </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
-              <div class="space-y-1.5">
-                <label class="block text-sm font-medium text-default">姓名</label>
+              <div>
+                <label class="b-label-lg">姓名</label>
                 <UInput v-model="uform.name" placeholder="姓名" />
               </div>
-              <div class="space-y-1.5">
-                <label class="block text-sm font-medium text-default">手机号</label>
+              <div>
+                <label class="b-label-lg">手机号</label>
                 <UInput v-model="uform.phone" placeholder="手机号" />
               </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
-              <div class="space-y-1.5">
-                <label class="block text-sm font-medium text-default">角色 <span class="text-error">*</span></label>
-                <USelect v-model="uform.role" :items="[
+              <div>
+                <label class="b-label-lg">角色 <span class="b-required">*</span></label>
+                <USelect v-model="uform.role" class="w-full" :items="[
                   { value: 'enterprise_admin', label: '厂家主账号' },
                   { value: 'code_admin', label: '码管理员' },
                   { value: 'viewer', label: '只读账号' },
                 ]" />
               </div>
-              <div v-if="isPlatformAdmin" class="space-y-1.5">
-                <label class="block text-sm font-medium text-default">所属企业 <span class="text-error">*</span></label>
-                <USelect v-model="uform.enterpriseId" :items="(entList?.rows || []).map((e: any) => ({ value: Number(e.id), label: e.name }))" placeholder="选择企业" />
+              <div v-if="isPlatformAdmin">
+                <label class="b-label-lg">所属企业 <span class="b-required">*</span></label>
+                <USelect v-model="uform.enterpriseId" :items="(entList?.rows || []).map((e: any) => ({ value: Number(e.id), label: e.name }))" placeholder="选择企业" class="w-full" />
               </div>
             </div>
           </div>
-          <div class="mt-6 flex justify-end gap-2">
+          <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showUserModal = false">取消</UButton>
-            <UButton color="primary" :loading="userSaving" @click="saveUser">创建</UButton>
+            <UButton color="neutral" variant="solid" :loading="userSaving" @click="saveUser">创建</UButton>
           </div>
         </div>
         </template>
@@ -431,61 +468,92 @@ const deleteBackup = async (b: any) => {
 
     <!-- 操作日志 -->
     <div v-if="tab === 'logs'" class="space-y-4">
-      <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
-        <div class="grid gap-3 md:grid-cols-6">
-          <UInput v-model="lfilters.keyword" placeholder="操作人 / 模块 / 内容" icon="i-lucide-search" @keyup.enter="lpage = 1; refreshLogs()" />
-          <USelect v-model="lfilters.module" :items="[{ value: '登录', label: '登录' }, { value: '系统设置', label: '系统设置' }, { value: '用户管理', label: '用户管理' }]" placeholder="全部模块" class="w-full" />
-          <UInput v-model="lfilters.action" placeholder="操作类型" />
-          <USelect v-model="lfilters.result" :items="[{ value: '1', label: '成功' }, { value: '0', label: '失败' }]" placeholder="全部结果" class="w-full" />
-          <UInput v-model="lfilters.dateFrom" type="date" placeholder="起" />
-          <UInput v-model="lfilters.dateTo" type="date" placeholder="止" />
+      <!-- 筛选查询区 -->
+      <div class="b-card">
+        <div class="b-card-head">
+          <span class="b-card-title">筛选查询</span>
         </div>
-        <div class="mt-3">
-          <UButton color="primary" icon="i-lucide-search" :loading="logPending" @click="lpage = 1; refreshLogs()">查询</UButton>
+        <div class="b-form-grid md:grid-cols-2 xl:grid-cols-3">
+          <div>
+            <label class="b-label">操作人 / 模块 / 内容</label>
+            <UInput v-model="lfilters.keyword" placeholder="输入操作人、模块或内容关键词" icon="i-lucide-search" @keyup.enter="lpage = 1; refreshLogs()" />
+          </div>
+          <div>
+            <label class="b-label">模块</label>
+            <USelect v-model="lfilters.module" :items="[{ value: '登录', label: '登录' }, { value: '系统设置', label: '系统设置' }, { value: '用户管理', label: '用户管理' }]" placeholder="全部模块" class="w-full" />
+          </div>
+          <div>
+            <label class="b-label">操作类型</label>
+            <UInput v-model="lfilters.action" placeholder="如：新增、修改、删除" />
+          </div>
+          <div>
+            <label class="b-label">操作结果</label>
+            <USelect v-model="lfilters.result" :items="[{ value: '1', label: '成功' }, { value: '0', label: '失败' }]" placeholder="全部结果" class="w-full" />
+          </div>
+          <div>
+            <label class="b-label">操作日期起</label>
+            <UInput v-model="lfilters.dateFrom" type="date" placeholder="起" />
+          </div>
+          <div>
+            <label class="b-label">操作日期止</label>
+            <UInput v-model="lfilters.dateTo" type="date" placeholder="止" />
+          </div>
+        </div>
+        <div class="b-card-foot">
+          <span class="b-card-extra">共 <span class="font-medium b-strong">{{ logData?.total || 0 }}</span> 条日志</span>
+          <div class="flex items-center gap-2">
+            <UButton color="neutral" variant="solid" :loading="logPending" @click="lpage = 1; refreshLogs()">查询</UButton>
+          </div>
         </div>
       </div>
 
-      <div class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
-        <div class="flex items-center justify-between border-b border-border/60 px-4 py-3">
-          <span class="text-sm font-semibold text-default">日志列表</span>
-          <span class="text-xs text-muted">共 {{ logData?.total || 0 }} 条 · 保留至少 3 年不可删除</span>
+      <!-- 日志列表 -->
+      <div class="b-card b-card-clip">
+        <div class="b-card-head">
+          <span class="b-card-title">日志列表</span>
+          <span class="b-card-extra">共 {{ logData?.total || 0 }} 条 · 保留至少 3 年不可删除</span>
         </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
+        <div class="b-scroll-x">
+          <table class="b-table">
             <thead>
-              <tr class="border-b border-border/60 bg-muted/30 text-xs text-muted">
-                <th class="px-4 py-3 font-medium">操作时间</th>
-                <th class="px-4 py-3 font-medium">操作人</th>
-                <th class="px-4 py-3 font-medium">模块</th>
-                <th class="px-4 py-3 font-medium">操作</th>
-                <th class="px-4 py-3 font-medium">内容</th>
-                <th class="px-4 py-3 font-medium">IP</th>
-                <th class="px-4 py-3 font-medium">结果</th>
+              <tr>
+                <th>操作时间</th>
+                <th>操作人</th>
+                <th>模块</th>
+                <th>操作</th>
+                <th>内容</th>
+                <th>IP</th>
+                <th>结果</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="r in logData?.rows || []" :key="r.id" class="border-b border-border/40 transition-colors hover:bg-muted/30">
-                <td class="px-4 py-3 whitespace-nowrap text-muted">{{ String(r.created_at).slice(0, 19) }}</td>
-                <td class="px-4 py-3 text-muted">{{ r.username || '-' }}</td>
-                <td class="px-4 py-3 text-muted">{{ r.module || '-' }}</td>
-                <td class="px-4 py-3 font-medium text-default">{{ r.action || '-' }}</td>
-                <td class="max-w-72 truncate px-4 py-3 text-xs text-muted" :title="r.content || ''">{{ r.content || '-' }}</td>
-                <td class="px-4 py-3 font-code text-xs text-muted">{{ r.ip || '-' }}</td>
-                <td class="px-4 py-3">
-                  <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="Number(r.result) === 1 ? 'bg-success/10 text-success' : 'bg-error/10 text-error'">
+              <tr v-for="r in logData?.rows || []" :key="r.id">
+                <td class="whitespace-nowrap">{{ String(r.created_at).slice(0, 19) }}</td>
+                <td>{{ r.username || '-' }}</td>
+                <td>{{ r.module || '-' }}</td>
+                <td class="b-strong font-medium">{{ r.action || '-' }}</td>
+                <td class="max-w-72 truncate text-xs text-[var(--b-text-muted)]" :title="r.content || ''">{{ r.content || '-' }}</td>
+                <td class="font-code text-xs text-[var(--b-text-muted)]">{{ r.ip || '-' }}</td>
+                <td>
+                  <span class="b-tag" :class="Number(r.result) === 1 ? 'b-tag-success' : 'b-tag-danger'">
                     {{ Number(r.result) === 1 ? '成功' : '失败' }}
                   </span>
                 </td>
               </tr>
               <tr v-if="!logPending && !logData?.rows?.length">
-                <td colspan="7" class="px-4 py-10 text-center text-sm text-muted">暂无日志</td>
+                <td colspan="7" class="b-empty">
+                  <div class="b-empty-inner">
+                    <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
+                    <span class="text-sm">暂无符合条件的操作日志，请调整筛选条件后重试</span>
+                  </div>
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <div v-if="logData?.total" class="flex items-center justify-between border-t border-border/60 px-4 py-3">
-          <span class="text-xs text-muted">第 {{ logData.page }} / {{ logTotalPages }} 页</span>
-          <div class="flex gap-2">
+        <div v-if="logData?.total" class="b-pager">
+          <span class="b-card-extra">共 {{ logData?.total || 0 }} 条 · 第 {{ logData.page }} / {{ logTotalPages }} 页</span>
+          <div class="flex items-center gap-2">
             <UButton variant="outline" color="neutral" size="sm" :disabled="lpage <= 1" @click="lpage--; refreshLogs()">上一页</UButton>
             <UButton variant="outline" color="neutral" size="sm" :disabled="lpage >= logTotalPages" @click="lpage++; refreshLogs()">下一页</UButton>
           </div>
@@ -494,80 +562,98 @@ const deleteBackup = async (b: any) => {
     </div>
   
     <!-- 通知配置（PRD 5.12.5） -->
-    <div v-if="tab === 'notify'" class="rounded-xl border border-border bg-elevated p-5 shadow-sm">
-      <h2 class="text-sm font-semibold text-default">消息通知配置</h2>
-      <p class="mt-1 text-xs text-muted">站内信通知开关与预警阈值（微信推送待公众号对接后开放）</p>
-      <div class="mt-5 space-y-4">
-        <div class="grid gap-4 md:grid-cols-2">
-          <div class="space-y-1.5">
-            <label class="block text-sm font-medium text-default">码库存预警阈值</label>
-            <UInput v-model="notifyForm.stockThreshold" type="number" placeholder="默认 10000 条" />
-            <p class="text-xs text-muted">某产品"已生成"可用码低于该值时触发库存预警</p>
-          </div>
-          <div class="space-y-1.5">
-            <label class="block text-sm font-medium text-default">每日数据日报发送时间</label>
-            <UInput v-model="notifyForm.dailyReportTime" type="time" placeholder="08:00" />
-          </div>
+    <div v-if="tab === 'notify'" class="b-card">
+      <div class="b-card-head">
+        <span class="b-card-title">消息通知配置</span>
+        <span class="b-card-extra">站内信通知开关与预警阈值（微信推送待公众号对接后开放）</span>
+      </div>
+      <div class="b-form-grid md:grid-cols-2">
+        <div>
+          <label class="b-label">码库存预警阈值</label>
+          <UInput v-model="notifyForm.stockThreshold" type="number" placeholder="默认 10000 条" />
+          <p class="b-help">某产品"已生成"可用码低于该值时触发库存预警</p>
         </div>
-        <div class="grid gap-3 md:grid-cols-2">
-          <div v-for="n in notifySwitches" :key="n.key" class="flex items-center justify-between rounded-lg border border-border/60 p-3">
-            <div>
-              <div class="text-sm font-medium text-default">{{ n.label }}</div>
-              <div class="text-xs text-muted">{{ n.desc }}</div>
-            </div>
-            <USwitch v-model="notifyForm[n.key]" />
+        <div>
+          <label class="b-label">每日数据日报发送时间</label>
+          <UInput v-model="notifyForm.dailyReportTime" type="time" placeholder="08:00" />
+        </div>
+      </div>
+      <!-- 通知开关：浅边框行卡，右侧开关 -->
+      <div class="grid gap-3 px-4 pb-4 md:grid-cols-2">
+        <div v-for="n in notifySwitches" :key="n.key" class="flex items-center justify-between rounded border border-[var(--b-border)] px-3 py-2.5">
+          <div>
+            <div class="text-sm font-medium text-[var(--b-text-strong)]">{{ n.label }}</div>
+            <div class="text-xs text-[var(--b-text-muted)]">{{ n.desc }}</div>
           </div>
+          <USwitch v-model="notifyForm[n.key]" />
         </div>
-        <div class="flex justify-end">
-          <UButton color="primary" icon="i-lucide-save" :loading="notifySaving" @click="saveNotify">保存配置</UButton>
-        </div>
+      </div>
+      <div class="b-card-foot">
+        <span class="b-card-extra">开关变更保存后即时生效，历史消息不受影响</span>
+        <UButton color="neutral" variant="solid" icon="i-lucide-save" :loading="notifySaving" @click="saveNotify">保存配置</UButton>
       </div>
     </div>
 
     <!-- 数据备份（PRD 5.12.6） -->
     <div v-if="tab === 'backup'" class="space-y-4">
-      <div v-if="!isPlatformAdmin" class="rounded-xl border border-warning/30 bg-warning/5 p-4 text-sm text-warning">
-        数据备份仅总部管理员可用
+      <div v-if="!isPlatformAdmin" class="b-card b-card-body">
+        <div class="b-note">
+          <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+          <p class="b-note-text">数据备份仅总部管理员可用</p>
+        </div>
       </div>
-      <div v-else class="rounded-xl border border-border bg-elevated p-5 shadow-sm">
-        <div class="flex items-center justify-between">
-          <div>
-            <h2 class="text-sm font-semibold text-default">手动备份</h2>
-            <p class="mt-1 text-xs text-muted">mysqldump 全库导出（--single-transaction 不锁表），备份文件仅保存在本机 backup 目录</p>
+      <div v-else class="b-card">
+        <div class="b-card-head">
+          <span class="b-card-title">手动备份</span>
+        </div>
+        <div class="b-card-body">
+          <div class="b-note">
+            <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+            <p class="b-note-text">mysqldump 全库导出（--single-transaction 不锁表），备份文件仅保存在本机 backup 目录</p>
           </div>
-          <UButton color="primary" icon="i-lucide-database-backup" :loading="backingUp" @click="doBackup">立即备份</UButton>
+        </div>
+        <div class="b-card-foot">
+          <span class="b-card-extra">建议定期下载备份文件至异地存储</span>
+          <UButton color="neutral" variant="solid" icon="i-lucide-database-backup" :loading="backingUp" @click="doBackup">立即备份</UButton>
         </div>
       </div>
 
-      <div class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
-        <div class="flex items-center justify-between border-b border-border/60 px-4 py-3">
-          <span class="text-sm font-semibold text-default">备份历史</span>
-          <span class="text-xs text-muted">共 {{ backupRows.length }} 个备份</span>
+      <!-- 备份历史 -->
+      <div class="b-card b-card-clip">
+        <div class="b-card-head">
+          <span class="b-card-title">备份历史</span>
+          <span class="b-card-extra">共 {{ backupRows.length }} 个备份</span>
         </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
+        <div class="b-scroll-x">
+          <table class="b-table">
             <thead>
-              <tr class="border-b border-border/60 bg-muted/30 text-xs text-muted">
-                <th class="px-4 py-3 font-medium">文件名</th>
-                <th class="px-4 py-3 font-medium">大小</th>
-                <th class="px-4 py-3 font-medium">备份时间</th>
-                <th class="px-4 py-3 font-medium">操作</th>
+              <tr>
+                <th>文件名</th>
+                <th>大小</th>
+                <th>备份时间</th>
+                <th class="text-right">操作</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="b in backupRows" :key="b.file" class="border-b border-border/40 transition-colors hover:bg-muted/30">
-                <td class="px-4 py-3 font-code text-xs text-default">{{ b.file }}</td>
-                <td class="px-4 py-3 text-muted">{{ (b.size / 1024).toFixed(1) }} KB</td>
-                <td class="px-4 py-3 text-muted">{{ b.time }}</td>
-                <td class="px-4 py-3">
-                  <div class="flex gap-1.5">
-                    <a :href="'/api/admin/backup/download?file=' + encodeURIComponent(b.file)" class="rounded-lg px-2 py-1 text-xs text-primary hover:bg-primary/10">下载</a>
-                    <UButton variant="ghost" color="error" size="xs" @click="deleteBackup(b)">删除</UButton>
+              <tr v-for="b in backupRows" :key="b.file">
+                <td class="font-code text-xs b-strong">{{ b.file }}</td>
+                <td>{{ (b.size / 1024).toFixed(1) }} KB</td>
+                <td>{{ b.time }}</td>
+                <td>
+                  <div class="b-actions">
+                    <a :href="'/api/admin/backup/download?file=' + encodeURIComponent(b.file)" class="px-1.5 text-xs text-[var(--b-text-regular)] hover:text-[var(--b-text-title)]">下载</a>
+                    <span class="b-sep" />
+                    <UButton variant="link" color="error" size="xs" @click="deleteBackup(b)">删除</UButton>
                   </div>
                 </td>
               </tr>
               <tr v-if="!backupRows.length">
-                <td colspan="4" class="px-4 py-10 text-center text-sm text-muted">暂无备份，点击「立即备份」创建</td>
+                <td colspan="4" class="b-empty">
+                  <div class="b-empty-inner">
+                    <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
+                    <span class="text-sm">暂无备份，点击「立即备份」创建</span>
+                  </div>
+                </td>
               </tr>
             </tbody>
           </table>

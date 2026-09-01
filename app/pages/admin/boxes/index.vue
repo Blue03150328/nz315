@@ -107,100 +107,136 @@ const doSearch = () => { page.value = 1; refresh() }
 </script>
 
 <template>
-  <div class="space-y-5">
+  <div class="space-y-4">
+    <!-- 页面标题区 -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-xl font-bold text-default">外箱码管理</h1>
-        <p class="mt-1 text-sm text-muted">外箱码关联箱内单品码（一对多）· 单品码不可重复归属 · 外箱码本身不参与扫码追溯</p>
+        <h1 class="b-page-title">外箱码管理</h1>
+        <p class="b-page-desc">外箱码关联箱内单品码（一对多）· 单品码不可重复归属 · 外箱码本身不参与扫码追溯</p>
       </div>
     </div>
 
-    <!-- 上传绑定 -->
-    <div class="rounded-xl border border-border bg-elevated p-5 shadow-sm">
-      <h2 class="text-sm font-semibold text-default">1. 上传外箱码文件</h2>
-      <p class="mt-1 text-xs text-muted">格式：每行"外箱码,单品码"（32 位数字，CSV 两列）</p>
-      <div class="mt-3">
+    <!-- 上传绑定区：粘贴关联清单 → 解析校验 → 确认绑定 -->
+    <div class="b-card">
+      <div class="b-card-head">
+        <span class="b-card-title">上传外箱码文件</span>
+        <span class="b-card-extra">格式：每行「外箱码,单品码」（32 位数字，CSV 两列）</span>
+      </div>
+      <div class="b-card-body">
+        <label class="b-label">外箱码与单品码关联清单</label>
         <UTextarea v-model="pasteText" :rows="6" placeholder="12301011001000000000000000000001,12301011001000000000000000001001&#10;12301011001000000000000000000001,12301011001000000000000000001002" class="font-code text-xs" />
-      </div>
-      <div class="mt-3 flex items-center gap-2">
-        <UButton color="primary" icon="i-lucide-scan-search" :loading="parsing" @click="doParse">解析校验</UButton>
-        <span class="text-xs text-muted">校验：外箱码全局唯一 · 单品码在系统内且异常标记为正常 · 单品码未归属其他外箱</span>
-      </div>
+        <p class="b-help">每行一条：外箱码在前、单品码在后，可用英文逗号、空格或制表符分隔</p>
 
-      <div v-if="parseResult" class="mt-4 rounded-lg border border-border/60 bg-muted/20 p-4">
-        <div class="grid grid-cols-3 gap-3">
-          <div class="rounded-lg bg-elevated p-3 text-center">
-            <div class="text-2xl font-bold text-default">{{ parseResult.total }}</div>
-            <div class="mt-1 text-xs text-muted">总关联行</div>
+        <!-- 解析结果：三项指标 + 失败原因分布 + 涉及外箱 -->
+        <div v-if="parseResult" class="mt-4 rounded-sm border border-[var(--b-border)] bg-[var(--b-fill)] p-3.5">
+          <div class="mb-3 flex items-center justify-between">
+            <span class="b-card-title">解析结果</span>
+            <span class="b-card-extra">共 {{ parseResult.total }} 行关联记录</span>
           </div>
-          <div class="rounded-lg bg-success/5 p-3 text-center">
-            <div class="text-2xl font-bold text-success">{{ parseResult.validCount }}</div>
-            <div class="mt-1 text-xs text-muted">校验通过</div>
+          <div class="grid grid-cols-3 gap-3">
+            <div class="b-stat">
+              <div class="b-stat-label">总关联行</div>
+              <div class="b-stat-value">{{ parseResult.total }}</div>
+            </div>
+            <div class="b-stat">
+              <div class="b-stat-label">校验通过</div>
+              <div class="b-stat-value text-emerald-700">{{ parseResult.validCount }}</div>
+            </div>
+            <div class="b-stat">
+              <div class="b-stat-label">校验失败</div>
+              <div class="b-stat-value text-red-600">{{ parseResult.invalidCount }}</div>
+            </div>
           </div>
-          <div class="rounded-lg bg-error/5 p-3 text-center">
-            <div class="text-2xl font-bold text-error">{{ parseResult.invalidCount }}</div>
-            <div class="mt-1 text-xs text-muted">校验失败</div>
+          <div v-if="reasonChips.length" class="mt-3 flex flex-wrap gap-2">
+            <span v-for="c in reasonChips" :key="c.label" class="b-tag b-tag-danger">{{ c.label }} × {{ c.count }}</span>
+          </div>
+          <div v-if="parseResult.boxGroups?.length" class="mt-3 text-xs text-[var(--b-text-regular)]">
+            涉及外箱：<span v-for="g in parseResult.boxGroups" :key="g.code" class="mr-3 font-code text-[var(--b-text-strong)]">{{ g.code }}（{{ g.count }} 条）</span>
+          </div>
+          <div class="mt-3.5 flex justify-end">
+            <UButton color="neutral" variant="solid" icon="i-lucide-link-2" :loading="binding" @click="doBind">
+              确认绑定（{{ parseResult.validCount }} 条有效关联）
+            </UButton>
           </div>
         </div>
-        <div v-if="reasonChips.length" class="mt-3 flex flex-wrap gap-2">
-          <span v-for="c in reasonChips" :key="c.label" class="rounded-full bg-error/10 px-3 py-1 text-xs text-error">{{ c.label }} × {{ c.count }}</span>
+      </div>
+      <!-- 上传区底部操作条：左侧校验规则说明，右侧解析按钮 -->
+      <div class="b-card-foot">
+        <span class="b-card-extra">校验规则：外箱码全局唯一 · 单品码在系统内且异常标记为正常 · 单品码未归属其他外箱</span>
+        <UButton color="neutral" variant="solid" icon="i-lucide-scan-search" :loading="parsing" @click="doParse">解析校验</UButton>
+      </div>
+    </div>
+
+    <!-- 筛选查询区 -->
+    <div class="b-card">
+      <div class="b-card-head">
+        <span class="b-card-title">筛选查询</span>
+      </div>
+      <div class="b-form-grid md:grid-cols-2 xl:grid-cols-4">
+        <div>
+          <label class="b-label">外箱码</label>
+          <UInput v-model="filters.keyword" placeholder="输入外箱码" icon="i-lucide-search" @keyup.enter="doSearch" />
         </div>
-        <div v-if="parseResult.boxGroups?.length" class="mt-3 text-xs text-primary">
-          涉及外箱：<span v-for="g in parseResult.boxGroups" :key="g.code" class="mr-3 font-code">{{ g.code }}（{{ g.count }} 条）</span>
+      </div>
+      <div class="b-card-foot">
+        <span class="b-card-extra">共 <span class="font-medium b-strong">{{ data?.total || 0 }}</span> 个外箱</span>
+        <div class="flex items-center gap-2">
+          <UButton color="neutral" variant="solid" :loading="pending" @click="doSearch">查询</UButton>
+          <UButton variant="outline" color="neutral" @click="filters.keyword = ''; doSearch()">重置</UButton>
         </div>
-        <UButton class="mt-4" color="primary" icon="i-lucide-link-2" :loading="binding" @click="doBind">
-          确认绑定（{{ parseResult.validCount }} 条有效关联）
-        </UButton>
       </div>
     </div>
 
     <!-- 外箱码列表 -->
-    <div class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
-      <div class="flex items-center justify-between border-b border-border/60 px-4 py-3">
-        <div class="flex items-center gap-3">
-          <span class="text-sm font-semibold text-default">外箱码列表</span>
-          <UInput v-model="filters.keyword" placeholder="外箱码" icon="i-lucide-search" size="sm" class="w-64" @keyup.enter="doSearch" />
-          <UButton color="primary" size="sm" icon="i-lucide-search" :loading="pending" @click="doSearch">查询</UButton>
-        </div>
-        <span class="text-xs text-muted">共 {{ data?.total || 0 }} 个外箱</span>
+    <div class="b-card b-card-clip">
+      <div class="b-card-head">
+        <span class="b-card-title">外箱码列表</span>
+        <span class="b-card-extra">每页 {{ pageSize }} 条 · 共 {{ data?.total || 0 }} 个外箱</span>
       </div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-left text-sm">
+      <div class="b-scroll-x">
+        <table class="b-table">
           <thead>
-            <tr class="border-b border-border/60 bg-muted/30 text-xs text-muted">
-              <th class="px-4 py-3 font-medium">外箱码</th>
-              <th class="px-4 py-3 font-medium">箱内单品码数</th>
-              <th class="px-4 py-3 font-medium">箱状态</th>
-              <th class="px-4 py-3 font-medium">最近关联时间</th>
-              <th class="px-4 py-3 font-medium">操作</th>
+            <tr>
+              <th>外箱码</th>
+              <th>箱内单品码数</th>
+              <th>箱状态</th>
+              <th>最近关联时间</th>
+              <th class="text-right">操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in data?.rows || []" :key="r.outer_box_code" class="border-b border-border/40 transition-colors hover:bg-muted/30">
-              <td class="px-4 py-3 font-code text-xs text-default">{{ r.outer_box_code }}</td>
-              <td class="px-4 py-3 font-medium text-default">{{ r.inner_count }}</td>
-              <td class="px-4 py-3">
-                <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="r.max_flag === 2 ? 'bg-error/10 text-error' : r.max_flag === 1 ? 'bg-warning/10 text-warning' : 'bg-success/10 text-success'">
+            <tr v-for="r in data?.rows || []" :key="r.outer_box_code">
+              <td><span class="font-code text-[13px] b-strong">{{ r.outer_box_code }}</span></td>
+              <td class="b-strong font-medium">{{ r.inner_count }}</td>
+              <td>
+                <span class="b-tag" :class="r.max_flag === 2 ? 'b-tag-danger' : r.max_flag === 1 ? 'b-tag-warning' : 'b-tag-success'">
                   {{ r.flagLabel }}
                 </span>
               </td>
-              <td class="px-4 py-3 text-muted">{{ String(r.updated_at).slice(0, 19) }}</td>
-              <td class="px-4 py-3">
-                <div class="flex gap-1.5">
-                  <UButton variant="ghost" color="primary" size="xs" icon="i-lucide-eye" @click="openDetail(r.outer_box_code)">查看</UButton>
-                  <UButton variant="ghost" color="error" size="xs" icon="i-lucide-unlink" @click="openUnbind(r.outer_box_code)">解绑</UButton>
+              <td>{{ String(r.updated_at).slice(0, 19) }}</td>
+              <td>
+                <div class="b-actions">
+                  <UButton variant="link" color="neutral" size="xs" @click="openDetail(r.outer_box_code)">查看</UButton>
+                  <span class="b-sep" />
+                  <UButton variant="link" color="error" size="xs" @click="openUnbind(r.outer_box_code)">解绑</UButton>
                 </div>
               </td>
             </tr>
             <tr v-if="!pending && !data?.rows?.length">
-              <td colspan="5" class="px-4 py-10 text-center text-sm text-muted">暂无外箱码，请先上传绑定</td>
+              <td colspan="5" class="b-empty">
+                <div class="b-empty-inner">
+                  <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
+                  <span class="text-sm">暂无外箱码，请先在上方上传关联清单并确认绑定</span>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
-      <div v-if="data?.total" class="flex items-center justify-between border-t border-border/60 px-4 py-3">
-        <span class="text-xs text-muted">第 {{ data.page }} / {{ totalPages }} 页</span>
-        <div class="flex gap-2">
+      <!-- 分页区 -->
+      <div v-if="data?.total" class="b-pager">
+        <span class="b-card-extra">共 {{ data?.total || 0 }} 个外箱 · 第 {{ data.page }} / {{ totalPages }} 页</span>
+        <div class="flex items-center gap-2">
           <UButton variant="outline" color="neutral" size="sm" :disabled="page <= 1" @click="page--; refresh()">上一页</UButton>
           <UButton variant="outline" color="neutral" size="sm" :disabled="page >= totalPages" @click="page++; refresh()">下一页</UButton>
         </div>
@@ -210,28 +246,46 @@ const doSearch = () => { page.value = 1; refresh() }
     <!-- 箱内码详情（Nuxt UI v4：v-model:open 绑定 open 状态，内容必须放 #content 插槽） -->
     <UModal v-model:open="showDetail">
       <template #content>
-      <div class="max-h-[70vh] overflow-y-auto p-5">
-        <h3 class="text-base font-semibold text-default">外箱码详情</h3>
-        <p class="mt-1 break-all font-code text-xs text-muted">{{ detail?.outerBoxCode }}</p>
-        <div class="mt-4 overflow-x-auto rounded-lg border border-border/60">
-          <table class="w-full text-left text-xs">
-            <thead>
-              <tr class="border-b border-border/60 bg-muted/30 text-muted">
-                <th class="px-3 py-2 font-medium">单品码</th>
-                <th class="px-3 py-2 font-medium">产品</th>
-                <th class="px-3 py-2 font-medium">状态</th>
-                <th class="px-3 py-2 font-medium">标记</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="r in detail?.rows || []" :key="r.id" class="border-b border-border/40">
-                <td class="px-3 py-2 font-code">{{ r.code }}</td>
-                <td class="px-3 py-2 text-muted">{{ r.product_name || '-' }}</td>
-                <td class="px-3 py-2">{{ r.statusLabel }}</td>
-                <td class="px-3 py-2" :class="r.abnormal_flag === 2 ? 'text-error' : r.abnormal_flag === 1 ? 'text-warning' : 'text-success'">{{ r.flagLabel }}</td>
-              </tr>
-            </tbody>
-          </table>
+      <div class="b-modal">
+        <!-- 弹窗头部：外箱码本身 -->
+        <div class="b-modal-head">
+          <div class="b-modal-icon">
+            <UIcon name="i-lucide-package-search" class="h-4 w-4 text-[var(--b-text-regular)]" />
+          </div>
+          <div class="min-w-0">
+            <h3 class="b-modal-title">外箱码详情</h3>
+            <p class="b-modal-sub break-all font-code">{{ detail?.outerBoxCode }}</p>
+          </div>
+        </div>
+        <div class="b-modal-body">
+          <!-- 箱内单品码清单 -->
+          <div class="overflow-hidden rounded-sm border border-[var(--b-border)]">
+            <div class="b-scroll-x">
+              <table class="b-table">
+                <thead>
+                  <tr>
+                    <th>单品码</th>
+                    <th>产品</th>
+                    <th>状态</th>
+                    <th>标记</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="r in detail?.rows || []" :key="r.id">
+                    <td><span class="font-code text-[13px] b-strong">{{ r.code }}</span></td>
+                    <td>{{ r.product_name || '-' }}</td>
+                    <td>{{ r.statusLabel }}</td>
+                    <td>
+                      <span class="b-tag" :class="r.abnormal_flag === 2 ? 'b-tag-danger' : r.abnormal_flag === 1 ? 'b-tag-warning' : 'b-tag-success'">{{ r.flagLabel }}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="b-modal-foot">
+          <UButton variant="outline" color="neutral" @click="showDetail = false">关闭</UButton>
         </div>
       </div>
       </template>
@@ -240,15 +294,28 @@ const doSearch = () => { page.value = 1; refresh() }
     <!-- 解绑确认（Nuxt UI v4：v-model:open 绑定 open 状态，内容必须放 #content 插槽） -->
     <UModal v-model:open="showUnbind">
       <template #content>
-      <div class="max-h-[80vh] overflow-y-auto p-5">
-        <h3 class="text-base font-semibold text-default">解绑外箱码</h3>
-        <p class="mt-1 break-all font-code text-xs text-muted">{{ unbindOuter }}</p>
-        <p class="mt-2 rounded-lg bg-error/5 p-3 text-xs text-error">解绑后箱内单品码可重新归属其他外箱码，此操作不可撤销</p>
-        <div class="mt-3 space-y-1.5">
-          <label class="block text-sm font-medium text-default">输入"确认解绑"以确认 <span class="text-error">*</span></label>
-          <UInput v-model="unbindConfirm" placeholder="确认解绑" />
+      <div class="b-modal">
+        <!-- 弹窗头部：待解绑的外箱码 -->
+        <div class="b-modal-head">
+          <div class="b-modal-icon">
+            <UIcon name="i-lucide-unlink" class="h-4 w-4 text-red-600" />
+          </div>
+          <div class="min-w-0">
+            <h3 class="b-modal-title">解绑外箱码</h3>
+            <p class="b-modal-sub break-all font-code">{{ unbindOuter }}</p>
+          </div>
         </div>
-        <div class="mt-6 flex justify-end gap-2">
+        <div class="b-modal-body">
+          <div class="b-note">
+            <UIcon name="i-lucide-alert-triangle" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+            <p class="b-note-text">解绑后箱内单品码可重新归属其他外箱码，此操作不可撤销</p>
+          </div>
+          <div>
+            <label class="b-label-lg">输入「确认解绑」以确认 <span class="b-required">*</span></label>
+            <UInput v-model="unbindConfirm" placeholder="确认解绑" />
+          </div>
+        </div>
+        <div class="b-modal-foot">
           <UButton variant="outline" color="neutral" @click="showUnbind = false">取消</UButton>
           <UButton color="error" :loading="unbinding" :disabled="unbindConfirm !== '确认解绑'" @click="doUnbind">确认解绑</UButton>
         </div>

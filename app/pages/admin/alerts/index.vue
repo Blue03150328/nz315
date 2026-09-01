@@ -35,10 +35,11 @@ const { data, pending, refresh } = await useFetch<any>('/api/admin/alerts', {
 
 const totalPages = computed(() => Math.max(1, Math.ceil((data.value?.total || 0) / pageSize)))
 
+// 处理状态配色映射（纯样式常量，统一使用 B 端语义标签类）
 const STATUS_STYLE: Record<string, string> = {
-  '0': 'bg-warning/10 text-warning',
-  '1': 'bg-success/10 text-success',
-  '2': 'bg-error/10 text-error',
+  '0': 'b-tag-warning',
+  '1': 'b-tag-success',
+  '2': 'b-tag-danger',
 }
 
 // 处理对话框
@@ -74,107 +75,139 @@ const resetSearch = () => { filters.keyword = ''; filters.alertType = undefined;
 </script>
 
 <template>
-  <div class="space-y-5">
+  <div class="space-y-4">
+    <!-- 页面标题区 -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-xl font-bold text-default">风险预警中心</h1>
-        <p class="mt-1 text-sm text-muted">8 类异常的后台预警 · 处理全程记录日志（保留至少 3 年）</p>
+        <h1 class="b-page-title">风险预警中心</h1>
+        <p class="b-page-desc">8 类异常的后台预警 · 处理全程记录日志（保留至少 3 年）</p>
       </div>
     </div>
 
-    <!-- 统计卡 -->
-    <div class="grid grid-cols-3 gap-4">
-      <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
-        <div class="flex items-center gap-2 text-muted">
-          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-warning/10 text-warning"><UIcon name="i-lucide-hourglass" class="h-4 w-4" /></span>
-          <span class="text-xs">待处理</span>
+    <!-- 预警指标卡：待处理 / 全部预警 / 已确认违规 -->
+    <div class="grid grid-cols-3 gap-3">
+      <div class="b-stat">
+        <div class="b-stat-label">
+          <UIcon name="i-lucide-hourglass" class="h-3.5 w-3.5" />
+          <span>待处理</span>
         </div>
-        <div class="mt-2 text-2xl font-bold text-warning">{{ data?.pending ?? '--' }}</div>
+        <div class="b-stat-value">{{ data?.pending ?? '--' }}</div>
+        <div class="b-stat-foot">尚未核实的预警，需尽快处理</div>
       </div>
-      <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
-        <div class="flex items-center gap-2 text-muted">
-          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary"><UIcon name="i-lucide-bell-ring" class="h-4 w-4" /></span>
-          <span class="text-xs">全部预警</span>
+      <div class="b-stat">
+        <div class="b-stat-label">
+          <UIcon name="i-lucide-bell-ring" class="h-3.5 w-3.5" />
+          <span>全部预警</span>
         </div>
-        <div class="mt-2 text-2xl font-bold text-primary">{{ data?.total ?? '--' }}</div>
+        <div class="b-stat-value">{{ data?.total ?? '--' }}</div>
+        <div class="b-stat-foot">当前筛选条件下的预警总数</div>
       </div>
-      <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
-        <div class="flex items-center gap-2 text-muted">
-          <span class="flex h-8 w-8 items-center justify-center rounded-full bg-error/10 text-error"><UIcon name="i-lucide-shield-alert" class="h-4 w-4" /></span>
-          <span class="text-xs">已确认违规</span>
+      <div class="b-stat">
+        <div class="b-stat-label">
+          <UIcon name="i-lucide-shield-alert" class="h-3.5 w-3.5" />
+          <span>已确认违规</span>
         </div>
-        <div class="mt-2 text-2xl font-bold text-error">{{ data?.rows?.filter((r: any) => r.handle_status === 2).length ?? '--' }}</div>
+        <div class="b-stat-value">{{ data?.rows?.filter((r: any) => r.handle_status === 2).length ?? '--' }}</div>
+        <div class="b-stat-foot">本页中已判定为违规的预警条数</div>
       </div>
     </div>
 
-    <!-- 筛选 -->
-    <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
-      <div class="grid gap-3 md:grid-cols-5">
-        <UInput v-model="filters.keyword" placeholder="追溯码 / 产品名" icon="i-lucide-search" @keyup.enter="doSearch" />
-        <USelect v-model="filters.alertType" :items="ALERT_OPTIONS.map(o => ({ value: String(o.value), label: o.label }))" placeholder="全部类型" class="w-full" />
-        <USelect v-model="filters.status" :items="[{ value: '0', label: '待处理' }, { value: '1', label: '已核实合规' }, { value: '2', label: '已确认违规' }]" placeholder="全部状态" class="w-full" />
-        <UInput v-model="filters.dateFrom" type="date" placeholder="触发起" />
-        <UInput v-model="filters.dateTo" type="date" placeholder="触发止" />
+    <!-- 筛选查询区 -->
+    <div class="b-card">
+      <div class="b-card-head">
+        <span class="b-card-title">筛选查询</span>
       </div>
-      <div class="mt-3 flex gap-2">
-        <UButton color="primary" icon="i-lucide-search" :loading="pending" @click="doSearch">查询</UButton>
-        <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetSearch">重置</UButton>
+      <div class="b-form-grid md:grid-cols-2 xl:grid-cols-5">
+        <div>
+          <label class="b-label">追溯码 / 产品名</label>
+          <UInput v-model="filters.keyword" placeholder="输入追溯码或产品名称" icon="i-lucide-search" @keyup.enter="doSearch" />
+        </div>
+        <div>
+          <label class="b-label">预警类型</label>
+          <USelect v-model="filters.alertType" :items="ALERT_OPTIONS.map(o => ({ value: String(o.value), label: o.label }))" placeholder="全部类型" class="w-full" />
+        </div>
+        <div>
+          <label class="b-label">处理状态</label>
+          <USelect v-model="filters.status" :items="[{ value: '0', label: '待处理' }, { value: '1', label: '已核实合规' }, { value: '2', label: '已确认违规' }]" placeholder="全部状态" class="w-full" />
+        </div>
+        <div>
+          <label class="b-label">触发日期起</label>
+          <UInput v-model="filters.dateFrom" type="date" placeholder="触发起" />
+        </div>
+        <div>
+          <label class="b-label">触发日期止</label>
+          <UInput v-model="filters.dateTo" type="date" placeholder="触发止" />
+        </div>
+      </div>
+      <div class="b-card-foot">
+        <span class="b-card-extra">共 <span class="font-medium b-strong">{{ data?.total || 0 }}</span> 条预警</span>
+        <div class="flex items-center gap-2">
+          <UButton color="neutral" variant="solid" :loading="pending" @click="doSearch">查询</UButton>
+          <UButton variant="outline" color="neutral" @click="resetSearch">重置</UButton>
+        </div>
       </div>
     </div>
 
     <!-- 预警列表 -->
-    <div class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
-      <div class="flex items-center justify-between border-b border-border/60 px-4 py-3">
-        <span class="text-sm font-semibold text-default">预警列表</span>
-        <span class="text-xs text-muted">共 {{ data?.total || 0 }} 条</span>
+    <div class="b-card b-card-clip">
+      <div class="b-card-head">
+        <span class="b-card-title">预警列表</span>
+        <span class="b-card-extra">每页 {{ pageSize }} 条 · 共 {{ data?.total || 0 }} 条</span>
       </div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-left text-sm">
+      <div class="b-scroll-x">
+        <table class="b-table">
           <thead>
-            <tr class="border-b border-border/60 bg-muted/30 text-xs text-muted">
-              <th class="px-4 py-3 font-medium">类型</th>
-              <th class="px-4 py-3 font-medium">关联追溯码</th>
-              <th class="px-4 py-3 font-medium">产品</th>
-              <th class="px-4 py-3 font-medium">证据摘要</th>
-              <th class="px-4 py-3 font-medium">触发时间</th>
-              <th class="px-4 py-3 font-medium">累计</th>
-              <th class="px-4 py-3 font-medium">处理状态</th>
-              <th class="px-4 py-3 font-medium">操作</th>
+            <tr>
+              <th>类型</th>
+              <th>关联追溯码</th>
+              <th>产品</th>
+              <th>证据摘要</th>
+              <th>触发时间</th>
+              <th>累计</th>
+              <th>处理状态</th>
+              <th class="text-right">操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in data?.rows || []" :key="r.id" class="border-b border-border/40 transition-colors hover:bg-muted/30">
-              <td class="px-4 py-3">
-                <span class="rounded-full bg-error/10 px-2 py-0.5 text-xs font-medium text-error">{{ r.alertTypeLabel }}</span>
+            <tr v-for="r in data?.rows || []" :key="r.id">
+              <td>
+                <span class="b-tag b-tag-danger">{{ r.alertTypeLabel }}</span>
               </td>
-              <td class="px-4 py-3 font-code text-xs">{{ r.code || '-' }}</td>
-              <td class="px-4 py-3 text-muted">{{ r.product_name || '-' }}</td>
-              <td class="max-w-56 truncate px-4 py-3 text-xs text-muted" :title="JSON.stringify(r.evidence || '')">
+              <td><span class="font-code text-[13px] b-strong">{{ r.code || '-' }}</span></td>
+              <td>{{ r.product_name || '-' }}</td>
+              <td class="max-w-56 truncate text-xs text-[var(--b-text-muted)]" :title="JSON.stringify(r.evidence || '')">
                 {{ r.evidence ? (r.evidence.queryCount ? '查询 ' + r.evidence.queryCount + ' 次' + (r.evidence.provinces ? '，跨 ' + r.evidence.provinces.join('、') : '') : r.evidence.expireDate ? '过期日 ' + r.evidence.expireDate : JSON.stringify(r.evidence).slice(0, 50)) : '-' }}
               </td>
-              <td class="px-4 py-3 whitespace-nowrap text-muted">{{ String(r.trigger_time).slice(0, 19) }}</td>
-              <td class="px-4 py-3 font-medium text-default">{{ r.repeat_count }}</td>
-              <td class="px-4 py-3">
-                <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="STATUS_STYLE[String(r.handle_status)] || 'bg-muted text-muted'">
+              <td class="whitespace-nowrap">{{ String(r.trigger_time).slice(0, 19) }}</td>
+              <td class="b-strong font-medium">{{ r.repeat_count }}</td>
+              <td>
+                <span class="b-tag" :class="STATUS_STYLE[String(r.handle_status)] || 'b-tag-default'">
                   {{ r.handleStatusLabel }}
                 </span>
               </td>
-              <td class="px-4 py-3">
-                <UButton v-if="Number(r.handle_status) === 0" variant="ghost" color="primary" size="xs" icon="i-lucide-check-check" @click="openHandle(r)">
-                  处理
-                </UButton>
-                <span v-else class="text-xs text-muted">{{ r.handler_name || '-' }}</span>
+              <td>
+                <div class="b-actions">
+                  <UButton v-if="Number(r.handle_status) === 0" variant="link" color="neutral" size="xs" @click="openHandle(r)">
+                    处理
+                  </UButton>
+                  <span v-else class="text-xs text-[var(--b-text-muted)]">{{ r.handler_name || '-' }}</span>
+                </div>
               </td>
             </tr>
             <tr v-if="!pending && !data?.rows?.length">
-              <td colspan="8" class="px-4 py-10 text-center text-sm text-muted">暂无预警</td>
+              <td colspan="8" class="b-empty">
+                <div class="b-empty-inner">
+                  <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
+                  <span class="text-sm">暂无符合条件的预警记录，请调整筛选条件后重试</span>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
-      <div v-if="data?.total" class="flex items-center justify-between border-t border-border/60 px-4 py-3">
-        <span class="text-xs text-muted">第 {{ data.page }} / {{ totalPages }} 页</span>
-        <div class="flex gap-2">
+      <div v-if="data?.total" class="b-pager">
+        <span class="b-card-extra">共 {{ data?.total || 0 }} 条 · 第 {{ data.page }} / {{ totalPages }} 页</span>
+        <div class="flex items-center gap-2">
           <UButton variant="outline" color="neutral" size="sm" :disabled="page <= 1" @click="page--; refresh()">上一页</UButton>
           <UButton variant="outline" color="neutral" size="sm" :disabled="page >= totalPages" @click="page++; refresh()">下一页</UButton>
         </div>
@@ -184,38 +217,50 @@ const resetSearch = () => { filters.keyword = ''; filters.alertType = undefined;
     <!-- 处理对话框（Nuxt UI v4：v-model:open 绑定 open 状态，内容必须放 #content 插槽） -->
     <UModal v-model:open="showHandle">
       <template #content>
-      <div class="max-h-[80vh] overflow-y-auto p-5">
-        <h3 class="text-base font-semibold text-default">处理预警</h3>
-        <p class="mt-1 text-xs text-muted">
-          {{ current?.alertTypeLabel }} · {{ current?.code || '-' }}
-        </p>
-        <div class="mt-4 space-y-3">
-          <button type="button" class="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-border/60 p-3 text-left text-sm transition-colors" :class="handleStatus === 1 ? 'border-success/40 bg-success/5' : 'hover:bg-muted/30'" @click="handleStatus = 1">
-            <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border" :class="handleStatus === 1 ? 'border-success bg-success text-white' : 'border-border'">
-              <UIcon v-if="handleStatus === 1" name="i-lucide-check" class="h-3 w-3" />
-            </span>
-            <span class="flex-1">
-              <span class="font-medium text-success">已核实（合规）</span>
-              <span class="block text-xs text-muted">核实后确认无异常，预警关闭</span>
-            </span>
-          </button>
-          <button type="button" class="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-border/60 p-3 text-left text-sm transition-colors" :class="handleStatus === 2 ? 'border-error/40 bg-error/5' : 'hover:bg-muted/30'" @click="handleStatus = 2">
-            <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border" :class="handleStatus === 2 ? 'border-error bg-error text-white' : 'border-border'">
-              <UIcon v-if="handleStatus === 2" name="i-lucide-check" class="h-3 w-3" />
-            </span>
-            <span class="flex-1">
-              <span class="font-medium text-error">已确认违规</span>
-              <span class="block text-xs text-muted">确认异常属实，可一键作废关联追溯码</span>
-            </span>
-          </button>
-          <label v-if="handleStatus === 2" class="flex items-center gap-2 rounded-lg bg-error/5 p-3 text-sm">
-            <UCheckbox v-model="voidCode" />
-            <span class="text-error">同时将关联追溯码标记为「已作废」（终态，不可恢复）</span>
+      <div class="b-modal">
+        <!-- 弹窗头部：图标 + 标题 + 当前预警摘要 -->
+        <div class="b-modal-head">
+          <div class="b-modal-icon">
+            <UIcon name="i-lucide-clipboard-check" class="h-4 w-4 text-[var(--b-text-regular)]" />
+          </div>
+          <div>
+            <h3 class="b-modal-title">处理预警</h3>
+            <p class="b-modal-sub">
+              {{ current?.alertTypeLabel }} · {{ current?.code || '-' }}
+            </p>
+          </div>
+        </div>
+        <div class="b-modal-body">
+          <!-- 处理结论：自绘单选卡片（Nuxt UI v4 无 URadio，保持自绘） -->
+          <div class="space-y-2.5">
+            <button type="button" class="flex w-full cursor-pointer items-center gap-2 rounded-sm border p-3 text-left text-sm transition-colors" :class="handleStatus === 1 ? 'border-[var(--b-text-strong)] bg-[var(--b-fill)]' : 'border-[var(--b-border)] hover:bg-[var(--b-fill)]'" @click="handleStatus = 1">
+              <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border" :class="handleStatus === 1 ? 'border-[var(--b-text-strong)] bg-[var(--b-text-strong)] text-white' : 'border-[var(--b-border)]'">
+                <UIcon v-if="handleStatus === 1" name="i-lucide-check" class="h-3 w-3" />
+              </span>
+              <span class="flex-1">
+                <span class="font-medium text-[var(--b-text-strong)]">已核实（合规）</span>
+                <span class="block text-xs text-[var(--b-text-muted)]">核实后确认无异常，预警关闭</span>
+              </span>
+            </button>
+            <button type="button" class="flex w-full cursor-pointer items-center gap-2 rounded-sm border p-3 text-left text-sm transition-colors" :class="handleStatus === 2 ? 'border-[var(--b-text-strong)] bg-[var(--b-fill)]' : 'border-[var(--b-border)] hover:bg-[var(--b-fill)]'" @click="handleStatus = 2">
+              <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border" :class="handleStatus === 2 ? 'border-[var(--b-text-strong)] bg-[var(--b-text-strong)] text-white' : 'border-[var(--b-border)]'">
+                <UIcon v-if="handleStatus === 2" name="i-lucide-check" class="h-3 w-3" />
+              </span>
+              <span class="flex-1">
+                <span class="font-medium text-[var(--b-text-strong)]">已确认违规</span>
+                <span class="block text-xs text-[var(--b-text-muted)]">确认异常属实，可一键作废关联追溯码</span>
+              </span>
+            </button>
+          </div>
+          <!-- 违规时可同时作废关联追溯码（终态操作） -->
+          <label v-if="handleStatus === 2" class="b-note items-center text-sm">
+            <UCheckbox v-model="voidCode" color="neutral" />
+            <span class="b-note-text">同时将关联追溯码标记为「已作废」（终态，不可恢复）</span>
           </label>
         </div>
-        <div class="mt-6 flex justify-end gap-2">
+        <div class="b-modal-foot">
           <UButton variant="outline" color="neutral" @click="showHandle = false">取消</UButton>
-          <UButton color="primary" :loading="handling" @click="submitHandle">确认处理</UButton>
+          <UButton color="neutral" variant="solid" :loading="handling" @click="submitHandle">确认处理</UButton>
         </div>
       </div>
       </template>

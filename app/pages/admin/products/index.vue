@@ -106,82 +106,102 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
 </script>
 
 <template>
-  <div class="space-y-5">
+  <div class="space-y-4">
+    <!-- 页面标题区 -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-xl font-bold text-default">产品管理</h1>
-        <p class="mt-1 text-sm text-muted">产品 SKU 化 · 规格来自主数据下拉选择，不可手填</p>
+        <h1 class="b-page-title">产品管理</h1>
+        <p class="b-page-desc">产品 SKU 化 · 规格来自主数据下拉选择，不可手填</p>
       </div>
-      <UButton color="primary" icon="i-lucide-plus" @click="openCreate">新增产品</UButton>
+      <UButton color="neutral" variant="solid" icon="i-lucide-plus" @click="openCreate">新增产品</UButton>
     </div>
 
-    <!-- 筛选 -->
-    <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
-      <div class="grid gap-3 md:grid-cols-4">
-        <UInput v-model="filters.keyword" placeholder="产品名称 / 商标 / 登记证号" icon="i-lucide-search" @keyup.enter="doSearch" />
-        <USelect v-model="filters.category" :items="CATEGORIES.map(c => ({ value: c, label: c }))" placeholder="全部类别" />
-        <USelect v-model="filters.status" :items="[{ value: '1', label: '启用' }, { value: '0', label: '停用' }]" placeholder="全部状态" />
+    <!-- 筛选查询区 -->
+    <div class="b-card">
+      <div class="b-card-head">
+        <span class="b-card-title">筛选查询</span>
       </div>
-      <div class="mt-3 flex gap-2">
-        <UButton color="primary" icon="i-lucide-search" :loading="pending" @click="doSearch">查询</UButton>
-        <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetSearch">重置</UButton>
+      <div class="b-form-grid md:grid-cols-2 xl:grid-cols-3">
+        <div>
+          <label class="b-label">产品名称 / 商标 / 登记证号</label>
+          <UInput v-model="filters.keyword" placeholder="输入产品名称、商标或登记证号" icon="i-lucide-search" @keyup.enter="doSearch" />
+        </div>
+        <div>
+          <label class="b-label">产品类别</label>
+          <USelect v-model="filters.category" :items="CATEGORIES.map(c => ({ value: c, label: c }))" placeholder="全部类别" class="w-full" />
+        </div>
+        <div>
+          <label class="b-label">状态</label>
+          <USelect v-model="filters.status" :items="[{ value: '1', label: '启用' }, { value: '0', label: '停用' }]" placeholder="全部状态" class="w-full" />
+        </div>
+      </div>
+      <div class="b-card-foot">
+        <span class="b-card-extra">共 <span class="font-medium b-strong">{{ data?.total || 0 }}</span> 条产品</span>
+        <div class="flex items-center gap-2">
+          <UButton color="neutral" variant="solid" :loading="pending" @click="doSearch">查询</UButton>
+          <UButton variant="outline" color="neutral" @click="resetSearch">重置</UButton>
+        </div>
       </div>
     </div>
 
-    <!-- 列表 -->
-    <div v-if="error" class="rounded-xl border border-error/30 bg-error/5 px-4 py-3 text-sm text-error">
-      产品列表加载失败，请刷新重试
-    </div>
-    <div v-else class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
-      <div class="flex items-center justify-between border-b border-border/60 px-4 py-3">
-        <span class="text-sm font-semibold text-default">产品列表</span>
-        <span class="text-xs text-muted">共 {{ data?.total || 0 }} 条</span>
+    <!-- 产品列表 -->
+    <div v-if="error" class="b-card b-card-body text-sm text-red-600">产品列表加载失败，请刷新重试</div>
+    <div v-else class="b-card b-card-clip">
+      <div class="b-card-head">
+        <span class="b-card-title">产品列表</span>
+        <span class="b-card-extra">每页 {{ pageSize }} 条 · 共 {{ data?.total || 0 }} 条</span>
       </div>
-      <div class="overflow-x-auto">
-        <table class="w-full text-left text-sm">
+      <div class="b-scroll-x">
+        <table class="b-table">
           <thead>
-            <tr class="border-b border-border/60 bg-muted/30 text-xs text-muted">
-              <th class="px-4 py-3 font-medium">产品商标</th>
-              <th class="px-4 py-3 font-medium">农药名称</th>
-              <th class="px-4 py-3 font-medium">登记证号</th>
-              <th class="px-4 py-3 font-medium">有效期至</th>
-              <th class="px-4 py-3 font-medium">规格</th>
-              <th class="px-4 py-3 font-medium">追溯码数</th>
-              <th class="px-4 py-3 font-medium">状态</th>
-              <th class="px-4 py-3 font-medium">操作</th>
+            <tr>
+              <th>产品商标</th>
+              <th>农药名称</th>
+              <th>登记证号</th>
+              <th>有效期至</th>
+              <th>规格</th>
+              <th>追溯码数</th>
+              <th>状态</th>
+              <th class="text-right">操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="r in data?.rows || []" :key="r.id" class="border-b border-border/40 transition-colors hover:bg-muted/30">
-              <td class="px-4 py-3 text-muted">{{ r.trademark || '-' }}</td>
-              <td class="px-4 py-3 font-medium text-default">{{ r.name }}</td>
-              <td class="px-4 py-3 font-code text-muted">{{ r.registration_no }}</td>
-              <td class="px-4 py-3 text-muted">{{ r.registration_expire ? String(r.registration_expire).slice(0, 10) : '-' }}</td>
-              <td class="px-4 py-3 text-muted">{{ r.spec_name || '-' }}</td>
-              <td class="px-4 py-3 font-medium text-default">{{ r.code_count }}</td>
-              <td class="px-4 py-3">
-                <span class="rounded-full px-2 py-0.5 text-xs font-medium" :class="Number(r.status) === 1 ? 'bg-success/10 text-success' : 'bg-muted text-muted'">
+            <tr v-for="r in data?.rows || []" :key="r.id">
+              <td>{{ r.trademark || '-' }}</td>
+              <td class="b-strong font-medium">{{ r.name }}</td>
+              <td><span class="font-code text-[13px] b-strong">{{ r.registration_no }}</span></td>
+              <td>{{ r.registration_expire ? String(r.registration_expire).slice(0, 10) : '-' }}</td>
+              <td>{{ r.spec_name || '-' }}</td>
+              <td class="b-strong font-medium">{{ r.code_count }}</td>
+              <td>
+                <span class="b-tag" :class="Number(r.status) === 1 ? 'b-tag-success' : 'b-tag-default'">
                   {{ Number(r.status) === 1 ? '启用' : '停用' }}
                 </span>
               </td>
-              <td class="px-4 py-3">
-                <div class="flex gap-1.5">
-                  <UButton variant="ghost" color="neutral" size="xs" icon="i-lucide-pencil" @click="openEdit(r)">编辑</UButton>
-                  <UButton variant="ghost" color="neutral" size="xs" :icon="Number(r.status) === 1 ? 'i-lucide-pause' : 'i-lucide-play'" @click="toggleStatus(r)">
+              <td>
+                <div class="b-actions">
+                  <UButton variant="link" color="neutral" size="xs" @click="openEdit(r)">编辑</UButton>
+                  <span class="b-sep" />
+                  <UButton variant="link" color="neutral" size="xs" @click="toggleStatus(r)">
                     {{ Number(r.status) === 1 ? '停用' : '启用' }}
                   </UButton>
                 </div>
               </td>
             </tr>
             <tr v-if="!pending && !data?.rows?.length">
-              <td colspan="8" class="px-4 py-10 text-center text-sm text-muted">暂无数据，点击右上角「新增产品」创建</td>
+              <td colspan="8" class="b-empty">
+                <div class="b-empty-inner">
+                  <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
+                  <span class="text-sm">暂无产品数据，点击右上角「新增产品」创建</span>
+                </div>
+              </td>
             </tr>
           </tbody>
         </table>
       </div>
-      <div v-if="data?.total" class="flex items-center justify-between border-t border-border/60 px-4 py-3">
-        <span class="text-xs text-muted">第 {{ data.page }} / {{ totalPages }} 页</span>
-        <div class="flex gap-2">
+      <div v-if="data?.total" class="b-pager">
+        <span class="b-card-extra">共 {{ data?.total || 0 }} 条 · 第 {{ data.page }} / {{ totalPages }} 页</span>
+        <div class="flex items-center gap-2">
           <UButton variant="outline" color="neutral" size="sm" :disabled="page <= 1" @click="page--; refresh()">上一页</UButton>
           <UButton variant="outline" color="neutral" size="sm" :disabled="page >= totalPages" @click="page++; refresh()">下一页</UButton>
         </div>
@@ -191,106 +211,115 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
     <!-- 新增/编辑对话框（Nuxt UI v4：v-model:open 绑定 open 状态，内容放 #content 插槽） -->
     <UModal v-model:open="showModal">
       <template #content>
-      <div class="max-h-[80vh] overflow-y-auto p-5">
-        <h3 class="text-base font-semibold text-default">{{ editingId ? '编辑产品' : '新增产品' }}</h3>
-        <div class="mt-4 space-y-4">
-          <div class="grid grid-cols-2 gap-3">
-            <div class="space-y-1.5">
-              <label class="block text-sm font-medium text-default">产品商标 <span class="text-error">*</span></label>
-              <UInput v-model="form.trademark" placeholder="如：绿丰" />
+        <div class="b-modal">
+          <div class="b-modal-head">
+            <div class="b-modal-icon">
+              <UIcon :name="editingId ? 'i-lucide-pencil' : 'i-lucide-plus'" class="h-4 w-4 text-[var(--b-text-regular)]" />
             </div>
-            <div class="space-y-1.5">
-              <label class="block text-sm font-medium text-default">农药名称 <span class="text-error">*</span></label>
-              <UInput v-model="form.name" placeholder="与登记证一致" />
+            <div>
+              <h3 class="b-modal-title">{{ editingId ? '编辑产品' : '新增产品' }}</h3>
+              <p class="b-modal-sub">登记证号全局唯一 · 规格取自主数据，净含量自动带出</p>
             </div>
           </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div class="space-y-1.5">
-              <label class="block text-sm font-medium text-default">登记证号 <span class="text-error">*</span></label>
-              <UInput v-model="form.registrationNo" placeholder="如：PD20040767（全局唯一）" />
+          <div class="b-modal-body">
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="b-label-lg">产品商标 <span class="b-required">*</span></label>
+                <UInput v-model="form.trademark" placeholder="如：绿丰" />
+              </div>
+              <div>
+                <label class="b-label-lg">农药名称 <span class="b-required">*</span></label>
+                <UInput v-model="form.name" placeholder="与登记证一致" />
+              </div>
             </div>
-            <div class="space-y-1.5">
-              <label class="block text-sm font-medium text-default">登记证有效期至 <span class="text-error">*</span></label>
-              <UInput v-model="form.registrationExpire" type="date" />
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="b-label-lg">登记证号 <span class="b-required">*</span></label>
+                <UInput v-model="form.registrationNo" placeholder="如：PD20040767（全局唯一）" />
+              </div>
+              <div>
+                <label class="b-label-lg">登记证有效期至 <span class="b-required">*</span></label>
+                <UInput v-model="form.registrationExpire" type="date" />
+                <p class="b-help">到期后扫码将提示「登记证过期」，请及时更新</p>
+              </div>
             </div>
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div class="space-y-1.5">
-              <label class="block text-sm font-medium text-default">登记类别 <span class="text-error">*</span></label>
-              <USelect v-model="form.regCategory" :items="REG_CATEGORIES" />
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="b-label-lg">登记类别 <span class="b-required">*</span></label>
+                <USelect v-model="form.regCategory" :items="REG_CATEGORIES" class="w-full" />
+              </div>
+              <div>
+                <label class="b-label-lg">生产类型 <span class="b-required">*</span></label>
+                <USelect v-model="form.produceType" :items="PRODUCE_TYPES" class="w-full" />
+              </div>
             </div>
-            <div class="space-y-1.5">
-              <label class="block text-sm font-medium text-default">生产类型 <span class="text-error">*</span></label>
-              <USelect v-model="form.produceType" :items="PRODUCE_TYPES" />
+            <div>
+              <label class="b-label-lg">登记证持有人名称 <span class="b-required">*</span></label>
+              <UInput v-model="form.holderName" placeholder="扫码必显字段" />
             </div>
-          </div>
-          <div class="space-y-1.5">
-            <label class="block text-sm font-medium text-default">登记证持有人名称 <span class="text-error">*</span></label>
-            <UInput v-model="form.holderName" placeholder="扫码必显字段" />
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div class="space-y-1.5">
-              <label class="block text-sm font-medium text-default">剂型 <span class="text-error">*</span></label>
-              <UInput v-model="form.dosage" placeholder="如：可湿性粉剂" />
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="b-label-lg">剂型 <span class="b-required">*</span></label>
+                <UInput v-model="form.dosage" placeholder="如：可湿性粉剂" />
+              </div>
+              <div>
+                <label class="b-label-lg">毒性 <span class="b-required">*</span></label>
+                <USelect v-model="form.toxicity" :items="TOXICITY.map(t => ({ value: t, label: t }))" class="w-full" />
+              </div>
             </div>
-            <div class="space-y-1.5">
-              <label class="block text-sm font-medium text-default">毒性 <span class="text-error">*</span></label>
-              <USelect v-model="form.toxicity" :items="TOXICITY.map(t => ({ value: t, label: t }))" />
+            <div>
+              <label class="b-label-lg">规格（来自主数据，不可手填）<span class="b-required">*</span></label>
+              <USelect
+                v-model="form.specId"
+                :items="(specData?.rows || []).map((s: any) => ({ value: Number(s.id), label: s.spec_name + '（码 ' + s.spec_code + '）' }))"
+                placeholder="选择规格"
+                class="w-full"
+                :content="{ class: 'min-w-72' }"
+                :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
+              />
+              <p v-if="selectedSpec" class="b-help">
+                净含量：{{ selectedSpec.net_content ?? '-' }} {{ selectedSpec.content_unit }} / {{ selectedSpec.pack_unit }}（自动带出，只读）
+              </p>
             </div>
-          </div>
-          <div class="space-y-1.5">
-            <label class="block text-sm font-medium text-default">规格（来自主数据，不可手填）<span class="text-error">*</span></label>
-            <USelect
-              v-model="form.specId"
-              :items="(specData?.rows || []).map((s: any) => ({ value: Number(s.id), label: s.spec_name + '（码 ' + s.spec_code + '）' }))"
-              placeholder="选择规格"
-              class="w-full"
-              :content="{ class: 'min-w-72' }"
-              :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
-            />
-            <p v-if="selectedSpec" class="text-xs text-muted">
-              净含量：{{ selectedSpec.net_content ?? '-' }} {{ selectedSpec.content_unit }} / {{ selectedSpec.pack_unit }}（自动带出，只读）
-            </p>
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div class="space-y-1.5">
-              <label class="block text-sm font-medium text-default">总含量</label>
-              <UInput v-model="form.content" placeholder="如：25%" />
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="b-label-lg">总含量</label>
+                <UInput v-model="form.content" placeholder="如：25%" />
+              </div>
+              <div>
+                <label class="b-label-lg">保质期</label>
+                <UInput v-model="form.shelfLife" placeholder="如：2年（批次有效期自动计算）" />
+              </div>
             </div>
-            <div class="space-y-1.5">
-              <label class="block text-sm font-medium text-default">保质期</label>
-              <UInput v-model="form.shelfLife" placeholder="如：2年（批次有效期自动计算）" />
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="b-label-lg">产品类别 <span class="b-required">*</span></label>
+                <USelect v-model="form.category" :items="CATEGORIES.map(c => ({ value: c, label: c }))" class="w-full" />
+              </div>
+              <div>
+                <label class="b-label-lg">是否限制使用</label>
+                <div class="flex items-center gap-2 pt-1.5">
+                  <USwitch v-model="form.isRestricted" />
+                  <span class="text-sm text-[var(--b-text-regular)]">{{ form.isRestricted ? '是（触发实名购买）' : '否' }}</span>
+                </div>
+              </div>
             </div>
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div class="space-y-1.5">
-              <label class="block text-sm font-medium text-default">产品类别 <span class="text-error">*</span></label>
-              <USelect v-model="form.category" :items="CATEGORIES.map(c => ({ value: c, label: c }))" />
-            </div>
-            <div class="space-y-1.5">
-              <label class="block text-sm font-medium text-default">是否限制使用</label>
-              <div class="flex items-center gap-2 pt-2">
-                <USwitch v-model="form.isRestricted" />
-                <span class="text-sm text-muted">{{ form.isRestricted ? '是（触发实名购买）' : '否' }}</span>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="b-label-lg">原药登记证号</label>
+                <UInput v-model="form.originalRegNo" placeholder="制剂产品扫码必显" />
+              </div>
+              <div>
+                <label class="b-label-lg">原药生产企业名称</label>
+                <UInput v-model="form.originalCompany" placeholder="与登记证号配套填写" />
               </div>
             </div>
           </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div class="space-y-1.5">
-              <label class="block text-sm font-medium text-default">原药登记证号</label>
-              <UInput v-model="form.originalRegNo" placeholder="制剂产品扫码必显" />
-            </div>
-            <div class="space-y-1.5">
-              <label class="block text-sm font-medium text-default">原药生产企业名称</label>
-              <UInput v-model="form.originalCompany" placeholder="与登记证号配套填写" />
-            </div>
+          <div class="b-modal-foot">
+            <UButton variant="outline" color="neutral" @click="showModal = false">取消</UButton>
+            <UButton color="neutral" variant="solid" :loading="saving" @click="save">保存</UButton>
           </div>
         </div>
-        <div class="mt-6 flex justify-end gap-2">
-          <UButton variant="outline" color="neutral" @click="showModal = false">取消</UButton>
-          <UButton color="primary" :loading="saving" @click="save">保存</UButton>
-        </div>
-      </div>
       </template>
     </UModal>
   </div>

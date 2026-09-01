@@ -58,14 +58,14 @@ const toggleOne = (id: number) => {
 
 // 状态标签：「底色浅 + 文字重」简约样式（AntD Tag 风格，仅用颜色提示，不铺大色块）
 const statusBadge = (s: number) => {
-  if (s === 2) return { cls: 'bg-emerald-50 text-emerald-700', label: '已绑定' }
-  return { cls: 'bg-blue-50 text-blue-700', label: '已生成' }
+  if (s === 2) return { cls: 'b-tag-success', label: '已绑定' }
+  return { cls: 'b-tag-info', label: '已生成' }
 }
 // 异常标记标签：浅底深字，异常状态仅靠文字颜色提示
 const flagBadge = (f: number) => {
-  if (f === 1) return { cls: 'bg-amber-50 text-amber-700', label: '已冻结' }
-  if (f === 2) return { cls: 'bg-red-50 text-red-600', label: '已作废' }
-  return { cls: 'bg-gray-50 text-gray-600', label: '正常' }
+  if (f === 1) return { cls: 'b-tag-warning', label: '已冻结' }
+  if (f === 2) return { cls: 'b-tag-danger', label: '已作废' }
+  return { cls: 'b-tag-default', label: '正常' }
 }
 
 // 异常标记操作（PRD 5.5.5：作废为终态需原因；冻结可解冻）
@@ -177,40 +177,40 @@ const resetSearch = () => {
     <!-- 页面标题区 -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-lg font-semibold text-[#1f2329]">码库管理</h1>
-        <p class="mt-0.5 text-xs text-[#86909c]">追溯码查询、状态与异常标记管理（异常标记与码状态正交）</p>
+        <h1 class="b-page-title">码库管理</h1>
+        <p class="b-page-desc">追溯码查询、状态与异常标记管理（异常标记与码状态正交）</p>
       </div>
     </div>
 
-    <!-- 筛选查询区：白底细边框小圆角，内部用细分割线分区，无阴影无装饰 -->
-    <div class="rounded-sm border border-[#e4e7ed] bg-white">
-      <div class="border-b border-[#ebeef5] px-4 py-2.5">
-        <span class="text-sm font-medium text-[#303133]">筛选查询</span>
+    <!-- 筛选查询区 -->
+    <div class="b-card">
+      <div class="b-card-head">
+        <span class="b-card-title">筛选查询</span>
       </div>
-      <div class="grid gap-x-4 gap-y-3.5 px-4 pb-3.5 pt-4 md:grid-cols-2 xl:grid-cols-5">
+      <div class="b-form-grid md:grid-cols-2 xl:grid-cols-5">
         <div>
-          <label class="mb-1.5 block text-xs text-[#606266]">追溯码 / 批号 / 产品名</label>
+          <label class="b-label">追溯码 / 批号 / 产品名</label>
           <UInput v-model="filters.keyword" placeholder="输入追溯码、批号或产品名称" icon="i-lucide-search" @keyup.enter="doSearch" />
         </div>
         <div>
-          <label class="mb-1.5 block text-xs text-[#606266]">码状态</label>
+          <label class="b-label">码状态</label>
           <USelect v-model="filters.status" :items="STATUS_OPTIONS" placeholder="全部状态" class="w-full" />
         </div>
         <div>
-          <label class="mb-1.5 block text-xs text-[#606266]">异常标记</label>
+          <label class="b-label">异常标记</label>
           <USelect v-model="filters.abnormalFlag" :items="FLAG_OPTIONS" placeholder="全部标记" class="w-full" />
         </div>
         <div>
-          <label class="mb-1.5 block text-xs text-[#606266]">创建日期起</label>
+          <label class="b-label">创建日期起</label>
           <UInput v-model="filters.dateFrom" type="date" />
         </div>
         <div>
-          <label class="mb-1.5 block text-xs text-[#606266]">创建日期止</label>
+          <label class="b-label">创建日期止</label>
           <UInput v-model="filters.dateTo" type="date" />
         </div>
       </div>
-      <div class="flex flex-wrap items-center justify-between gap-2 border-t border-[#ebeef5] px-4 py-2.5">
-        <span class="text-xs text-[#86909c]">共 <span class="font-medium text-[#303133]">{{ data?.total || 0 }}</span> 条追溯码</span>
+      <div class="b-card-foot">
+        <span class="b-card-extra">共 <span class="font-medium b-strong">{{ data?.total || 0 }}</span> 条追溯码</span>
         <div class="flex items-center gap-2">
           <UButton color="neutral" variant="solid" @click="doSearch">查询</UButton>
           <UButton color="neutral" variant="outline" @click="resetSearch">重置</UButton>
@@ -218,67 +218,61 @@ const resetSearch = () => {
       </div>
     </div>
 
-    <!-- 追溯码列表：白底细边框，浅灰表头 + 白底行 + 细分割线，无卡片浮层 -->
-    <div class="overflow-hidden rounded-sm border border-[#e4e7ed] bg-white">
-      <div class="flex items-center justify-between border-b border-[#ebeef5] px-4 py-2.5">
-        <span class="text-sm font-medium text-[#303133]">追溯码列表</span>
-        <span class="text-xs text-[#86909c]">每页 {{ pageSize }} 条 · 共 {{ data?.total || 0 }} 条</span>
+    <!-- 追溯码列表 -->
+    <div class="b-card b-card-clip">
+      <div class="b-card-head">
+        <span class="b-card-title">追溯码列表</span>
+        <span class="b-card-extra">每页 {{ pageSize }} 条 · 共 {{ data?.total || 0 }} 条</span>
       </div>
 
-      <div class="overflow-x-auto">
-        <table class="w-full text-left text-sm">
+      <div class="b-scroll-x">
+        <table class="b-table">
           <thead>
-            <tr class="bg-[#f5f7fa] text-xs text-[#606266]">
-              <th class="w-12 px-4 py-2.5 font-medium">
+            <tr>
+              <th class="w-12">
                 <div class="flex items-center gap-1.5">
                   <UCheckbox color="neutral" :model-value="allSelected" @update:model-value="toggleAll" />
                   <span>全选</span>
                 </div>
               </th>
-              <th class="px-4 py-2.5 font-medium">追溯码</th>
-              <th class="px-4 py-2.5 font-medium">产品</th>
-              <th class="px-4 py-2.5 font-medium">码状态</th>
-              <th class="px-4 py-2.5 font-medium">异常标记</th>
-              <th class="px-4 py-2.5 font-medium">生产日期</th>
-              <th class="px-4 py-2.5 font-medium">生产批号</th>
-              <th class="px-4 py-2.5 font-medium">上传时间</th>
-              <th class="px-4 py-2.5 text-right font-medium">操作</th>
+              <th>追溯码</th>
+              <th>产品</th>
+              <th>码状态</th>
+              <th>异常标记</th>
+              <th>生产日期</th>
+              <th>生产批号</th>
+              <th>上传时间</th>
+              <th class="text-right">操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr
-              v-for="r in data?.rows || []" :key="r.id"
-              class="border-b border-[#ebeef5] transition-colors hover:bg-[#f5f7fa]"
-              :class="selected.includes(r.id) ? 'bg-[#f5f7fa]' : 'bg-white'"
-            >
-              <td class="px-4 py-2.5"><UCheckbox color="neutral" :model-value="selected.includes(r.id)" @update:model-value="toggleOne(r.id)" /></td>
-              <td class="px-4 py-2.5"><span class="font-code text-[13px] text-[#303133]">{{ r.code }}</span></td>
-              <td class="px-4 py-2.5 text-[#606266]">{{ r.product_name || '-' }}</td>
-              <td class="px-4 py-2.5">
-                <span class="inline-block rounded-sm px-1.5 py-0.5 text-xs font-medium" :class="statusBadge(r.status).cls">{{ statusBadge(r.status).label }}</span>
+            <tr v-for="r in data?.rows || []" :key="r.id" :class="{ 'is-selected': selected.includes(r.id) }">
+              <td><UCheckbox color="neutral" :model-value="selected.includes(r.id)" @update:model-value="toggleOne(r.id)" /></td>
+              <td><span class="font-code text-[13px] b-strong">{{ r.code }}</span></td>
+              <td>{{ r.product_name || '-' }}</td>
+              <td><span class="b-tag" :class="statusBadge(r.status).cls">{{ statusBadge(r.status).label }}</span></td>
+              <td>
+                <span class="b-tag" :class="flagBadge(r.abnormal_flag).cls">{{ flagBadge(r.abnormal_flag).label }}</span>
+                <div v-if="r.abnormal_reason" class="mt-0.5 max-w-44 truncate text-xs text-[var(--b-text-muted)]" :title="r.abnormal_reason">原因：{{ r.abnormal_reason }}</div>
               </td>
-              <td class="px-4 py-2.5">
-                <span class="inline-block rounded-sm px-1.5 py-0.5 text-xs font-medium" :class="flagBadge(r.abnormal_flag).cls">{{ flagBadge(r.abnormal_flag).label }}</span>
-                <div v-if="r.abnormal_reason" class="mt-0.5 max-w-44 truncate text-xs text-[#86909c]" :title="r.abnormal_reason">原因：{{ r.abnormal_reason }}</div>
-              </td>
-              <td class="px-4 py-2.5 text-[#606266]">{{ r.produce_date || '-' }}</td>
-              <td class="px-4 py-2.5 text-[#606266]">{{ r.batch_no || '-' }}</td>
-              <td class="px-4 py-2.5 text-[#606266]">{{ String(r.created_at).slice(0, 16) }}</td>
-              <td class="px-4 py-2.5">
-                <div v-if="Number(r.abnormal_flag) === 0" class="flex items-center justify-end">
+              <td>{{ r.produce_date || '-' }}</td>
+              <td>{{ r.batch_no || '-' }}</td>
+              <td>{{ String(r.created_at).slice(0, 16) }}</td>
+              <td>
+                <div v-if="Number(r.abnormal_flag) === 0" class="b-actions">
                   <UButton variant="link" color="neutral" size="xs" @click="openFlag('freeze', [r])">冻结</UButton>
-                  <span class="mx-1 h-3 w-px bg-[#dcdfe6]" />
+                  <span class="b-sep" />
                   <UButton variant="link" color="error" size="xs" @click="openFlag('void', [r])">作废</UButton>
                 </div>
-                <div v-else class="flex items-center justify-end">
+                <div v-else class="b-actions">
                   <UButton variant="link" color="neutral" size="xs" @click="openFlag('restore', [r])">恢复正常</UButton>
                 </div>
               </td>
             </tr>
             <tr v-if="!pending && !data?.rows?.length">
-              <td colspan="9" class="px-4 py-14 text-center">
-                <div class="flex flex-col items-center gap-1.5 text-[#86909c]">
-                  <UIcon name="i-lucide-inbox" class="h-8 w-8 text-[#c9cdd4]" />
+              <td colspan="9" class="b-empty">
+                <div class="b-empty-inner">
+                  <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
                   <span class="text-sm">暂无符合条件的追溯码，请调整筛选条件后重试</span>
                 </div>
               </td>
@@ -288,8 +282,8 @@ const resetSearch = () => {
       </div>
 
       <!-- 分页区 -->
-      <div v-if="data?.total" class="flex items-center justify-between border-t border-[#ebeef5] bg-[#fafafa] px-4 py-2.5">
-        <span class="text-xs text-[#86909c]">共 {{ data?.total || 0 }} 条 · 第 {{ data.page }} / {{ totalPages }} 页</span>
+      <div v-if="data?.total" class="b-pager">
+        <span class="b-card-extra">共 {{ data?.total || 0 }} 条 · 第 {{ data.page }} / {{ totalPages }} 页</span>
         <div class="flex items-center gap-2">
           <UButton variant="outline" color="neutral" size="sm" :disabled="page <= 1" @click="page--; refresh()">上一页</UButton>
           <UButton variant="outline" color="neutral" size="sm" :disabled="page >= totalPages" @click="page++; refresh()">下一页</UButton>
@@ -297,12 +291,12 @@ const resetSearch = () => {
       </div>
     </div>
 
-    <!-- 底部批量操作条：低饱和浅灰底 + 顶部细横线，与表格弱分隔；按钮主次分明（仅作废用警示色） -->
-    <div v-if="data?.rows?.length" class="sticky bottom-0 z-20 -mx-8 border-t border-[#e4e7ed] bg-[#fafafa] px-8 py-2.5">
+    <!-- 底部吸底批量操作条：仅批量作废用警示色，其余中性 -->
+    <div v-if="data?.rows?.length" class="b-bulkbar">
       <div class="flex flex-wrap items-center justify-between gap-2">
         <div class="flex items-center gap-2.5">
-          <span class="inline-block rounded-sm bg-[#f0f2f5] px-2 py-0.5 text-xs font-medium text-[#303133]">已选 {{ selected.length }} 条</span>
-          <span class="text-xs text-[#86909c]">勾选追溯码后可执行批量冻结、作废、恢复正常或批量修正</span>
+          <span class="b-count">已选 {{ selected.length }} 条</span>
+          <span class="b-card-extra">勾选追溯码后可执行批量冻结、作废、恢复正常或批量修正</span>
         </div>
         <div class="flex items-center gap-2">
           <UButton variant="outline" color="neutral" size="sm" :disabled="!selected.length" @click="openFlag('freeze', selectedRows)">批量冻结</UButton>
@@ -317,87 +311,89 @@ const resetSearch = () => {
     <!-- 异常标记操作对话框（Nuxt UI v4：v-model:open 绑定 open 状态，内容必须放 #content 插槽） -->
     <UModal v-model:open="showFlagModal">
       <template #content>
-      <div class="max-h-[80vh] overflow-y-auto p-4">
-        <div class="flex items-center gap-2.5 border-b border-[#ebeef5] pb-3">
-          <div class="flex h-8 w-8 items-center justify-center rounded-sm bg-[#f5f7fa]">
-            <UIcon :name="FLAG_META[flagAction].icon" class="h-4 w-4" :class="FLAG_META[flagAction].color" />
+        <div class="b-modal">
+          <div class="b-modal-head">
+            <div class="b-modal-icon">
+              <UIcon :name="FLAG_META[flagAction].icon" class="h-4 w-4" :class="FLAG_META[flagAction].color" />
+            </div>
+            <div>
+              <h3 class="b-modal-title">{{ FLAG_TITLE[flagAction] }}</h3>
+              <p class="b-modal-sub">已选中 {{ flagTargets.length }} 条追溯码</p>
+            </div>
           </div>
-          <div>
-            <h3 class="text-sm font-medium text-[#1f2329]">{{ FLAG_TITLE[flagAction] }}</h3>
-            <p class="text-xs text-[#86909c]">已选中 {{ flagTargets.length }} 条追溯码</p>
+          <div class="b-modal-body">
+            <div class="b-note">
+              <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+              <p class="b-note-text">{{ FLAG_NOTE[flagAction] }}</p>
+            </div>
+            <div v-if="flagAction === 'void'">
+              <label class="b-label-lg">作废原因 <span class="b-required">*</span></label>
+              <USelect v-model="flagReason" :items="['印刷模糊', '无法识别', '窜货', '召回', '疑似假冒', '其他'].map(r => ({ value: r, label: r }))" placeholder="选择原因" class="w-full" />
+            </div>
+          </div>
+          <div class="b-modal-foot">
+            <UButton variant="outline" color="neutral" @click="showFlagModal = false">取消</UButton>
+            <UButton color="neutral" variant="solid" :loading="flagging" @click="submitFlag">确认执行</UButton>
           </div>
         </div>
-        <div class="mt-3 flex gap-1.5 rounded-sm bg-[#f5f7fa] p-2.5">
-          <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#86909c]" />
-          <p class="text-xs leading-relaxed text-[#606266]">{{ FLAG_NOTE[flagAction] }}</p>
-        </div>
-        <div v-if="flagAction === 'void'" class="mt-3.5">
-          <label class="mb-1.5 block text-sm text-[#303133]">作废原因 <span class="text-red-600">*</span></label>
-          <USelect v-model="flagReason" :items="['印刷模糊', '无法识别', '窜货', '召回', '疑似假冒', '其他'].map(r => ({ value: r, label: r }))" placeholder="选择原因" />
-        </div>
-        <div class="mt-4 flex justify-end gap-2 border-t border-[#ebeef5] pt-3">
-          <UButton variant="outline" color="neutral" @click="showFlagModal = false">取消</UButton>
-          <UButton color="neutral" variant="solid" :loading="flagging" @click="submitFlag">确认执行</UButton>
-        </div>
-      </div>
       </template>
     </UModal>
 
     <!-- 批量修正对话框（PRD 5.8；Nuxt UI v4：v-model:open + #content 插槽） -->
     <UModal v-model:open="showCorrectModal">
       <template #content>
-      <div class="max-h-[85vh] overflow-y-auto p-4">
-        <div class="flex items-center gap-2.5 border-b border-[#ebeef5] pb-3">
-          <div class="flex h-8 w-8 items-center justify-center rounded-sm bg-[#f5f7fa]">
-            <UIcon name="i-lucide-wrench" class="h-4 w-4 text-[#606266]" />
+        <div class="b-modal">
+          <div class="b-modal-head">
+            <div class="b-modal-icon">
+              <UIcon name="i-lucide-wrench" class="h-4 w-4 text-[var(--b-text-regular)]" />
+            </div>
+            <div>
+              <h3 class="b-modal-title">批量修正</h3>
+              <p class="b-modal-sub">已选 {{ selected.length }} 条追溯码 · 已冻结/已作废码自动排除</p>
+            </div>
           </div>
-          <div>
-            <h3 class="text-sm font-medium text-[#1f2329]">批量修正</h3>
-            <p class="text-xs text-[#86909c]">已选 {{ selected.length }} 条追溯码 · 已冻结/已作废码自动排除</p>
+          <div class="b-modal-body">
+            <div>
+              <label class="b-label-lg">重新绑定批次（仅"已生成"码生效，绑定后自动置为"已绑定"）</label>
+              <USelect
+                v-model="correctForm.batchId"
+                :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
+                class="w-full"
+                :content="{ class: 'min-w-72' }"
+                :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
+              />
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="b-label-lg">生产日期</label>
+                <UInput v-model="correctForm.produceDate" type="date" />
+                <p class="b-help">修改后扫码页展示的生产日期将变更，请确认与标签喷码一致</p>
+              </div>
+              <div>
+                <label class="b-label-lg">有效期至</label>
+                <UInput v-model="correctForm.expireDate" type="date" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="b-label-lg">质量检验结果</label>
+                <USelect v-model="correctForm.qcResult" :items="[{ value: 'keep', label: '不修改' }, { value: '1', label: '合格' }, { value: '0', label: '不合格' }]" class="w-full" />
+              </div>
+              <div>
+                <label class="b-label-lg">质量合格证号</label>
+                <UInput v-model="correctForm.qualityCertNo" placeholder="不修改留空" />
+              </div>
+            </div>
+            <div class="b-note">
+              <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+              <p class="b-note-text">已绑定码的生产日期/质检字段修改属合规更正，将记录强审计日志（不可撤销）</p>
+            </div>
+          </div>
+          <div class="b-modal-foot">
+            <UButton variant="outline" color="neutral" @click="showCorrectModal = false">取消</UButton>
+            <UButton color="neutral" variant="solid" :loading="correcting" @click="submitCorrect">确认修正</UButton>
           </div>
         </div>
-        <div class="mt-3.5 max-h-[60vh] space-y-3.5 overflow-y-auto pr-1">
-          <div>
-            <label class="mb-1.5 block text-sm text-[#303133]">重新绑定批次（仅"已生成"码生效，绑定后自动置为"已绑定"）</label>
-            <USelect
-              v-model="correctForm.batchId"
-              :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
-              class="w-full"
-              :content="{ class: 'min-w-72' }"
-              :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
-            />
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="mb-1.5 block text-sm text-[#303133]">生产日期</label>
-              <UInput v-model="correctForm.produceDate" type="date" />
-              <p class="mt-1 text-xs text-[#86909c]">修改后扫码页展示的生产日期将变更，请确认与标签喷码一致</p>
-            </div>
-            <div>
-              <label class="mb-1.5 block text-sm text-[#303133]">有效期至</label>
-              <UInput v-model="correctForm.expireDate" type="date" />
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="mb-1.5 block text-sm text-[#303133]">质量检验结果</label>
-              <USelect v-model="correctForm.qcResult" :items="[{ value: 'keep', label: '不修改' }, { value: '1', label: '合格' }, { value: '0', label: '不合格' }]" class="w-full" />
-            </div>
-            <div>
-              <label class="mb-1.5 block text-sm text-[#303133]">质量合格证号</label>
-              <UInput v-model="correctForm.qualityCertNo" placeholder="不修改留空" />
-            </div>
-          </div>
-          <div class="flex gap-1.5 rounded-sm bg-[#f5f7fa] p-2.5">
-            <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#86909c]" />
-            <p class="text-xs leading-relaxed text-[#606266]">已绑定码的生产日期/质检字段修改属合规更正，将记录强审计日志（不可撤销）</p>
-          </div>
-        </div>
-        <div class="mt-4 flex justify-end gap-2 border-t border-[#ebeef5] pt-3">
-          <UButton variant="outline" color="neutral" @click="showCorrectModal = false">取消</UButton>
-          <UButton color="neutral" variant="solid" :loading="correcting" @click="submitCorrect">确认修正</UButton>
-        </div>
-      </div>
       </template>
     </UModal>
   </div>

@@ -99,99 +99,129 @@ const reasonChips = computed(() => {
 </script>
 
 <template>
-  <div class="space-y-5">
+  <div class="space-y-4">
+    <!-- 页面标题区 -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-xl font-bold text-default">生产采集</h1>
-        <p class="mt-1 text-sm text-muted">上传追溯码文件（TXT/CSV，每行一个 32 位码）→ 校验 → 入库/绑定批次</p>
+        <h1 class="b-page-title">生产采集</h1>
+        <p class="b-page-desc">上传追溯码文件（TXT/CSV，每行一个 32 位码）→ 校验 → 入库/绑定批次</p>
       </div>
     </div>
 
-    <!-- 上传区 -->
-    <div class="rounded-xl border border-border bg-elevated p-5 shadow-sm">
-      <div class="flex items-center justify-between">
-        <h2 class="text-sm font-semibold text-default">1. 上传码文件</h2>
-        <div class="flex gap-2">
+    <!-- 第一步：上传码文件 -->
+    <div class="b-card">
+      <div class="b-card-head">
+        <span class="b-card-title">1. 上传码文件</span>
+        <span class="b-card-extra">支持 TXT / CSV，每行一个 32 位追溯码</span>
+      </div>
+      <div class="b-card-body space-y-3.5">
+        <!-- 文件选择：隐藏的原生 input 由按钮触发 -->
+        <div class="flex flex-wrap items-center gap-2">
           <input ref="fileInput" type="file" accept=".txt,.csv" class="hidden" @change="handleFile" />
           <UButton variant="outline" color="neutral" icon="i-lucide-folder-open" @click="fileInput?.click()">选择文件</UButton>
+          <span v-if="fileName" class="b-card-extra">已选择：{{ fileName }}</span>
+        </div>
+        <!-- 码文本：可由文件读入，也可直接粘贴 -->
+        <div>
+          <label class="b-label">码文本</label>
+          <UTextarea
+            v-model="pasteText"
+            :rows="8"
+            placeholder="或在此粘贴码文本（每行一个 32 位追溯码）…"
+            class="font-code w-full text-xs"
+          />
+          <p class="b-help">读取文件后内容会填入此处，可手动增删后再解析</p>
+        </div>
+        <!-- 校验规则说明 -->
+        <div class="b-note">
+          <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 flex-none text-[var(--b-text-muted)]" />
+          <p class="b-note-text">校验规则：32位数字 · 第1位登记类别(1/2) · 第8位生产类型(1-3) · 第9-11位规格码 · 第2-7位登记证匹配 · 系统查重</p>
         </div>
       </div>
-      <p v-if="fileName" class="mt-2 text-xs text-muted">已选择：{{ fileName }}</p>
-      <div class="mt-3">
-        <UTextarea
-          v-model="pasteText"
-          :rows="8"
-          placeholder="或在此粘贴码文本（每行一个 32 位追溯码）…"
-          class="font-code text-xs"
-        />
-      </div>
-      <div class="mt-3 flex items-center gap-2">
-        <UButton color="primary" icon="i-lucide-scan-search" :loading="parsing" @click="doParse">
-          解析校验
-        </UButton>
-        <span class="text-xs text-muted">校验规则：32位数字 · 第1位登记类别(1/2) · 第8位生产类型(1-3) · 第9-11位规格码 · 第2-7位登记证匹配 · 系统查重</span>
+      <div class="b-card-foot">
+        <span class="b-card-extra">解析仅做格式与查重校验，不会写入数据库</span>
+        <UButton color="neutral" variant="solid" :loading="parsing" @click="doParse">解析校验</UButton>
       </div>
     </div>
 
-    <!-- 解析结果 -->
-    <div v-if="parseResult" class="rounded-xl border border-border bg-elevated p-5 shadow-sm">
-      <h2 class="text-sm font-semibold text-default">2. 校验结果</h2>
-      <div class="mt-4 grid grid-cols-3 gap-3">
-        <div class="rounded-lg border border-border/60 p-3 text-center">
-          <div class="text-2xl font-bold text-default">{{ parseResult.total }}</div>
-          <div class="mt-1 text-xs text-muted">总码数</div>
+    <template v-if="parseResult">
+      <!-- 第二步：校验结果统计指标卡 -->
+      <div class="grid gap-4 sm:grid-cols-3">
+        <div class="b-stat">
+          <div class="b-stat-label">总码数</div>
+          <div class="b-stat-value">{{ parseResult.total }}</div>
+          <div class="b-stat-foot">本次解析读取的码总量</div>
         </div>
-        <div class="rounded-lg border border-success/30 bg-success/5 p-3 text-center">
-          <div class="text-2xl font-bold text-success">{{ parseResult.validCount }}</div>
-          <div class="mt-1 text-xs text-muted">校验通过</div>
+        <div class="b-stat">
+          <div class="b-stat-label">校验通过</div>
+          <div class="b-stat-value">{{ parseResult.validCount }}</div>
+          <div class="b-stat-foot"><span class="b-tag b-tag-success">可导入 {{ parseResult.validCount }} 条</span></div>
         </div>
-        <div class="rounded-lg border border-error/30 bg-error/5 p-3 text-center">
-          <div class="text-2xl font-bold text-error">{{ parseResult.invalidCount }}</div>
-          <div class="mt-1 text-xs text-muted">校验失败</div>
+        <div class="b-stat">
+          <div class="b-stat-label">校验失败</div>
+          <div class="b-stat-value">{{ parseResult.invalidCount }}</div>
+          <div class="b-stat-foot"><span class="b-tag b-tag-danger">需修正 {{ parseResult.invalidCount }} 条</span></div>
         </div>
       </div>
 
-      <div v-if="reasonChips.length" class="mt-4 flex flex-wrap gap-2">
-        <span v-for="c in reasonChips" :key="c.label" class="rounded-full bg-error/10 px-3 py-1 text-xs text-error">
-          {{ c.label }} × {{ c.count }}
-        </span>
+      <!-- 校验明细：失败原因分布 + 自动匹配产品 + 预览表格 -->
+      <div class="b-card b-card-clip">
+        <div class="b-card-head">
+          <span class="b-card-title">2. 校验结果</span>
+          <span class="b-card-extra">仅预览前 {{ parseResult.preview?.length || 0 }} 条明细</span>
+        </div>
+        <div v-if="reasonChips.length || parseResult.productGroups?.length" class="b-card-body space-y-3.5">
+          <div v-if="reasonChips.length">
+            <div class="b-label">失败原因分布</div>
+            <div class="flex flex-wrap gap-2">
+              <span v-for="c in reasonChips" :key="c.label" class="b-tag b-tag-danger">
+                {{ c.label }} × {{ c.count }}
+              </span>
+            </div>
+          </div>
+          <div v-if="parseResult.productGroups?.length">
+            <div class="b-label">自动匹配产品（按码第 2-7 位登记证号）</div>
+            <div class="flex flex-wrap gap-2">
+              <span v-for="g in parseResult.productGroups" :key="g.productId" class="b-tag b-tag-info">
+                {{ g.productName }}（{{ g.count }} 条）
+              </span>
+            </div>
+          </div>
+        </div>
+        <!-- 明细预览表格 -->
+        <div v-if="parseResult.preview?.length" class="b-scroll-x">
+          <table class="b-table">
+            <thead>
+              <tr>
+                <th>追溯码</th>
+                <th>状态</th>
+                <th>原因 / 匹配</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(r, i) in parseResult.preview" :key="i">
+                <td><span class="font-code b-strong text-[13px]">{{ r.code }}</span></td>
+                <td>
+                  <span class="b-tag" :class="r.valid ? 'b-tag-success' : 'b-tag-danger'">
+                    {{ r.valid ? '通过' : '失败' }}
+                  </span>
+                </td>
+                <td>{{ r.valid ? '已匹配产品' : r.reason }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <div v-if="parseResult.productGroups?.length" class="mt-3 rounded-lg bg-primary/5 p-3 text-xs text-primary">
-        自动匹配产品：
-        <span v-for="g in parseResult.productGroups" :key="g.productId" class="mr-3">{{ g.productName }}（{{ g.count }} 条）</span>
-      </div>
-
-      <!-- 预览 -->
-      <div v-if="parseResult.preview?.length" class="mt-4 overflow-x-auto rounded-lg border border-border/60">
-        <table class="w-full text-left text-xs">
-          <thead>
-            <tr class="border-b border-border/60 bg-muted/30 text-muted">
-              <th class="px-3 py-2 font-medium">追溯码</th>
-              <th class="px-3 py-2 font-medium">状态</th>
-              <th class="px-3 py-2 font-medium">原因/匹配</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(r, i) in parseResult.preview" :key="i" class="border-b border-border/40">
-              <td class="px-3 py-2 font-code">{{ r.code }}</td>
-              <td class="px-3 py-2">
-                <span class="rounded-full px-2 py-0.5 font-medium" :class="r.valid ? 'bg-success/10 text-success' : 'bg-error/10 text-error'">
-                  {{ r.valid ? '通过' : '失败' }}
-                </span>
-              </td>
-              <td class="px-3 py-2 text-muted">{{ r.valid ? '已匹配产品' : r.reason }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- 导入 -->
-      <div class="mt-5 rounded-lg border border-border/60 bg-muted/20 p-4">
-        <div class="text-sm font-medium text-default">3. 确认入库</div>
-        <div class="mt-3 grid gap-3 md:grid-cols-2">
-          <div class="space-y-1.5">
-            <label class="block text-sm text-muted">关联产品（按码第2-7位自动匹配，可调整）</label>
+      <!-- 第三步：确认入库 -->
+      <div class="b-card">
+        <div class="b-card-head">
+          <span class="b-card-title">3. 确认入库</span>
+          <span class="b-card-extra">绑定批次后三要素齐全，码状态自动流转为「已绑定」</span>
+        </div>
+        <div class="b-form-grid md:grid-cols-2">
+          <div>
+            <label class="b-label">关联产品 <span class="b-required">*</span></label>
             <USelect
               v-model="importForm.productId"
               :items="(productData?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name }))"
@@ -200,9 +230,10 @@ const reasonChips = computed(() => {
               :content="{ class: 'min-w-72' }"
               :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
             />
+            <p class="b-help">按码第 2-7 位登记证号自动匹配，可手动调整</p>
           </div>
-          <div class="space-y-1.5">
-            <label class="block text-sm text-muted">绑定批次（可选；绑定后三要素齐全 → 码状态"已绑定"）</label>
+          <div>
+            <label class="b-label">绑定批次</label>
             <USelect
               v-model="importForm.batchId"
               :items="[{ value: 0, label: '不绑定（码状态：已生成）' }, ...(batchData?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.produce_date + '）' }))]"
@@ -211,14 +242,16 @@ const reasonChips = computed(() => {
               :content="{ class: 'min-w-72' }"
               :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
             />
+            <p class="b-help">可选；不绑定时码状态为「已生成」</p>
           </div>
         </div>
-        <div class="mt-4 flex gap-2">
-          <UButton color="primary" icon="i-lucide-download" :loading="importing" @click="doImport">
+        <div class="b-card-foot">
+          <span class="b-card-extra">本次将写入 <span class="b-strong font-medium">{{ parseResult.validCount }}</span> 条有效码，校验失败的码不会入库</span>
+          <UButton color="neutral" variant="solid" :loading="importing" @click="doImport">
             导入 {{ parseResult.validCount }} 条有效码
           </UButton>
         </div>
       </div>
-    </div>
+    </template>
   </div>
 </template>
