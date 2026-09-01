@@ -213,6 +213,19 @@ const DDL = [
     KEY idx_enterprise_read (enterprise_id, is_read),
     KEY idx_user (user_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='站内消息'`,
+  // 消费者（公众端微信网页授权登录，与后台 user 表完全隔离）
+  `CREATE TABLE IF NOT EXISTS consumer (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    openid VARCHAR(64) NOT NULL COMMENT '微信 openid（同一公众号内唯一）',
+    unionid VARCHAR(64) NULL COMMENT '微信 unionid（开放平台跨应用打通，可能为空）',
+    nickname VARCHAR(100) NULL COMMENT '微信昵称',
+    avatar VARCHAR(500) NULL COMMENT '微信头像地址',
+    status TINYINT NOT NULL DEFAULT 1 COMMENT '0禁用 1正常',
+    last_login_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_openid (openid),
+    KEY idx_unionid (unionid)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='消费者（微信公众号网页授权）'`,
   // 系统配置键值（PRD 5.12.5/5.12.7：库存预警阈值、通知配置等）——同样此前遗漏
   `CREATE TABLE IF NOT EXISTS system_setting (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -222,6 +235,34 @@ const DDL = [
     UNIQUE KEY uq_ent_key (enterprise_id, k)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统配置'`,
 ];
+
+// 增量迁移：CREATE TABLE IF NOT EXISTS 不会修改已存在的表，历史库需单独补列/补索引（幂等）
+async function migrate(conn) {
+  const hasColumn = async (table, column) => {
+    const [rows] = await conn.query(
+      'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1',
+      [DB.database, table, column]
+    );
+    return rows.length > 0;
+  };
+  const hasIndex = async (table, index) => {
+    const [rows] = await conn.query(
+      'SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1',
+      [DB.database, table, index]
+    );
+    return rows.length > 0;
+  };
+
+  // scan_log.consumer_id：消费者登录后扫码，记录归属人，支撑个人中心「我的查询记录」
+  if (!(await hasColumn('scan_log', 'consumer_id'))) {
+    await conn.query("ALTER TABLE scan_log ADD COLUMN consumer_id BIGINT NULL COMMENT '消费者ID（登录后扫码才有值）'");
+    console.log('[db] 迁移：scan_log 补充列 consumer_id');
+  }
+  if (!(await hasIndex('scan_log', 'idx_consumer_time'))) {
+    await conn.query('ALTER TABLE scan_log ADD KEY idx_consumer_time (consumer_id, scan_time)');
+    console.log('[db] 迁移：scan_log 补充索引 idx_consumer_time');
+  }
+}
 
 // 演示数据（seed）
 async function seed(conn) {
@@ -330,7 +371,10 @@ async function main() {
   }
   console.log('[db] ' + DDL.length + ' 张表创建完成');
 
-  // 3) seed
+  // 3) 增量迁移（历史库补列/补索引）
+  await migrate(conn);
+
+  // 4) seed
   await seed(conn);
   await conn.end();
   console.log('[db] 初始化完成');

@@ -2,6 +2,7 @@
 // 流程：格式校验 → 查 trace_code → 写扫码日志(scan_log) → 异常判定（作废/冻结优先）→ 联查产品/批次 → 返回展示数据
 import { query, execute } from '../utils/db'
 import { triggerAlert } from '../utils/risk-alert'
+import { getCurrentConsumer } from '../utils/consumer-auth'
 import type { TraceOutcome, TraceResultType } from '#shared/types/trace'
 
 const CODE_RE = /^\d{32}$/
@@ -55,10 +56,12 @@ export default defineEventHandler(async (event) => {
   }
 
   // 3) 写扫码日志（扫码不改变码状态，仅记录；PRD 5.9 H5 业务规则2）
+  // 已登录消费者的扫码归属到本人，支撑个人中心「我的查询记录」；未登录时 consumer_id 为空，不影响任何原有逻辑
   const ip = (String(getHeader(event, 'x-forwarded-for') || getHeader(event, 'x-real-ip') || '').split(',')[0] || '').trim()
+  const consumer = await getCurrentConsumer(event).catch(() => null)
   await execute(
-    'INSERT INTO scan_log (enterprise_id, code, product_id, scan_time, scan_device, scan_subject, ip_location) VALUES (?,?,?,NOW(),?,1,?)',
-    [tc.enterprise_id, code, tc.product_id, detectDevice(event), ip || null])
+    'INSERT INTO scan_log (enterprise_id, code, product_id, scan_time, scan_device, scan_subject, ip_location, consumer_id) VALUES (?,?,?,NOW(),?,1,?,?)',
+    [tc.enterprise_id, code, tc.product_id, detectDevice(event), ip || null, consumer?.id ?? null])
 
   // 4) 查询统计（含本次；重复查询判定 PRD 8类异常-1：≥3次且≥2归属地）
   const [statRow] = await query<any[]>(

@@ -41,6 +41,11 @@ function sign(payload: string): string {
   return createHmac('sha256', getSessionSecret()).update(payload).digest('base64url')
 }
 
+/** 会话签名（供消费者会话复用同一密钥；两者 payload 命名空间不同，token 不可互换） */
+export function signSessionPayload(payload: string): string {
+  return sign(payload)
+}
+
 /** 生成签名会话 token：base64url(userId.expiry).signature（防伪造提权） */
 export function createSessionToken(userId: number | string): string {
   const exp = Date.now() + SESSION_TTL_MS

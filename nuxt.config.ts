@@ -38,6 +38,9 @@ export default defineNuxtConfig({
       ? (() => { throw new Error('[FATAL] 生产环境必须设置 SESSION_SECRET 环境变量（建议: openssl rand -base64 48）') })()
       : 'dev-session-secret-change-me'),
     siteName: '农资315',
+    // 微信公众号网页授权（消费者登录）：未配置时登录入口整体不可用，不做模拟登录
+    wechatAppId: process.env.WECHAT_APP_ID || '',
+    wechatAppSecret: process.env.WECHAT_APP_SECRET || '',
     // 扫码 URL 前缀（PRD 3.3：https://{域名}/trace?code={32位码}），部署环境可用 NUXT_PUBLIC_TRACE_BASE_URL 覆盖
     public: {
       traceBaseUrl: process.env.NUXT_PUBLIC_TRACE_BASE_URL || 'https://www.nz315.cn/trace?code=',
