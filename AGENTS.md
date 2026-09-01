@@ -74,6 +74,7 @@
 - **码库管理页已完成企业级 B 端改造**（2026-08-31，两轮）：①筛选卡片化+吸底批量操作条+内容区 max-w-[1600px]；②彻底剥离小程序风格：白底细边框小圆角、细分割线分区、状态标签浅底深字（bg-*-50+text-*-700）、操作列纯文字按钮、批量条浅灰底、主按钮 neutral solid 深灰黑；全局主色降饱和 hsl(142 32% 30%)、--ui-radius 0.375rem、后台底色 #f0f2f5。其他列表页仍为旧风格，迁移模式见 PROJECT_LOG
 - **产品/规格管理新增表单弹窗化修复**（2026-09-01，提交 a7657ee）：修复 Nuxt UI v3→v4 迁移遗留三叠加 bug——①UModal 默认插槽 v4 语义=触发按钮（内容必须放 #content 插槽），原写法导致新增表单直列渲染在页面下方；②v-model 绑定无效（v4 UModal 无 modelValue prop，须 v-model:open），点击新增按钮弹窗打不开；③reka-ui 禁止 SelectItem 空字符串 value，筛选下拉「全部」选项改 placeholder。已修：products/specs 两页（其余 5 页 7 处已于下一条全量修复）
 - **Nuxt UI v4 迁移遗留 bug 全量清零**（2026-09-01，提交 e05ac71）：①**UModal 5 页 7 处**（alerts/batches/boxes×2/codes×2/settings）统一迁移 `v-model:open` + `#content` 插槽，弹窗恢复可用；②**空字符串 value 下拉 6 页 13 处**——筛选类改 placeholder 承载 +默认值 undefined，表单类「不修改/不绑定」改哨兵值（codes `batchId=0`/`qcResult='keep'`、collection `batchId=0`）保留可回退语义；③**新发现并修复系统设置两处缺陷**——`UTabs` items 缺 value 导致 v4 回退索引、点击任意 Tab 后 5 个面板 v-if 全部落空（用户权限/操作日志/通知配置/数据备份实际不可达），以及「通知配置+数据备份」整段重复渲染（删除重复 82 行）。验证：tsc 0 错误 + 生产构建 + CDP 真实点击 19/19 全通过 + 全后台 12 页回归无控制台错误
+- **全后台 B 端风格统一 + 共享设计语言基座**（2026-09-01，提交 0b9b12d / 248bdc0）：①`app/assets/css/main.css` 新增「B 端中后台设计语言」层——11 个色板变量 + 40 个语义类（`b-page-title`/`b-card`系/`b-form-grid`/`b-table`/`b-tag` 五语义色/`b-actions`/`b-empty`/`b-pager`/`b-bulkbar`/`b-note`/`b-modal`系/`b-stat`系），置于 `@layer components` 以便工具类覆盖；②**12 个后台页面全部迁移**（此前仅码库管理一页完成改造），连基准页 codes 也一并归一，全站只剩一种写法，页面级旧风格类与硬编码 Element 色值**清零**；③业务逻辑零改动（仅标签配色映射常量改语义类名，已用 script 块逐行比对脚本核验）；④顺带补齐 **PRD 5.6 批次效期预警**（已过期红 / ≤30 天临期黄，`expiryBadge()` 按当天零点整日差，无水合告警），按提交契约单独成一次 feat 提交。验证：tsc 0 错误 + 生产构建 + SSR 15 项 + CDP 真实点击 20 项 + DOM 客观测量 5 页全通过
 
 **待办（按 PRD 版本规划）**：
 - 自动备份调度与异地备份（OSS）、微信推送（需公众号对接）、异常类型 2/3/5/6/7/8 预警触发接入（依赖 D2 登记证库/IP 归属地）
@@ -105,6 +106,10 @@
 | **Nuxt UI v4 UTabs items 必须显式给 value** （2026-09-01 实测） | 不给 value 时回退为索引 '0'/'1'…，配 `v-if="tab === 'xxx'"` 判断会**静默全部落空、页面空白无报错**；settings 页曾因此 4 个模块不可达 |
 | **reka-ui 禁止 SelectItem 空字符串 value** | `{ value: '' }` 抛「must have a value prop that is not an empty string」500 错误页；筛选「全部」用 placeholder + 默认值 undefined，表单「不修改」用哨兵值（0 / 'keep'）提交时归一 |
 | **Nuxt UI v4 Toast 不自动注入**（v3 自动） | 必须显式 `<UToaster />`（已放 app.vue），否则 21 处 useToast 静默失效——所有操作提示丢失 |
+| **后台新页面必须复用 `b-*` 设计语言类** | 类清单在 `app/assets/css/main.css` 末尾「B 端中后台设计语言」段；再手写 Element 色值会产生第二套风格。`b-table` 已内置 th/td 内边距与行样式，**别再给 th/td 写 `px-4 py-3`** |
+| **「旧风格残留」检测会被 Nuxt UI 内部类误报** | `bg-elevated`（UTabs 容器）、`bg-error/10`（outline error 按钮）由框架渲染而非页面书写；字符串匹配 SSR HTML 时必须排除，否则每页都误报（2026-09-01 踩） |
+| **视觉评估勿轻信 vision 模型** | 本轮 vision 给出的「大圆角/高饱和药丸/控件不对齐/文字溢出」四条经 CDP 计算样式实测**全部证伪**（实为 4px 圆角、-50 浅底、32px 等高、零溢出）；视觉验收以 `getComputedStyle`+`getBoundingClientRect` 测量为准，vision 仅辅助且有 429 频控 |
+| **面板可达性别用「字符数阈值」判断** | 系统设置「企业信息」面板仅 227 字符但完全正常；应改用关键词校验（如含「统一社会信用代码」） |
 | reka-ui 选项用 pointerup 选择 | CDP 自动化点击下拉选项须派发 pointerup（click 无效）；面板关闭需真实 pointer 事件 |
 | headless 点击视口外元素无效 | CDP Input 点击前先 scrollIntoView |
 | Vue 3.5 生产模式元素无 __vueParentComponent/_vei | 排查事件绑定用 DOMDebugger.getEventListeners（能看到真实监听器），勿用 _vei 判断 |

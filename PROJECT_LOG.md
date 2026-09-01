@@ -1,5 +1,23 @@
 ## 变更记录
 
+### 2026-09-01 | 全后台 12 页 B 端风格统一（抽出共享设计语言 CSS 基座）+ 批次效期预警补齐
+- **工作内容**：承接「其余列表页 B 端风格迁移」这条长期待办。此前只有码库管理页完成企业级 B 端改造，其余 11 页仍是小程序轻量风格（大圆角 rounded-xl、阴影浮层 shadow-sm、高饱和彩色药丸标签、primary 绿主按钮），且上一轮记录明确指出「页面色彩全部页面级硬编码，未用主题变量」。本轮没有沿用「逐页复制硬编码 Tailwind 串」的老办法，而是**先把设计语言沉淀成共享 CSS 层再统一迁移**：
+  ① **新增 B 端设计语言基座**（`app/assets/css/main.css`，+112 行）：11 个色板变量（`--b-text-title/strong/regular/muted/disabled`、`--b-border`、`--b-divider`、`--b-fill` 等，Element Plus 色板口径）+ 40 个语义类，放进 `@layer components` 保证 Tailwind 工具类仍可覆盖。类族覆盖页面标题（`b-page-title/b-page-desc`）、卡片（`b-card/b-card-clip/b-card-head/b-card-title/b-card-extra/b-card-body/b-card-foot`）、筛选表单（`b-form-grid/b-label/b-label-lg/b-help/b-required`）、表格（`b-table` 内置表头浅灰底+行分割线+hover、`is-selected/b-scroll-x/b-strong`）、标签（`b-tag` + `default/info/success/warning/danger` 五语义色）、操作列（`b-actions/b-sep`）、空状态（`b-empty` 三件套）、分页（`b-pager`）、吸底批量条（`b-bulkbar/b-count`）、提示框（`b-note`）、弹窗（`b-modal` 六件套）、指标卡（`b-stat` 四件套）；
+  ② **12 个后台页面全量迁移**到统一类——数据概览、追溯码生成、码库管理、外箱码管理、产品规格管理、产品管理、生产批次、生产采集、扫码统计、系统设置、风险预警、消息中心。统一口径：白底细边框 + 4px 小圆角 + 无阴影、浅灰表头 + 细分割线、浅底深字标签（取代高饱和药丸）、操作列纯文字按钮 + 竖线分隔、主按钮中性深灰、筛选区一律「卡片头 + 带中文标签的栅格 + 底部操作条」三段式；
+  ③ **基准页也一并归一**：`codes/index.vue` 原本是硬编码 Tailwind 串的"标准答案"，本轮同样改用共享类，全站只剩一种写法；
+  ④ **业务逻辑零改动**：迁移只动 `<template>`，脚本仅把各页「标签配色映射常量」的值换成语义类名（alerts 的 STATUS_STYLE、batches 的 STATUS_STYLE、messages 的 TYPE_STYLE、codes 的 statusBadge/flagBadge、generator 的 SEGMENT_COLORS、index 的 cards/quickLinks/segments），已用「HEAD 版 vs 工作区版 script 块逐行比对」脚本逐页核验；
+  ⑤ **独立提交的功能补齐**：迁移过程中发现生产批次列表缺 PRD 5.6 的「效期预警」，按合规要求补上——已过有效期标红「已过期」、距有效期 ≤30 天标黄「临期」，封装为 `expiryBadge()` 纯函数并统一按「当天零点」做整日差，规避 SSR/水合时间差；该功能按提交契约**单独成一次 feat 提交**，未混进风格重构。
+- **修改文件**：`app/assets/css/main.css`（设计语言层）、`app/pages/admin/` 下 12 个 `index.vue`（index/generator/codes/boxes/specs/products/batches/collection/statistics/settings/alerts/messages）
+- **测试情况**：
+  - 源码层审计：`color="primary"`、`rounded-xl/shadow-sm/bg-elevated/border-border/60`、`text-default/text-muted`、`bg-*/10` 半透明彩底、Element 硬编码色值（#303133 等 11 个）**全部清零**；
+  - tsc 0 错误；生产构建通过（10.4 MB / gzip 2.64 MB）；构建产物 CSS 中确认 `.b-card` 等设计层类已产出；
+  - **SSR 回归 15 项全通过**：12 个后台页 HTTP 200 且新设计类命中 4/4、页面级旧风格残留 0；门户首页 / 登录页 / H5 扫码页回归 200（确认后台改动无外溢）；
+  - **CDP 真实浏览器回归 20 项全通过**（Edge headless）：12 页控制台零异常；3 处弹窗真实点击弹出（新增规格 9 控件 / 新增产品 18 控件 / 新建批号 10 控件）且命中 `b-modal`；系统设置 5 个 Tab 面板改用「关键词校验」逐个确认可达（企业信息含"统一社会信用代码"、通知配置含"库存预警阈值"等）；
+  - **DOM 客观测量 5 页全通过**（用测量代替主观视觉评估）：筛选控件高度全为 32px（对齐）、标签-控件间距恒为 6px、表格文字溢出 0、页面横向溢出 0px、标签圆角 4px + 浅底深字（emerald-50/#047857）、卡片圆角 4px + 无阴影 + 边框 #e4e7ed；
+  - 效期预警专项：CDP 实测批次 2026080101（剩余 0 天）正确渲染「临期」，与接口数据独立计算的期望值一致，控制台无水合不匹配告警。
+- **遗留问题/待办**：①**视觉评估模型不可信**——本轮 vision 模型给出的「仍有大圆角/高饱和药丸标签/控件不对齐/文字溢出」四条结论，经 DOM 计算样式实测**全部证伪**（实为 4px 圆角、-50 浅色底、32px 等高、零溢出），后续视觉验收建议以 CDP 计算样式测量为准，vision 仅作辅助且有 429 频控；②统计页图表柱体仍沿用 `bg-primary/70`、`bg-sky/70` 等数据表达色，未收敛为灰阶（如需全灰阶可再调）；③产品列表尚无「登记证过期」高亮（PRD 5.4 业务规则 7 只在批次侧生效），可参照本轮 `expiryBadge()` 模式补 `registrationBadge()`；④`.gitignore` 仍为 GBK 编码（中文注释乱码，不影响规则）；⑤PRD 差距项（异步批量任务中心 / 自动备份调度 / 剩余 6 类预警接入）待办不变。
+- **给下一个 Agent 的提示**：①**新写后台页面请直接用 `b-*` 语义类**（清单见 `app/assets/css/main.css` 末尾「B 端中后台设计语言」段），不要再手写 Element 色值，否则又会产生第二套风格；②`b-table` 已内置 th/td 内边距与行样式，**不要再给 th/td 写 `px-4 py-3`**；③做「旧风格残留」检测时必须排除 **Nuxt UI v4 组件自带的内部类**——`bg-elevated`（UTabs 容器）、`bg-error/10`（outline error 按钮）由框架渲染而非页面书写，直接字符串匹配会误报（本轮已踩）；④设置页面板可达性别用「字符数阈值」判断（企业信息面板仅 227 字符但完全正常），要用关键词校验；⑤本机构建与 Edge headless 均需放宽沙箱（`spawn EPERM`），验证脚本在 `scripts/_tmp-*`（已被 .gitignore 排除，未入库）。
+
 ### 2026-09-01 | 后台剩余 7 处弹窗与 13 处空值下拉全量修复（Nuxt UI v4 迁移收尾）+ 系统设置 Tab 空白与板块重复渲染修复
 - **工作内容**：接手后按 PROJECT_LOG 头号待办清理上一轮遗留的同族迁移 bug，并在验证中新发现两处系统设置缺陷：
   ① **UModal（5 页 7 处）**：alerts（showHandle）、batches（showModal）、boxes（showDetail/showUnbind）、codes（showFlagModal/showCorrectModal）、settings（showUserModal）全部由 v3 写法（`v-model` + 默认插槽直放内容）迁移为 v4 写法（`v-model:open` + 内容进 `#content` 插槽），修复「弹窗点不开 + 表单直列渲染在页面下方」；
