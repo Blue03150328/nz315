@@ -8,7 +8,6 @@ const hideNav = computed(() => {
   return (
     // 扫码结果页/登录为独立场景，隐藏导航
     p.startsWith('/q/') ||
-    p.startsWith('/result/') ||
     p.startsWith('/login')
   )
 })
