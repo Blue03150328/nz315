@@ -43,7 +43,7 @@ const SEGMENT_COLORS = ['bg-error/15 text-error', 'bg-primary/15 text-primary', 
 const doGenerate = async () => {
   if (!form.productId) { toast.add({ title: '请选择产品', color: 'warning' }); return }
   if (form.quantity < 1 || form.quantity > 10000) { toast.add({ title: '生成数量须为 1-10000', color: 'warning' }); return }
-  qrResult.value = null // 新一批码，清空图片输出结果
+  imgResult.value = null // 新一批码，清空图片输出结果
   generating.value = true
   try {
     result.value = await $fetch('/api/admin/codes/generate', { method: 'POST', body: { ...form } })
