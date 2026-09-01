@@ -98,3 +98,8 @@
 | npx/npm wrapper 损坏 | tsc 直调 `node node_modules/typescript/bin/tsc`；dev/构建直调 npm-cli.js |
 | 沙箱内 node 命令勿用管道 | 管道/重定向会吞输出或 EPERM；全权模式跑 dev/构建（AGENTS.md 原记录） |
 | 二维码图片临时文件 | 在系统 tmpdir（nz315-qr-*），zip 下载后自动清理；下载凭证 token 一次性 + 60 分钟过期 |
+| **Nuxt UI v4 USelect 选项 prop 是 items 不是 options**（v3 迁移坑，2026-09-01 实测） | options 被透传为无效属性，下拉面板永远为空（用户反馈「点击无效」的真凶）；新页面写 `:items`；已全局修复 37 处 |
+| **Nuxt UI v4 Toast 不自动注入**（v3 自动） | 必须显式 `<UToaster />`（已放 app.vue），否则 21 处 useToast 静默失效——所有操作提示丢失 |
+| reka-ui 选项用 pointerup 选择 | CDP 自动化点击下拉选项须派发 pointerup（click 无效）；面板关闭需真实 pointer 事件 |
+| headless 点击视口外元素无效 | CDP Input 点击前先 scrollIntoView |
+| Vue 3.5 生产模式元素无 __vueParentComponent/_vei | 排查事件绑定用 DOMDebugger.getEventListeners（能看到真实监听器），勿用 _vei 判断 |
