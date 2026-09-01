@@ -88,6 +88,9 @@ export async function getCurrentUser(event: any): Promise<AuthUser | null> {
   )
   const u = rows[0]
   if (!u || Number(u.status) !== 1) return null
+  // 挂到请求上下文：操作日志（audit.logOperation）由此取操作人与所属企业，
+  // 否则所有业务操作日志的 user_id/enterprise_id 均为 NULL，违反 PRD 5.12.4 与 8.4 审计完整性要求
+  event.context.authUser = u
   return u as AuthUser
 }
 
