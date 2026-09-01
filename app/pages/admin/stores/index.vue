@@ -88,6 +88,33 @@ const openEdit = (row: any) => {
 // 空值统一归一为空字符串，服务端会转成 NULL 入库
 const normalizeCoord = (v: number | null) => (v === null || v === undefined || (v as any) === '' ? '' : Number(v))
 
+// 按地址自动获取坐标（调用高德 Web服务 地理编码，返回的即 GCJ-02 坐标）
+const geocoding = ref(false)
+const geocodeHint = ref('')
+const doGeocode = async () => {
+  const address = [form.province, form.city, form.district, form.address].filter(Boolean).join('')
+  if (!address) {
+    toast.add({ title: '请先填写省市区或详细地址', color: 'warning' })
+    return
+  }
+  geocoding.value = true
+  geocodeHint.value = ''
+  try {
+    // 同时传省/市：服务端据此校验高德模糊匹配的结果是否落在同一行政区，防止填入错误坐标
+    const res = await $fetch<any>('/api/admin/stores/geocode', {
+      query: { address, province: form.province, city: form.city },
+    })
+    form.lng = res.lng
+    form.lat = res.lat
+    geocodeHint.value = '已解析：' + res.formattedAddress + (res.exact ? '' : '（精度较粗，建议核对）')
+    toast.add({ title: res.exact ? '坐标已自动填入' : '坐标已填入，但地址精度较粗，请核对', color: res.exact ? 'success' : 'warning' })
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage || '地址解析失败，请手工填写坐标', color: 'error' })
+  } finally {
+    geocoding.value = false
+  }
+}
+
 const save = async () => {
   if (!form.name.trim()) { toast.add({ title: '请输入门店名称', color: 'warning' }); return }
   const lng = normalizeCoord(form.lng)
@@ -316,7 +343,13 @@ const resetSearch = () => {
                 <UInput v-model.number="form.lat" type="number" step="0.000001" placeholder="如：32.060255" />
               </div>
             </div>
-            <p class="b-help">可留空，留空则不参与附近门店搜索；坐标须为 GCJ-02（高德）坐标系</p>
+            <div class="flex items-center gap-2">
+              <UButton variant="outline" color="neutral" size="sm" icon="i-lucide-map-pin" :loading="geocoding" @click="doGeocode">
+                按地址自动获取坐标
+              </UButton>
+              <span v-if="geocodeHint" class="truncate text-xs text-[var(--b-text-muted)]">{{ geocodeHint }}</span>
+            </div>
+            <p class="b-help">可留空，留空则不参与附近门店搜索；坐标须为 GCJ-02（高德）坐标系。点击上方按钮可由地址自动解析，解析后建议核对</p>
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="b-label-lg">经营许可证号</label>
