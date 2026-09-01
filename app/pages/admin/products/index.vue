@@ -119,8 +119,8 @@ const resetSearch = () => { filters.keyword = ''; filters.category = ''; filters
     <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
       <div class="grid gap-3 md:grid-cols-4">
         <UInput v-model="filters.keyword" placeholder="产品名称 / 商标 / 登记证号" icon="i-lucide-search" @keyup.enter="doSearch" />
-        <USelect v-model="filters.category" :options="[{ value: '', label: '全部类别' }, ...CATEGORIES.map(c => ({ value: c, label: c }))]" />
-        <USelect v-model="filters.status" :options="[{ value: '', label: '全部状态' }, { value: '1', label: '启用' }, { value: '0', label: '停用' }]" />
+        <USelect v-model="filters.category" :items="[{ value: '', label: '全部类别' }, ...CATEGORIES.map(c => ({ value: c, label: c }))]" />
+        <USelect v-model="filters.status" :items="[{ value: '', label: '全部状态' }, { value: '1', label: '启用' }, { value: '0', label: '停用' }]" />
       </div>
       <div class="mt-3 flex gap-2">
         <UButton color="primary" icon="i-lucide-search" :loading="pending" @click="doSearch">查询</UButton>
@@ -216,11 +216,11 @@ const resetSearch = () => { filters.keyword = ''; filters.category = ''; filters
           <div class="grid grid-cols-2 gap-3">
             <div class="space-y-1.5">
               <label class="block text-sm font-medium text-default">登记类别 <span class="text-error">*</span></label>
-              <USelect v-model="form.regCategory" :options="REG_CATEGORIES" />
+              <USelect v-model="form.regCategory" :items="REG_CATEGORIES" />
             </div>
             <div class="space-y-1.5">
               <label class="block text-sm font-medium text-default">生产类型 <span class="text-error">*</span></label>
-              <USelect v-model="form.produceType" :options="PRODUCE_TYPES" />
+              <USelect v-model="form.produceType" :items="PRODUCE_TYPES" />
             </div>
           </div>
           <div class="space-y-1.5">
@@ -234,14 +234,14 @@ const resetSearch = () => { filters.keyword = ''; filters.category = ''; filters
             </div>
             <div class="space-y-1.5">
               <label class="block text-sm font-medium text-default">毒性 <span class="text-error">*</span></label>
-              <USelect v-model="form.toxicity" :options="TOXICITY.map(t => ({ value: t, label: t }))" />
+              <USelect v-model="form.toxicity" :items="TOXICITY.map(t => ({ value: t, label: t }))" />
             </div>
           </div>
           <div class="space-y-1.5">
             <label class="block text-sm font-medium text-default">规格（来自主数据，不可手填）<span class="text-error">*</span></label>
             <USelect
               v-model="form.specId"
-              :options="(specData?.rows || []).map((s: any) => ({ value: Number(s.id), label: s.spec_name + '（码 ' + s.spec_code + '）' }))"
+              :items="(specData?.rows || []).map((s: any) => ({ value: Number(s.id), label: s.spec_name + '（码 ' + s.spec_code + '）' }))"
               placeholder="选择规格"
             />
             <p v-if="selectedSpec" class="text-xs text-muted">
@@ -261,7 +261,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = ''; filters
           <div class="grid grid-cols-2 gap-3">
             <div class="space-y-1.5">
               <label class="block text-sm font-medium text-default">产品类别 <span class="text-error">*</span></label>
-              <USelect v-model="form.category" :options="CATEGORIES.map(c => ({ value: c, label: c }))" />
+              <USelect v-model="form.category" :items="CATEGORIES.map(c => ({ value: c, label: c }))" />
             </div>
             <div class="space-y-1.5">
               <label class="block text-sm font-medium text-default">是否限制使用</label>

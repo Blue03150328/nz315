@@ -193,7 +193,7 @@ const reasonChips = computed(() => {
             <label class="block text-sm text-muted">关联产品（按码第2-7位自动匹配，可调整）</label>
             <USelect
               v-model="importForm.productId"
-              :options="(productData?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name }))"
+              :items="(productData?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name }))"
               placeholder="选择产品"
             />
           </div>
@@ -201,7 +201,7 @@ const reasonChips = computed(() => {
             <label class="block text-sm text-muted">绑定批次（可选；绑定后三要素齐全 → 码状态"已绑定"）</label>
             <USelect
               v-model="importForm.batchId"
-              :options="[{ value: '', label: '不绑定（码状态：已生成）' }, ...(batchData?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.produce_date + '）' }))]"
+              :items="[{ value: '', label: '不绑定（码状态：已生成）' }, ...(batchData?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.produce_date + '）' }))]"
               placeholder="选择批次"
             />
           </div>

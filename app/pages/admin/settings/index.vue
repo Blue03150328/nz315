@@ -299,8 +299,8 @@ const deleteBackup = async (b: any) => {
         <div class="flex items-center justify-between">
           <div class="grid flex-1 gap-3 md:grid-cols-4">
             <UInput v-model="ufilters.keyword" placeholder="登录名 / 姓名 / 手机号" icon="i-lucide-search" @keyup.enter="upage = 1; refreshUsers()" />
-            <USelect v-model="ufilters.role" :options="[{ value: '', label: '全部角色' }, { value: 'enterprise_admin', label: '厂家主账号' }, { value: 'code_admin', label: '码管理员' }, { value: 'viewer', label: '只读账号' }]" />
-            <USelect v-model="ufilters.status" :options="[{ value: '', label: '全部状态' }, { value: '1', label: '启用' }, { value: '0', label: '禁用' }]" />
+            <USelect v-model="ufilters.role" :items="[{ value: '', label: '全部角色' }, { value: 'enterprise_admin', label: '厂家主账号' }, { value: 'code_admin', label: '码管理员' }, { value: 'viewer', label: '只读账号' }]" />
+            <USelect v-model="ufilters.status" :items="[{ value: '', label: '全部状态' }, { value: '1', label: '启用' }, { value: '0', label: '禁用' }]" />
             <div class="flex gap-2">
               <UButton color="primary" size="sm" icon="i-lucide-search" :loading="userPending" @click="upage = 1; refreshUsers()">查询</UButton>
             </div>
@@ -398,7 +398,7 @@ const deleteBackup = async (b: any) => {
             <div class="grid grid-cols-2 gap-3">
               <div class="space-y-1.5">
                 <label class="block text-sm font-medium text-default">角色 <span class="text-error">*</span></label>
-                <USelect v-model="uform.role" :options="[
+                <USelect v-model="uform.role" :items="[
                   { value: 'enterprise_admin', label: '厂家主账号' },
                   { value: 'code_admin', label: '码管理员' },
                   { value: 'viewer', label: '只读账号' },
@@ -406,7 +406,7 @@ const deleteBackup = async (b: any) => {
               </div>
               <div v-if="isPlatformAdmin" class="space-y-1.5">
                 <label class="block text-sm font-medium text-default">所属企业 <span class="text-error">*</span></label>
-                <USelect v-model="uform.enterpriseId" :options="(entList?.rows || []).map((e: any) => ({ value: Number(e.id), label: e.name }))" placeholder="选择企业" />
+                <USelect v-model="uform.enterpriseId" :items="(entList?.rows || []).map((e: any) => ({ value: Number(e.id), label: e.name }))" placeholder="选择企业" />
               </div>
             </div>
           </div>
@@ -423,9 +423,9 @@ const deleteBackup = async (b: any) => {
       <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
         <div class="grid gap-3 md:grid-cols-6">
           <UInput v-model="lfilters.keyword" placeholder="操作人 / 模块 / 内容" icon="i-lucide-search" @keyup.enter="lpage = 1; refreshLogs()" />
-          <USelect v-model="lfilters.module" :options="[{ value: '', label: '全部模块' }, { value: '登录', label: '登录' }, { value: '系统设置', label: '系统设置' }, { value: '用户管理', label: '用户管理' }]" />
+          <USelect v-model="lfilters.module" :items="[{ value: '', label: '全部模块' }, { value: '登录', label: '登录' }, { value: '系统设置', label: '系统设置' }, { value: '用户管理', label: '用户管理' }]" />
           <UInput v-model="lfilters.action" placeholder="操作类型" />
-          <USelect v-model="lfilters.result" :options="[{ value: '', label: '全部结果' }, { value: '1', label: '成功' }, { value: '0', label: '失败' }]" />
+          <USelect v-model="lfilters.result" :items="[{ value: '', label: '全部结果' }, { value: '1', label: '成功' }, { value: '0', label: '失败' }]" />
           <UInput v-model="lfilters.dateFrom" type="date" placeholder="起" />
           <UInput v-model="lfilters.dateTo" type="date" placeholder="止" />
         </div>

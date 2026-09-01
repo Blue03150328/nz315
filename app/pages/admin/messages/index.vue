@@ -62,7 +62,7 @@ const doSearch = () => { page.value = 1; refresh() }
     <!-- 筛选 -->
     <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
       <div class="flex flex-wrap items-center gap-3">
-        <USelect v-model="typeFilter" :options="[
+        <USelect v-model="typeFilter" :items="[
           { value: '', label: '全部类型' },
           { value: 'risk', label: '风险预警' },
           { value: 'upload_done', label: '上传完成' },

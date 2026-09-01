@@ -99,9 +99,9 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = ''; filt
     <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
       <div class="grid gap-3 md:grid-cols-4">
         <UInput v-model="filters.keyword" placeholder="规格名称 / 规格码" icon="i-lucide-search" @keyup.enter="doSearch" />
-        <USelect v-model="filters.contentUnit" :options="[{ value: '', label: '全部含量单位' }, ...UNITS.map(u => ({ value: u, label: u }))]" />
-        <USelect v-model="filters.packUnit" :options="[{ value: '', label: '全部包装单位' }, ...PACKS.map(p => ({ value: p, label: p }))]" />
-        <USelect v-model="filters.status" :options="[{ value: '', label: '全部状态' }, { value: '1', label: '启用' }, { value: '0', label: '停用' }]" />
+        <USelect v-model="filters.contentUnit" :items="[{ value: '', label: '全部含量单位' }, ...UNITS.map(u => ({ value: u, label: u }))]" />
+        <USelect v-model="filters.packUnit" :items="[{ value: '', label: '全部包装单位' }, ...PACKS.map(p => ({ value: p, label: p }))]" />
+        <USelect v-model="filters.status" :items="[{ value: '', label: '全部状态' }, { value: '1', label: '启用' }, { value: '0', label: '停用' }]" />
       </div>
       <div class="mt-3 flex gap-2">
         <UButton color="primary" icon="i-lucide-search" :loading="pending" @click="doSearch">查询</UButton>
@@ -183,11 +183,11 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = ''; filt
             </div>
             <div class="space-y-1.5">
               <label class="block text-sm font-medium text-default">含量单位 <span class="text-error">*</span></label>
-              <USelect v-model="form.contentUnit" :options="UNITS.map(u => ({ value: u, label: u }))" />
+              <USelect v-model="form.contentUnit" :items="UNITS.map(u => ({ value: u, label: u }))" />
             </div>
             <div class="space-y-1.5">
               <label class="block text-sm font-medium text-default">包装单位 <span class="text-error">*</span></label>
-              <USelect v-model="form.packUnit" :options="PACKS.map(p => ({ value: p, label: p }))" />
+              <USelect v-model="form.packUnit" :items="PACKS.map(p => ({ value: p, label: p }))" />
             </div>
           </div>
           <div class="space-y-1.5">
@@ -197,7 +197,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = ''; filt
           </div>
           <div class="space-y-1.5">
             <label class="block text-sm font-medium text-default">适用剂型</label>
-            <USelect v-model="form.dosageForms" :options="FORMS.map(f => ({ value: f, label: f }))" multiple placeholder="选择适用剂型" />
+            <USelect v-model="form.dosageForms" :items="FORMS.map(f => ({ value: f, label: f }))" multiple placeholder="选择适用剂型" />
           </div>
           <div class="flex items-center gap-2">
             <USwitch v-model="form.status" />

@@ -188,11 +188,11 @@ const resetSearch = () => {
         </div>
         <div>
           <label class="mb-1.5 block text-xs text-[#606266]">码状态</label>
-          <USelect v-model="filters.status" :options="STATUS_OPTIONS" />
+          <USelect v-model="filters.status" :items="STATUS_OPTIONS" />
         </div>
         <div>
           <label class="mb-1.5 block text-xs text-[#606266]">异常标记</label>
-          <USelect v-model="filters.abnormalFlag" :options="FLAG_OPTIONS" />
+          <USelect v-model="filters.abnormalFlag" :items="FLAG_OPTIONS" />
         </div>
         <div>
           <label class="mb-1.5 block text-xs text-[#606266]">创建日期起</label>
@@ -326,7 +326,7 @@ const resetSearch = () => {
         </div>
         <div v-if="flagAction === 'void'" class="mt-3.5">
           <label class="mb-1.5 block text-sm text-[#303133]">作废原因 <span class="text-red-600">*</span></label>
-          <USelect v-model="flagReason" :options="['印刷模糊', '无法识别', '窜货', '召回', '疑似假冒', '其他'].map(r => ({ value: r, label: r }))" placeholder="选择原因" />
+          <USelect v-model="flagReason" :items="['印刷模糊', '无法识别', '窜货', '召回', '疑似假冒', '其他'].map(r => ({ value: r, label: r }))" placeholder="选择原因" />
         </div>
         <div class="mt-4 flex justify-end gap-2 border-t border-[#ebeef5] pt-3">
           <UButton variant="outline" color="neutral" @click="showFlagModal = false">取消</UButton>
@@ -352,7 +352,7 @@ const resetSearch = () => {
             <label class="mb-1.5 block text-sm text-[#303133]">重新绑定批次（仅"已生成"码生效，绑定后自动置为"已绑定"）</label>
             <USelect
               v-model="correctForm.batchId"
-              :options="[{ value: '', label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
+              :items="[{ value: '', label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
             />
           </div>
           <div class="grid grid-cols-2 gap-3">
@@ -369,7 +369,7 @@ const resetSearch = () => {
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="mb-1.5 block text-sm text-[#303133]">质量检验结果</label>
-              <USelect v-model="correctForm.qcResult" :options="[{ value: '', label: '不修改' }, { value: '1', label: '合格' }, { value: '0', label: '不合格' }]" />
+              <USelect v-model="correctForm.qcResult" :items="[{ value: '', label: '不修改' }, { value: '1', label: '合格' }, { value: '0', label: '不合格' }]" />
             </div>
             <div>
               <label class="mb-1.5 block text-sm text-[#303133]">质量合格证号</label>

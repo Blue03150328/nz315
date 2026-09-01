@@ -189,7 +189,7 @@ const downloadZip = () => {
             <label class="block text-sm font-medium text-default">产品（码第 1-11 位来源）<span class="text-error">*</span></label>
             <USelect
               v-model="form.productId"
-              :options="(productData?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name + '（' + p.registration_no + '）' }))"
+              :items="(productData?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name + '（' + p.registration_no + '）' }))"
               placeholder="选择产品"
             />
             <div v-if="headPreview" class="flex flex-wrap items-center gap-1 rounded-lg bg-muted/40 px-3 py-2 font-code text-xs">
@@ -221,7 +221,7 @@ const downloadZip = () => {
               <div class="grid gap-3 sm:grid-cols-3">
                 <div class="space-y-1">
                   <label class="block text-xs font-medium text-muted">时间戳段</label>
-                  <USelect v-model="form.timestampType" size="sm" :options="[
+                  <USelect v-model="form.timestampType" size="sm" :items="[
                     { value: 'ms', label: '毫秒级' },
                     { value: 'sec', label: '秒级' },
                     { value: 'ymd', label: '年月日' },
@@ -230,7 +230,7 @@ const downloadZip = () => {
                 </div>
                 <div class="space-y-1">
                   <label class="block text-xs font-medium text-muted">随机数字段</label>
-                  <USelect v-model="form.randomType" size="sm" :options="[
+                  <USelect v-model="form.randomType" size="sm" :items="[
                     { value: 'none', label: '不使用' },
                     { value: 'rand8', label: '8位随机数字' },
                     { value: 'rand6c2', label: '6位随机+2位校验' },
@@ -238,7 +238,7 @@ const downloadZip = () => {
                 </div>
                 <div class="space-y-1">
                   <label class="block text-xs font-medium text-muted">校验位段</label>
-                  <USelect v-model="form.checksumType" size="sm" :options="[
+                  <USelect v-model="form.checksumType" size="sm" :items="[
                     { value: 'md5', label: 'MD5 取后2位' },
                     { value: 'crc16', label: 'CRC16 取后2位' },
                     { value: 'none', label: '不使用' },
@@ -351,7 +351,7 @@ const downloadZip = () => {
           <div class="grid gap-3 sm:grid-cols-3">
             <div class="space-y-1">
               <label class="block text-xs font-medium text-muted">码制</label>
-              <USelect v-model="imgForm.codeType" size="sm" :options="[
+              <USelect v-model="imgForm.codeType" size="sm" :items="[
                 { value: 'QR', label: 'QR 码（推荐）' },
                 { value: 'DM', label: 'DataMatrix 码' },
               ]" />

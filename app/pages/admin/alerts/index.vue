@@ -104,8 +104,8 @@ const resetSearch = () => { filters.keyword = ''; filters.alertType = ''; filter
     <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
       <div class="grid gap-3 md:grid-cols-5">
         <UInput v-model="filters.keyword" placeholder="追溯码 / 产品名" icon="i-lucide-search" @keyup.enter="doSearch" />
-        <USelect v-model="filters.alertType" :options="[{ value: '', label: '全部类型' }, ...ALERT_OPTIONS.map(o => ({ value: String(o.value), label: o.label }))]" />
-        <USelect v-model="filters.status" :options="[{ value: '', label: '全部状态' }, { value: '0', label: '待处理' }, { value: '1', label: '已核实合规' }, { value: '2', label: '已确认违规' }]" />
+        <USelect v-model="filters.alertType" :items="[{ value: '', label: '全部类型' }, ...ALERT_OPTIONS.map(o => ({ value: String(o.value), label: o.label }))]" />
+        <USelect v-model="filters.status" :items="[{ value: '', label: '全部状态' }, { value: '0', label: '待处理' }, { value: '1', label: '已核实合规' }, { value: '2', label: '已确认违规' }]" />
         <UInput v-model="filters.dateFrom" type="date" placeholder="触发起" />
         <UInput v-model="filters.dateTo" type="date" placeholder="触发止" />
       </div>

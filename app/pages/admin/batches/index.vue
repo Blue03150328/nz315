@@ -124,7 +124,7 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = ''; page.v
         <UInput v-model="filters.keyword" placeholder="批号 / 产品名 / 合格证号" icon="i-lucide-search" @keyup.enter="doSearch" />
         <USelect
           v-model="filters.productId"
-          :options="[{ value: '', label: '全部产品' }, ...(productData?.rows || []).map((p: any) => ({ value: String(p.id), label: p.name }))]"
+          :items="[{ value: '', label: '全部产品' }, ...(productData?.rows || []).map((p: any) => ({ value: String(p.id), label: p.name }))]"
           placeholder="按产品筛选"
         />
       </div>
@@ -204,7 +204,7 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = ''; page.v
             <label class="block text-sm font-medium text-default">关联产品 <span class="text-error">*</span></label>
             <USelect
               v-model="form.productId"
-              :options="(productData?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name + '（' + (p.spec_name || '') + '）' }))"
+              :items="(productData?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name + '（' + (p.spec_name || '') + '）' }))"
               placeholder="从已启用产品中选择"
             />
           </div>
@@ -231,7 +231,7 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = ''; page.v
           <div class="grid grid-cols-3 gap-3">
             <div class="space-y-1.5">
               <label class="block text-sm font-medium text-default">质量检验结果 <span class="text-error">*</span></label>
-              <USelect v-model="form.qcResult" :options="[{ value: 1, label: '合格' }, { value: 0, label: '不合格' }]" />
+              <USelect v-model="form.qcResult" :items="[{ value: 1, label: '合格' }, { value: 0, label: '不合格' }]" />
             </div>
             <div class="space-y-1.5">
               <label class="block text-sm font-medium text-default">质检报告号</label>
