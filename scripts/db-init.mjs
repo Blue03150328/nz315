@@ -122,7 +122,6 @@ const DDL = [
     status TINYINT NOT NULL DEFAULT 1 COMMENT '码状态：1已生成 2已绑定',
     abnormal_flag TINYINT NOT NULL DEFAULT 0 COMMENT '异常标记：0正常 1已冻结 2已作废',
     abnormal_reason VARCHAR(200) NULL,
-    outer_box_code VARCHAR(32) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     uploaded_at DATETIME NULL COMMENT '采集上传时间',
     bound_at DATETIME NULL COMMENT '绑定批次时间',
@@ -261,6 +260,12 @@ async function migrate(conn) {
   if (!(await hasIndex('scan_log', 'idx_consumer_time'))) {
     await conn.query('ALTER TABLE scan_log ADD KEY idx_consumer_time (consumer_id, scan_time)');
     console.log('[db] 迁移：scan_log 补充索引 idx_consumer_time');
+  }
+
+  // trace_code.outer_box_code：外箱码管理模块已整体删除（2026-09-02），历史库清理冗余列（幂等）
+  if (await hasColumn('trace_code', 'outer_box_code')) {
+    await conn.query('ALTER TABLE trace_code DROP COLUMN outer_box_code');
+    console.log('[db] 迁移：trace_code 删除列 outer_box_code（外箱码模块已移除）');
   }
 }
 

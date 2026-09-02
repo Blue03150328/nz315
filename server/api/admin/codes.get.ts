@@ -34,7 +34,7 @@ export default defineEventHandler(async (event) => {
     'SELECT COUNT(*) AS c FROM trace_code t LEFT JOIN product p ON t.product_id = p.id ' + whereSql, params)
   const rows = await query<any[]>(
     `SELECT t.id, t.code, t.status, t.abnormal_flag, t.abnormal_reason, t.product_id,
-       t.produce_date, t.batch_no, t.quality_cert_no, t.outer_box_code, t.created_at, t.bound_at,
+       t.produce_date, t.batch_no, t.quality_cert_no, t.created_at, t.bound_at,
        p.name AS product_name
      FROM trace_code t LEFT JOIN product p ON t.product_id = p.id ` + whereSql +
     ' ORDER BY t.id DESC LIMIT ? OFFSET ?', [...params, pageSize, offset])
