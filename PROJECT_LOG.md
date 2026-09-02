@@ -1,5 +1,15 @@
 ## 变更记录
 
+### 2026-09-02 | 删除后台门店管理模块（按用户指示收敛公众端功能边界）
+- **工作内容**：用户指示「附近农资店」不需要门店管理，只需**用户授权位置后展示其附近的农资店铺**；后台门店管理功能删除。本次为功能收敛清理，公众端数据链路保留：
+  - **删除**：后台门店管理页（`app/pages/admin/stores/index.vue`）、管理 API（`server/api/admin/stores*.ts` 共 4 个，含地理编码 geocode）、侧栏菜单入口、`nuxt.config.ts` 的 `amapWebKey` 与 `.env.example` 对应说明（真实 key 仍在 `.env`，不入库、无副作用）；
+  - **保留**：`agro_store` 表与演示门店 seed、公众端 `/api/stores/nearby`（定位 → 距离排序）、`/nearby-stores` 页面（上一轮按设计稿实现的双布局）。
+  - 说明：本次不删 `agro_store` 表——公众端页面数据依赖它；**真实门店数据的来源与维护方式（人工灌库/高德 POI/后续运营后台）待用户决定**，演示门店上线前须替换。
+- **修改文件**：删除 5 个文件（`app/pages/admin/stores/`、`server/api/admin/stores*.ts`），修改 `app/layouts/admin.vue`、`nuxt.config.ts`、`.env.example`；-571 行
+- **测试情况**：引用核查零残留；tsc 0 错误；生产构建通过；后台 `/admin/stores` 与管理/地理编码 API 均 404、侧栏无入口；公众端 `/nearby-stores` 200 且演示门店 SSR 直出、`/api/stores/nearby` 按坐标命中正常；全站 SSR 回归全通过；并发会话新增的 `/scan` 页不受影响（200）。提交 557b13a
+- **遗留问题/待办**：①**真实门店数据来源待定**——当前公众端展示 3 家济南演示门店（seed），上线前需替换为真实数据（方案选项：人工维护入库脚本 / 高德 POI 周边搜索 / 后续运营后台）；②上一轮遗留项不变（微信凭据待提供、上线前域名白名单等）。
+- **给下一个 Agent 的提示**：①后台已无任何门店管理入口，公众端数据直接读 `agro_store` 表；若后续接入高德 POI，注意其返回即为 GCJ-02 可直接使用，但 POI 无「授权经销商/许可证」字段，页面相应标签需调整；②注意本项目存在**并发会话**（/scan 扫码页等为另一会话所加），动手前先 `git log` 确认 HEAD。
+
 ### 2026-09-01 | 重做「附近农资店」页面（PC 双栏 / 移动端折叠地图 + 底部弹窗，按用户设计稿）
 ### 2026-09-02 | 公众端「扫一扫」真正落地（用户反馈：手机打开网站无法扫一扫）
 - **问题定位**：首页大按钮与 BottomNav「扫码查询」入口均为**占位实现**——只聚焦输入框 + Toast 提示手动输入（index.vue handleScan 注释自述「网页内无法直接调相机」）。用户在手机上点「扫一扫」没有任何扫码能力。
@@ -175,62 +185,3 @@
 - **给下一个 Agent 的提示**：① 构建时 runtimeConfig 从 .env 内嵌进产物（含 DB 凭据明文），构建前必须确认 .env 最终正确，.output 严禁对外分发；② 构建产物启动不加载 .env，生产运行期配置靠 NUXT_* 环境变量注入（文档已写）；③ 本机 npm wrapper（npm.ps1）损坏，构建/安装用 node 直调 npm-cli.js；④ 沙箱内构建需全权模式（esbuild spawn 限制）。
 
 ### 2026-08-31 | 码库管理页第二轮改造：彻底剥离小程序风格（Element Plus / AntD Pro 式克制中后台）
-- **工作内容**：上一轮 B 端化仍残留小程序设计语言（大圆角、柔和浅底、高饱和彩色标签、鲜艳绿按钮），本轮彻底收敛：①筛选区/表格/批量条全部改为白底细边框小圆角（rounded-sm 4px）、内部细分割线（#ebeef5）分区，去掉阴影与卡片浮层；②状态标签改为「底色浅 + 文字重」简约样式（bg-blue-50/emerald-50/amber-50/red-50 + 深色字，圆角收小，去掉圆点与边框）；③操作列改纯文字按钮（link 变体，去图标，竖线分隔）；④批量操作条低饱和浅灰底（#fafafa）+ 顶部细横线，按钮主次分明（仅批量作废用红色警示，其余中性灰）；⑤主按钮改中性深色（neutral solid），重置/取消 outline 中性；⑥全局主题：主色降饱和 hsl(142 45% 38%)→hsl(142 32% 30%)、--ui-radius 0.5rem→0.375rem、后台底色 #f0f0f8→#f0f2f5（AntD 标准底色）。逻辑零改动。
-- **修改文件**：`app/pages/admin/codes/index.vue`、`app/assets/css/main.css`、`app/layouts/admin.vue`
-- **测试情况**：headless Chrome 截图 + DOM 检查：标签类名全部为浅底深字（bg-*-50 + text-*-700）、按钮序列符合主次设计、无 Vue warn；视觉模型评估确认克制严谨中后台质感、黑白灰主调、无高饱和色块；登录页/数据概览/H5 扫码页截图验证全局主题改动无副作用
-- **遗留问题/待办**：其他列表页（products/boxes/batches 等）仍为旧风格，可按码库页模式迁移；演示数据中个别产品名含乱码字符（数据问题，非 UI）
-- **给下一个 Agent 的提示**：页面色彩全部页面级硬编码（#303133/#606266/#86909c/#ebeef5 等 Element 色板），未用主题变量；主按钮用 neutral solid（深灰黑）刻意脱离主题绿；批量条吸底依赖布局 px-8
-
----
-
-### 2026-08-31 | 码库管理页 B 端化改造（企业级后台风格，替代小程序轻量风格）
-- **工作内容**：按需求将「码库管理」页从移动端轻量风格切换为企业级 B 端后台：①筛选查询区改为带标题条+标签表单+底部操作条的独立卡片（与列表容器明确分隔，控件尺寸适配 PC）；②表格强化表头（浅灰底+加粗列头+全选列）、行区分（hover/选中高亮）、状态标签提升视觉权重（边框+圆点+语义色，已作废/已冻结实心高对比）；③批量操作从筛选区移出，改为吸底通栏操作条（顶部粗分隔线+阴影，含已选计数徽章、禁用态、清空）；④后台内容区 max-w-6xl 放宽至 max-w-[1600px] 适配大屏；⑤弹窗加图标头部与分隔线规范化。逻辑（筛选/冻结/作废/恢复正常/批量修正）未改动。
-- **修改文件**：`app/pages/admin/codes/index.vue`、`app/layouts/admin.vue`
-- **测试情况**：dev(3100) 热更新后 headless Chrome 截图+DOM 检查：9 列表头/筛选卡/吸底批量条/状态标签全部渲染正常，无 Vue warn；批量条 4 按钮同高同行对齐，未选时禁用态正确；视觉模型评估为专业 B 端风格
-- **遗留问题/待办**：其他列表页（products/boxes/batches/specs/collection/statistics 等）仍为旧轻量风格，可按本页模式逐步迁移；截图验证产物在 .tmp-shot/（不入库）
-- **给下一个 Agent 的提示**：页面吸底批量条依赖 admin.vue 的 px-8 内边距（-mx-8 通栏），调整布局内边距时需同步；本机 headless Chrome 受沙箱命名管道限制，截图需在沙箱外运行或复用常驻 CDP 实例
-
----
-
-### 2026-08-31 | 修复预警页 URadio 组件（Nuxt UI v4 无 URadio，Vue warn + 处理对话框不可用）
-- **工作内容**：风险预警处理对话框使用 `URadio`（Nuxt UI v3 组件，v4 已移除）导致组件解析失败。改为自绘单选卡片（点击切换 + 选中态圆圈勾选图标）。
-- **修改文件**：`app/pages/admin/alerts/index.vue`
-- **测试情况**：dev 重启后预警页 200 无组件警告；后台各页正常
-- **遗留问题/待办**：无
-- **给下一个 Agent 的提示**：Nuxt UI v4 无 URadio/URadioButton，单选用 URadioGroup 或自绘；dev 服务器退出多为外部原因（并行 Agent/字体超时），重启即可
-
----
-### 2026-08-31 | 修复 dev 崩溃：禁用 google 字体提供器（离线环境 fonts.google.com 超时）
-- **工作内容**：dev 服务器因 unifont 的 google/googleicons 提供器连接 fonts.google.com 超时（3 次重试耗尽）导致进程退出（exit 1）。在 nuxt.config.ts 增加 `fonts.providers.google/googleicons = false`（@nuxt/fonts 配置），图标仍用本地 lucide 集合不受影响。
-- **修改文件**：`nuxt.config.ts`
-- **测试情况**：重启后首页/后台/生成页/扫码页全部 200，无 google 超时日志
-- **遗留问题/待办**：无
-- **给下一个 Agent 的提示**：本机离线，勿恢复 google 字体提供器；HANDOFF 级踩坑已同步 AGENTS.md
-
----
-### 2026-08-31 | 修复 10 处类型错误与统计接口 GROUP BY 兼容问题
-- **工作内容**：全量 typecheck 发现 9 处类型错误（新增模块引入）+ 1 处逻辑 bug——catch(e) 隐式类型、split 索引可能 undefined、FLAG_LABEL 索引类型、map(Number) 隐式 any、pairs[prev] 可能 undefined；statistics.get.ts 产品分布 GROUP BY 缺 p.name（ONLY_FULL_GROUP_BY 兼容）。
-- **修改文件**：server/utils/{audit,notify,risk-alert}.ts、server/api/admin/{boxes/parse.post, codes/[id].patch, codes/batch-correct.post, codes/batch-flag.post, statistics.get}.ts、server/api/trace.get.ts
-- **测试情况**：nuxi typecheck 0 错误、semgrep（security-audit+secrets）0 发现、code-generator 长度数学验证通过、git 提交 c7e9aa2
-- **遗留问题/待办**：见 AGENTS.md 项目进度待办段
-- **给下一个 Agent 的提示**：本机类型检查用 npx tsc --noEmit -p .nuxt/tsconfig.json；catch(e) 需 (e as any)；split(',')[0] 需 (…[0] || '')；GROUP BY 需列出全部非聚合列
-
-### 2026-08-31 | 上线文档（README / 部署指南 / 1049 合规自检表）
-- **工作内容**：① README.md（项目总览/功能清单/快速开始/演示账号/目录结构/文档索引/上线注意事项）；② docs/DEPLOYMENT.md（环境要求/部署步骤/nginx HTTPS 配置/PM2 守护/安全清单 8 项/备份恢复/性能容量提醒/FAQ）；③ docs/COMPLIANCE.md（1049 公告 13 项条款逐条核对：9 项 ✅、3 项 🟡 依赖外部、1 项上线倒排；合规验收指标对照）。
-- **修改文件**：`README.md`、`docs/DEPLOYMENT.md`、`docs/COMPLIANCE.md`（新增）
-- **测试情况**：文档与平台实际功能逐项核对；部署验证清单 6 项
-- **遗留问题/待办**：自动备份调度与异地备份（OSS）；微信推送（需公众号凭据）；异常类型 2/3/5/6/7/8 预警接入（依赖 D2/IP 归属地）；码生成离线 EXE（复用 code-generator.ts）；D1-D4 待决项上线前决策
-- **给下一个 Agent 的提示**：合规自检 3 项 🟡 为外部依赖（D2 登记证库/IP 归属地/印刷码制），上线前需用户确认印刷方与外部数据源
-
----
-### 2026-08-31 | 追溯码生成（PRD 5.5.1 Web 版离线生成工具）
-- **工作内容**：① 码生成引擎（code-generator.ts）：第 1-11 位强制结构（登记类别+登记证后6位+生产类型+规格码，取自产品/规格主数据），第 12 位后自定义段（时间戳：毫秒/秒/年月日/不使用 + 校验位：MD5取模转纯数字 00-99，保证 32 位全数字）；② 批量生成：流水号填充保证唯一、本地+系统内重码检测自动重试；③ 生成 API（不入库，审计日志）；④ 页面 /admin/generator：产品选择（自动带出码结构说明）、数量（1-10000）、时间戳/校验位配置、分段色块预览（登记类别|登记证后6位|生产类型|规格码|自定义段）、导出 TXT/CSV（CSV 含分段列）。菜单新增「追溯码生成」。
-- **修改文件**：`server/utils/code-generator.ts`（新增）、`server/api/admin/codes/generate.post.ts`（新增）、`app/pages/admin/generator/index.vue`（新增）、`app/layouts/admin.vue`
-- **测试情况**：端到端全过：生成 100 条全部 32 位纯数字、结构断言（1|040767|1|001）、校验位重算匹配、无时间戳/无校验配置、超量 400 拒绝、页面 SSR；修复了 MD5 hex 校验位含字母（违反 32 位纯数字）问题
-- **遗留问题/待办**：离线 EXE 版工具（可复用生成引擎打包）；自动备份调度与异地备份（OSS）；微信推送（需公众号凭据）；异常类型 2/3/5/6/7/8 预警接入（依赖 D2/IP 归属地）；**部署文档与 1049 合规自检（上线前必做）**
-- **给下一个 Agent 的提示**：校验位必须纯数字（MD5 hex 含 a-f 会破坏 32 位数字规则）；生成码不入库，走生产采集导入
-
----
-### 2026-08-31 | 外箱码管理 + 批量修正工具（PRD 5.5.6 / 5.8）
-- **工作内容**：① 外箱码管理（PRD 5.5.6）：上传解析（每行"外箱码,单品码"）→ 校验（外箱码全局唯一/单品码在系统且标记正常/单品码未归属其他外箱/文件内重复）→ 事务绑定（一对多）→ 外箱码列表（箱内码数/箱状态随最低码联动/含作废码标红）→ 箱内码详情 → 解绑（需输入"确认解绑"二次确认+审计日志）；② 批量修正工具（PRD 5.8 场景8）：码库勾选 → 重新绑定批次（仅"已生成"码，产品一致性校验，绑定后自动"已绑定"）/生产日期/有效期至/质检结果/合格证号（按批次更新+冗余同步）→ 异常标记优先（含冻结/作废码整批拒绝）→ 已绑定码修改记合规更正强日志。菜单新增「外箱码管理」。
-- **修改文件**：`server/api/admin/boxes/parse.post.ts`、`boxes/bind.post.ts`、`boxes.get.ts`、`boxes/[code].get.ts`、`boxes/unbind.post.ts`（新增5个）、`server/api/admin/codes/batch-correct.post.ts`（新增）、`app/pages/admin/boxes/index.vue`（新增）、`app/pages/admin/codes/index.vue`（+批量修正对话框）、`app/layouts/admin.vue`
