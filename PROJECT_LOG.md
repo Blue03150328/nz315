@@ -27,6 +27,17 @@
 - **遗留问题/待办**：①**微信凭据仍待用户提供**（AppID/AppSecret + 公众平台配置网页授权域名 www.nz315.cn），到位后需真机走一次授权回调；②高德免费额度有 **QPS 上限**，连续快速调用返回 `CUQPS_HAS_EXCEEDED_THE_LIMIT`（测试时触发过），错误已如实透传，后台按钮为人工低频操作不受影响，但若将来做**批量地址解析必须限速**；③JS API key 会暴露在前端，**上线前务必在高德控制台配置域名白名单**（本地 127.0.0.1 未受限可用）；④演示门店 3 家上线前应清空并导入真实数据。
 - **给下一个 Agent 的提示**：①**任何第三方「智能解析」类接口都要假设它会模糊匹配**——高德地理编码对乱码输入照样返回高置信度结果，必须用业务侧已知信息（此处是省/市）做交叉校验；②高德 Web服务 key 与 JS API key **用途不可混用**，前者绝不能下发浏览器；③坐标一律 GCJ-02，高德地理编码返回值可直接入库，但**浏览器定位仍是 WGS-84**，需经 `wgs84ToGcj02()` 转换。
 
+### 2026-09-01 | 修复 4 处 bug：地图选中不居中 / 审计 IP 缺失 / hover 卡顿 / 定时器泄漏
+- **工作内容**：按 code-review 全量审查（crg + semgrep + tsc + 真机冒烟）发现并修复 4 处 bug：
+  ① **StoreMap defineExpose 快照 bug**（提交 c510cff）：defineExpose({ map, ... }) 在 setup 阶段求值，而 map 是 onMounted 后才赋值的普通变量——暴露给父级的是 null 永久快照，父级 comp.map 恒为 null，导致 PC 端点击门店列表时地图 setCenter 静默失效（marker 直接点击正常因有内部 handler）。改为 getter 暴露实时引用。
+  ② **StoreMap hover 全量重建 marker**：原 watch 同时监听 stores+activeStoreId，hover 扫过列表（mouseenter 即更新 activeStoreId）每次都全量删建 30+ marker（高德 DOM 操作）。拆为两个 watch：stores 变化才全量重建，activeStoreId 变化仅增量替换高亮 marker 内容。
+  ③ **审计/登录 IP 直连时恒为 null**：audit.ts 与 login.post.ts 只读代理头，本地/内网直连（无 x-real-ip/x-forwarded-for）时 IP 落 NULL，违反 PRD 5.12.4 审计完整性。新增 audit.clientIpOf()：代理头优先 + TCP socket remoteAddress 兜底（含 ::ffff: 前缀剥离），logLogin/logOperation/login 统一复用。
+  ④ **nearby-stores 定时器泄漏 + 死代码**：onStoreClick 居中 setTimeout 无清理（页面销毁后仍可能 setCenter），已记录并随卸载清理；清除 __zoneW 死代码（只读无赋值）。
+- **修改文件**：app/components/StoreMap.vue、app/pages/nearby-stores.vue、server/utils/audit.ts、server/api/auth/login.post.ts
+- **测试情况**：tsc 0 错误；生产构建成功（10.6MB）；重启服务器冒烟——页面/API 全 200（nearby/profile/consumer me/trace/admin 系列）；登录日志 IP 已捕获 127.0.0.1（修复前 null）实测验证
+- **遗留问题/待办**：见 AGENTS.md 待办段（微信凭据、高德白名单、D1-D4 等）
+- **给下一个 Agent 的提示**：①defineExpose 暴露非响应式普通变量会在 setup 时固化为快照，需用 getter（get map() { return map }）或 ref；②IP 获取统一用 audit.clientIpOf(event)；③地图 hover 高亮用增量更新避免全量重建
+
 ### 2026-09-01 | 消费者体系落地：微信登录 + 个人中心 + 附近农资店（并修复两个既有 bug）
 - **工作内容**：按用户决策为公众端补齐三项能力（微信公众号网页授权登录、个人中心、附近农资店），**均为前后端一起做**——此前这三块我方后端完全空白。四项架构决策：①微信用**公众号网页授权**（snsapi_userinfo）；②非微信环境**不做备选登录**，仅引导「请在微信中打开」；③「查询档案」与「查询历史」合并为同一份数据；④农资店采用**自建门店库**，高德只做地图与距离。
 - **实施要点**：
