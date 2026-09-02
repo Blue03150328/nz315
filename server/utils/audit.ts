@@ -14,7 +14,7 @@ export async function logOperation(event: any, input: AuditInput) {
   try {
     const userId = (event.context as any)?.authUser?.id ?? null
     const enterpriseId = (event.context as any)?.authUser?.enterprise_id ?? null
-    const ip = (String(getHeader(event, 'x-forwarded-for') || getHeader(event, 'x-real-ip') || '').split(',')[0] || '').trim()
+    const ip = clientIpOf(event)
     await execute(
       'INSERT INTO operation_log (enterprise_id, user_id, module, action, content, ip, result) VALUES (?,?,?,?,?,?,?)',
       [enterpriseId, userId, input.module, input.action, input.content || null, ip || null, input.result ?? 1])
@@ -24,9 +24,17 @@ export async function logOperation(event: any, input: AuditInput) {
   }
 }
 
+/** 取客户端 IP：优先代理头（x-real-ip 防伪造），无代理时回退 TCP socket 地址（本地/内网直连也能记录） */
+export function clientIpOf(event: any): string {
+  const proxied = (String(getHeader(event, 'x-real-ip') || getHeader(event, 'x-forwarded-for') || '').split(',')[0] || '').trim()
+  if (proxied) return proxied
+  const sock = (event?.node?.req?.socket as any)?.remoteAddress || ''
+  return sock.startsWith('::ffff:') ? sock.slice(7) : sock
+}
+
 /** 记录登录日志（PRD 5.1 登录日志：时间/IP/设备） */
 export async function logLogin(event: any, userId: number, enterpriseId: number | null, success: boolean, note?: string) {
-  const ip = (String(getHeader(event, 'x-forwarded-for') || getHeader(event, 'x-real-ip') || '').split(',')[0] || '').trim()
+  const ip = clientIpOf(event)
   const ua = String(getHeader(event, 'user-agent') || '')
   const device = ua.includes('MicroMessenger') ? '微信' : ua.includes('AlipayClient') ? '支付宝' : '浏览器'
   await execute(

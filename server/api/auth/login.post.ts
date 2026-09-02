@@ -1,6 +1,7 @@
 // POST /api/auth/login —— 账号密码登录（PRD 5.1）
 import { query } from '../../utils/db'
 import { verifyPassword, setAuthCookie, getCurrentUser } from '../../utils/auth'
+import { clientIpOf } from '../../utils/audit'
 import { logLogin } from '../../utils/audit'
 
 // 登录失败限速：同账号+IP 5 次/分钟，超限锁定 15 分钟（防暴力破解）
@@ -10,8 +11,8 @@ const LOCK_MS = 15 * 60 * 1000
 const failMap = new Map<string, { count: number; windowEnd: number; lockedUntil: number }>()
 
 function clientIp(event: any): string {
-  // 只信任反向代理写入的 x-real-ip；x-forwarded-for 仅作兜底（防客户端伪造审计日志）
-  return (String(getHeader(event, 'x-real-ip') || getHeader(event, 'x-forwarded-for') || '').split(',')[0] || '').trim()
+  // 只信任反向代理写入的 x-real-ip；x-forwarded-for 仅作兜底；直连时回退 socket 地址
+  return clientIpOf(event)
 }
 
 function checkLockout(key: string) {

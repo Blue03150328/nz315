@@ -70,11 +70,16 @@ const showDetailSheet = ref(false)
 const mapExpanded = ref(false)          // 移动端折叠地图全屏开关
 const popupPos = ref<{ x: number; y: number } | null>(null)
 const isPc = ref(false)                 // PC 判定：>=1024px
+// 居中微延迟定时器：记录并在卸载/再次点击时清理，避免页面销毁后仍操作地图实例
+let centerTimer: any = null
 
 // 视口监听（同时驱动 store-click 的展示分支）
 const onViewport = () => { isPc.value = typeof window !== 'undefined' && window.innerWidth >= 1024 }
 onMounted(() => { onViewport(); window.addEventListener('resize', onViewport) })
-onBeforeUnmount(() => window.removeEventListener('resize', onViewport))
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onViewport)
+  if (centerTimer) { clearTimeout(centerTimer); centerTimer = null }
+})
 
 // 地图实例句柄（StoreMap 暴露 mapReady 与容器坐标换算）
 const mapRef = ref<{ map?: any; mapReady: Ref<boolean> } | null>(null)
@@ -96,7 +101,9 @@ const onStoreClick = (s: any) => {
   const m = comp?.map
   if (m && Number.isFinite(Number(s.lng)) && Number.isFinite(Number(s.lat))) {
     // 微延迟到详情卡渲染后再移动中心，避免锚点随容器漂移
-    setTimeout(() => {
+    if (centerTimer) clearTimeout(centerTimer)
+    centerTimer = setTimeout(() => {
+      centerTimer = null
       try { m.setCenter([Number(s.lng), Number(s.lat)]) } catch { /* 忽略 */ }
     }, 50)
   }
@@ -111,8 +118,7 @@ const pcCardStyle = computed(() => {
   if (!popupPos.value) return { display: 'none' }
   const cardW = 264, cardH = 220
   // 地图画布相对 zone-map 的偏移（详情卡挂在 zone-map 内）
-  const zone = (popupPos as any).__zoneW || 0
-  const zoneW = typeof document !== 'undefined' ? document.querySelector('.zone-map')?.clientWidth || zone : zone
+  const zoneW = typeof document !== 'undefined' ? document.querySelector('.zone-map')?.clientWidth || 0 : 0
   const zoneH = typeof document !== 'undefined' ? document.querySelector('.zone-map')?.clientHeight || 0 : 0
   let x = popupPos.value.x + 16
   let y = popupPos.value.y - 16

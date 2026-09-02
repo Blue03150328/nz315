@@ -68,13 +68,12 @@ onBeforeUnmount(() => {
 })
 
 // ---------- marker 渲染 ----------
-function makeMarker(store: any, isActive: boolean): any {
-  if (!AMap) return null
-  // 授权经销商用橙色强调（与页面主色调 #e67e22 呼应），普通门店用绿色主色
+// marker 元素内容（授权经销商橙 / 普通门店绿；isActive 时加外圈高亮）
+function markerContent(store: any, isActive: boolean): HTMLDivElement {
   const color = Number(store.isAuthorized) ? '#e67e22' : '#2c5c3a'
-  const content = document.createElement('div')
+  const div = document.createElement('div')
   // marker 定位针 + 店内图标（SVG 而非 emoji，避免不同平台字形差异）
-  content.innerHTML = `
+  div.innerHTML = `
     <div style="position:relative;transform:translate(-50%,-100%);">
       <div style="
         width:34px;height:34px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);
@@ -88,12 +87,18 @@ function makeMarker(store: any, isActive: boolean): any {
         </svg>
       </div>
     </div>`
+  return div
+}
+
+function makeMarker(store: any, isActive: boolean): any {
+  if (!AMap) return null
   const marker = new AMap.Marker({
     position: [Number(store.lng), Number(store.lat)],
-    content,
+    content: markerContent(store, isActive),
     anchor: 'bottom-center',
     offset: new AMap.Pixel(0, 0),
   })
+  marker.setExtData({ store })
   marker.on('click', () => {
     emit('storeClick', store)
     if (map) {
@@ -135,6 +140,17 @@ function renderMarkers() {
   })
 }
 
+// 仅更新选中态：hover/点击切换时只替换受影响 marker 的 DOM，避免全量重建（列表扫过不卡顿）
+function updateActiveMarkers() {
+  if (!map || !AMap) return
+  for (const m of markers) {
+    const s = m.getExtData?.().store
+    if (!s) continue
+    const active = Number(s.id) === Number(props.activeStoreId)
+    m.setContent(markerContent(s, active))
+  }
+}
+
 // 自适应视口：有坐标门店时 fit 全部（含我的位置），否则居中标示
 function fitToContent() {
   if (!map || !AMap) return
@@ -162,10 +178,15 @@ function fitToContent() {
   }
 }
 
-// 父级数据变化：重绘 marker 并自适应；数据未就绪时兜底渲染一次
-watch(() => [props.stores, props.activeStoreId], () => {
+// 门店数据变化：全量重绘 marker 并自适应
+watch(() => props.stores, () => {
   if (mapReady.value) { renderMarkers(); fitToContent() }
 }, { deep: false })
+
+// 选中态变化：只更新高亮，避免 hover 扫过列表时反复全量重建 marker
+watch(() => props.activeStoreId, () => {
+  if (mapReady.value) updateActiveMarkers()
+})
 
 watch(() => props.center, () => {
   if (mapReady.value && props.center) {
@@ -185,7 +206,14 @@ function markerContainerPos(lng: number, lat: number): { x: number; y: number } 
   }
 }
 
-defineExpose({ map, mapReady, fitToContent, markerContainerPos })
+// 注意：map 是 onMounted 后才赋值的普通变量，直接放对象里会在 setup 时固化为 null 快照，
+// 父级永远拿不到实例（PC 列表点击门店时 setCenter 静默失效）。必须用 getter 暴露实时引用。
+defineExpose({
+  get map() { return map },
+  mapReady,
+  fitToContent,
+  markerContainerPos,
+})
 </script>
 
 <template>
