@@ -42,7 +42,7 @@
 
 ### 🗄️ 数据库（MySQL：`nz315`，连接配置在 `.env`，不提交仓库）
 
-13 张表（PRD 第七章 9 张 + message 消息 + system_setting 配置 + consumer 消费者 + agro_store 农资店）：`enterprise`（企业）· `product_spec`（产品规格主数据，规格码=码第9-11位）· `product`（产品 SKU，登记证号全局唯一）· `batch`（生产批次，三要素）· `trace_code`（追溯码：两状态 status 1已生成/2已绑定 + 异常标记 abnormal_flag 0正常/1冻结/2作废，正交）· `user`（角色 platform_admin/enterprise_admin/code_admin/viewer，bcrypt 密码）· `operation_log` · `scan_log`（含 `consumer_id`，登录消费者扫码归属） · `risk_alert` · `consumer`（微信 openid 唯一，公众端消费者） · `agro_store`（自建农资店库，坐标为 GCJ-02）
+12 张表（PRD 第七章 9 张 + message 消息 + system_setting 配置 + consumer 消费者；农资店改用高德 POI 实时检索，无自建表）：`enterprise`（企业）· `product_spec`（产品规格主数据，规格码=码第9-11位）· `product`（产品 SKU，登记证号全局唯一）· `batch`（生产批次，三要素）· `trace_code`（追溯码：两状态 status 1已生成/2已绑定 + 异常标记 abnormal_flag 0正常/1冻结/2作废，正交）· `user`（角色 platform_admin/enterprise_admin/code_admin/viewer，bcrypt 密码）· `operation_log` · `scan_log`（含 `consumer_id`，登录消费者扫码归属） · `risk_alert` · `consumer`（微信 openid 唯一，公众端消费者）
 
 演示账号：`admin/admin123`（总部）、`lvfeng/admin123`（厂家）、`codeop/admin123`（码管理员）
 
@@ -77,7 +77,7 @@
 - **Nuxt UI v4 迁移遗留 bug 全量清零**（2026-09-01，提交 e05ac71）：①**UModal 5 页 7 处**（alerts/batches/boxes×2/codes×2/settings）统一迁移 `v-model:open` + `#content` 插槽，弹窗恢复可用；②**空字符串 value 下拉 6 页 13 处**——筛选类改 placeholder 承载 +默认值 undefined，表单类「不修改/不绑定」改哨兵值（codes `batchId=0`/`qcResult='keep'`、collection `batchId=0`）保留可回退语义；③**新发现并修复系统设置两处缺陷**——`UTabs` items 缺 value 导致 v4 回退索引、点击任意 Tab 后 5 个面板 v-if 全部落空（用户权限/操作日志/通知配置/数据备份实际不可达），以及「通知配置+数据备份」整段重复渲染（删除重复 82 行）。验证：tsc 0 错误 + 生产构建 + CDP 真实点击 19/19 全通过 + 全后台 12 页回归无控制台错误
 - **全后台 B 端风格统一 + 共享设计语言基座**（2026-09-01，提交 0b9b12d / 248bdc0）：①`app/assets/css/main.css` 新增「B 端中后台设计语言」层——11 个色板变量 + 40 个语义类（`b-page-title`/`b-card`系/`b-form-grid`/`b-table`/`b-tag` 五语义色/`b-actions`/`b-empty`/`b-pager`/`b-bulkbar`/`b-note`/`b-modal`系/`b-stat`系），置于 `@layer components` 以便工具类覆盖；②**12 个后台页面全部迁移**（此前仅码库管理一页完成改造），连基准页 codes 也一并归一，全站只剩一种写法，页面级旧风格类与硬编码 Element 色值**清零**；③业务逻辑零改动（仅标签配色映射常量改语义类名，已用 script 块逐行比对脚本核验）；④顺带补齐 **PRD 5.6 批次效期预警**（已过期红 / ≤30 天临期黄，`expiryBadge()` 按当天零点整日差，无水合告警），按提交契约单独成一次 feat 提交。验证：tsc 0 错误 + 生产构建 + SSR 15 项 + CDP 真实点击 20 项 + DOM 客观测量 5 页全通过
 - **清理农码查移植遗留死代码**（2026-09-01，提交 945d338）：删除 767 行零引用代码——4 个与 `TraceResult/TraceAlert/TraceNotFound` 重复的未接线结果页组件、仅被它们引用的 `RegistrationCompareCard`、**零调用且返回伪造登记证核验结果的演示接口 `server/api/query/[code].get.ts`**（对 1049 合规项目属实质风险）、仅服务上述死代码的 `shared/types/compare.ts`，以及 `default.vue` 中指向不存在路由 `/result/` 的判断。`/q/:code` 旧路径重定向为活链路已保留。验证：引用核查零残留 + tsc + 构建 + SSR 15 项 + 公众端专项 7 项全通过
-- **公众端消费者体系**（2026-09-01，提交 6cfb410 / 2e64067 / 019837e）：①**微信公众号网页授权登录**（snsapi_userinfo），消费者独立 Cookie `nz315_consumer`，与后台共用密钥但 payload 带 `consumer:` 命名空间前缀，**两类 token 不可互换**（已双向实测）；凭据未配置时授权接口 503，**不做模拟登录**；state 强制校验为站内相对路径防开放重定向；②**个人中心 `/profile`**（三态引导：未配置/非微信/微信内；「查询档案」与「查询历史」按决策合并为一份，数据取自真实 `scan_log`）；③**附近农资店**：公众端 `/nearby-stores`（授权定位 → 服务端按距离排序展示附近门店，数据来自 `agro_store` 表；浏览器定位 WGS-84 经 `useGeoConvert` 转 GCJ-02，距离由服务端 haversine 计算，高德仅用于地图展示）。**后台门店管理已于 2026-09-02 按用户指示删除（提交 557b13a），公众端只需授权位置后展示附近门店**；真实门店数据来源待定（人工灌库/高德 POI/运营后台）
+- **公众端消费者体系**（2026-09-01，提交 6cfb410 / 2e64067 / 019837e）：①**微信公众号网页授权登录**（snsapi_userinfo），消费者独立 Cookie `nz315_consumer`，与后台共用密钥但 payload 带 `consumer:` 命名空间前缀，**两类 token 不可互换**（已双向实测）；凭据未配置时授权接口 503，**不做模拟登录**；state 强制校验为站内相对路径防开放重定向；②**个人中心 `/profile`**（三态引导：未配置/非微信/微信内；「查询档案」与「查询历史」按决策合并为一份，数据取自真实 `scan_log`）；③**附近农资店**：公众端 `/nearby-stores`（**2026-09-02 起改用高德 POI 实时检索，提交 4c1ebdb**——授权定位 → 双关键词（农药+农资去市场噪音）检索 → 距离升序前 20 家；1km 网格缓存 10 分钟防配额；未定位返回空引导开启定位；后台门店管理已于 557b13a 删除）
 - **两个既有 bug 修复**（2026-09-01，提交 d799728 / 5c5ac25）：①**db-init 缺建 `message` 与 `system_setting`**——新环境按文档初始化必缺表，消息中心/通知配置/数据概览会报错；②**业务操作日志操作人恒为 NULL**——`event.context.authUser` 全代码库无人赋值，实测 40 条业务日志（含批量作废/用户管理/数据备份）全部无法追溯到人，违反 PRD 5.12.4 与 8.4，已在 `getCurrentUser()` 挂载上下文
 
 - **高德地图接入**（2026-09-01，提交 d630e3a；Web服务地理编码随门店管理删除 557b13a）：JS API key 用于公众端地图渲染（CDP 实测瓦片全 200、WebGL 画布正常、控制台零错误）；真实 key 仅在 `.env`（不入库）。~~Web服务 key 地理编码~~（已删）
@@ -87,7 +87,7 @@
 **待办（按 PRD 版本规划）**：
 - **真机验证 /scan 扫码**：Android Chrome（原生 BarcodeDetector 路径）与 iOS Safari 17+ 各扫一张真实印刷码；确认 HTTPS 下权限弹窗与后置摄像头调用正常
 - **等待用户提供微信凭据**：AppID/AppSecret（另需在公众平台配置网页授权域名 www.nz315.cn）；到位后需真机验证授权回调
-- **上线前**：高德 JS API key 须在控制台配置**域名白名单**（本地未受限但线上必配）；**演示门店 3 家须替换为真实数据——后台门店管理已删，来源方案待定（人工灌库/高德 POI/运营后台）**
+- **上线前**：高德 JS API key 须在控制台配置**域名白名单**（本地未受限但线上必配）；Web服务 key 需确保生产环境额度充足（POI 检索每请求 2 次调用，有 1km 网格缓存）
 - 自动备份调度与异地备份（OSS）、微信推送（需公众号对接）、异常类型 2/3/5/6/7/8 预警触发接入（依赖 D2 登记证库/IP 归属地）
 - 码生成离线 EXE 版（参考工具 E:\wokeplace\二维码生成离线软件 已有 electron 工程，Web 引擎已对齐可移植打包）
 - 待决项：D1 亿级数据方案（上线前定）、D2 登记证数据库对接、D3 限用农药、D4 旧规迁移
@@ -134,6 +134,7 @@
 | reka-ui 选项用 pointerup 选择 | CDP 自动化点击下拉选项须派发 pointerup（click 无效）；面板关闭需真实 pointer 事件 |
 | headless 点击视口外元素无效 | CDP Input 点击前先 scrollIntoView |
 | Vue 3.5 生产模式元素无 __vueParentComponent/_vei | 排查事件绑定用 DOMDebugger.getEventListeners（能看到真实监听器），勿用 _vei 判断 |
+| **CDP 模拟定位须先 grantPermissions(['geolocation'])** | 只调 setGeolocationOverride 会被当作「用户拒绝」（ERR code 1）；headless 验证定位流必须先 Browser.grantPermissions 且带 origin 参数（2026-09-02 实测） |
 | **zxing HybridBinarizer 对图像宽度敏感**（2026-09-02 实测） | 同一二维码渲染成 520/600px 解不出、相邻宽度（480/640）成功——二值化分块与模块宽度的相位问题。zxing 兜底解码必须**多尺度重试**（useQrScanner 已实现 1x/0.8x/0.6x） |
 | **zxing MultiFormatReader 解码失败会打 console.warn 刷屏** | 相机逐帧解码失败是本路径的预期行为，MultiFormatReader 内部对每个失败的 reader 记 warn。改用**显式顺序尝试**（QRCodeReader → DataMatrixReader）自行 catch，控制台零噪音 |
 | **网页扫码能力分层（无微信 JS-SDK 凭据时）** | ①系统浏览器：getUserMedia + BarcodeDetector（Android Chrome/iOS Safari 17+），zxing 兜底（无 BarcodeDetector 的 Edge/旧 Safari）；②**iOS 微信内网页禁调相机**（系统限制，无解）→ 引导「右上角在浏览器打开」+ 相册选图识别兜底；③getUserMedia 必须 HTTPS + 用户手势触发（iOS 强制）；④扫码页参考实现 `app/pages/scan.vue` + `app/composables/useQrScanner.ts` |
