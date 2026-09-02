@@ -1,6 +1,19 @@
 ## 变更记录
 
 ### 2026-09-01 | 重做「附近农资店」页面（PC 双栏 / 移动端折叠地图 + 底部弹窗，按用户设计稿）
+### 2026-09-02 | 公众端「扫一扫」真正落地（用户反馈：手机打开网站无法扫一扫）
+- **问题定位**：首页大按钮与 BottomNav「扫码查询」入口均为**占位实现**——只聚焦输入框 + Toast 提示手动输入（index.vue handleScan 注释自述「网页内无法直接调相机」）。用户在手机上点「扫一扫」没有任何扫码能力。
+- **实现方案**（新页面 + 核心 composable + 三入口接线）：
+  ① **新增扫码页 /scan**（app/pages/scan.vue，fullbleed 无壳布局，沉浸黑底）：取景框四角标 + CSS 扫描线动画 + box-shadow 9999px 框外压暗；识别命中自动跳 /trace?code=（SSR 秒开查询）；顶部栏返回/相册按钮，底部「从相册选择」「手动输入」双降级通道；
+  ② **核心 composable app/composables/useQrScanner.ts**：解码分层——**BarcodeDetector 原生优先**（Android Chrome/iOS Safari 17+），**@zxing/library 逐帧兜底**（复用已有依赖，服务端同库生成 DM 码；按需动态 import 分包）；zxing 走 **1x/0.8x/0.6x 多尺度重试**（见踩坑：HybridBinarizer 对特定图像宽度存在解不出相位）；解码循环 RAF 节流 180ms + 防重入；识别结果只认 32 位纯数字码或含 /trace?code= 的 URL，普通二维码静默忽略不误跳；相机启动中文错误归一（权限拒绝/无摄像头/被占用/非 HTTPS），**命中或离开页面即释放相机流**；
+  ③ **环境降级策略**（关键约束：微信 JS-SDK 凭据未配置 + iOS 微信系统级禁网页相机）：iOS 微信 UA 自动展示引导（右上角「···」在浏览器打开 / 相册选图识别已拍码图）；getUserMedia 需 HTTPS + 用户手势触发（iOS 强制，页面首屏为「开启摄像头扫码」按钮而非自动请求）；
+  ④ **入口接线**：首页大按钮 + BottomNav（扫码项虚拟路径 /q/ 改真实路由 /scan，结果页 /trace 保持高亮）+ AppHeader PC 菜单新增「扫码查询」。
+- **修改文件**：app/pages/scan.vue（新增）、app/composables/useQrScanner.ts（新增）、app/pages/index.vue、app/components/BottomNav.vue、app/components/AppHeader.vue
+- **测试情况**（全部通过）：tsc 0 错误；生产构建成功；Edge headless CDP——移动视口 18 项（渲染/相机启动 videoWidth=1280/取景框/相册识别跳转/非追溯码忽略+提示/手动输入/微信 UA 引导/控制台零错误）、无 BarcodeDetector 强制 zxing 兜底 4 项（真实覆盖 zxing 前端路径）、PC 视口 3 项；DOM 客观测量 6 项（扫描框 360×360 居中/视频铺满/四角+扫描线+压暗）；vision 抽查布局无错乱（查询结果页演示码 …1001 恰好命中「产品已过有效期」场景，判定正确）
+- **过程中发现的两个 zxing 特性**（已记入 AGENTS 踩坑表）：①HybridBinarizer 对图像宽度敏感（同一码 520/600px 解不出、480/640 成功）→ 多尺度重试；②MultiFormatReader 每 reader 失败都打 console.warn（相机逐帧刷屏）→ 改显式 QR→DataMatrix 顺序尝试
+- **遗留问题/待办**：①**真机验证**——Android Chrome（原生 BarcodeDetector 路径）与 iOS Safari 17+ 各扫一张真实印刷码，确认 HTTPS 权限弹窗与后置摄像头调用；②微信 JS-SDK wx.scanQRCode 在凭据到位后可作微信内增强（当前 iOS 微信用引导+相册方案）；③扫码页为自定义沉浸式（未用 default 布局），PC 端可正常访问（桌面摄像头/相册/手动输入均可用）
+- **给下一个 Agent 的提示**：①网页扫码参考实现 = useQrScanner.ts + scan.vue，新增其他码类识别（如外箱码）可直接复用解码层；②zxing 兜底务必保留多尺度重试；③页面销毁钩子 onBeforeUnmount 调 stop() 释放相机，勿漏；④Node 端可用 PNG 直解脚本思路验证解码算法（无需浏览器）
+
 - **工作内容**：用户提供了「附近农资店」PC 与移动端效果图并要求重做该板块。**技术栈裁决**：规格原文要求 Vue3+Nuxt3+Element Plus+SCSS，与项目实际（Nuxt 4 + Nuxt UI v4 + Tailwind v4）冲突——两套组件库共存会产生 CSS 重置/主题冲突，且违反本项目的统一视觉基调；开工前已与用户确认改用项目技术栈实现，**视觉规格（配色/布局/交互/响应式）全部保留**。
 - **实现要点**：
   ① **新增 fullbleed 无壳布局**：default 布局的 480px 移动壳与 PC 居中限宽（max-w-6xl）与「整屏沉浸式地图」规格冲突，新布局让页面自绘顶栏并全宽铺开；

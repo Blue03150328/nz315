@@ -62,9 +62,10 @@
 - 码校验：`server/utils/code-validator.ts`（32位结构 + 产品/规格匹配 + 查重）
 - 主题：`app/assets/css/main.css`（UI4 变量体系，主色沉稳深绿 hsl(142 32% 30%)，圆角 --ui-radius 0.375rem，中后台克制基调）
 
-### ✅ 项目进度（截至 2026-09-01）
+### ✅ 项目进度（截至 2026-09-02）
 
 **已实现（V1.0 核心）**：
+- **公众端「扫一扫」真正落地**（2026-09-02，提交 5090eb8）：原首页/BottomNav 扫码按钮仅聚焦输入框提示手动输入（占位），用户反馈「手机点开网站无法扫一扫」。新增沉浸式扫码页 `/scan`（fullbleed 黑底 + 取景框四角/扫描线/框外压暗）+ 核心 composable `useQrScanner.ts`——**BarcodeDetector 原生优先 + @zxing/library 逐帧兜底**（复用已有依赖），识别 32 位纯码或 `/trace?code=` URL 自动跳查询页，普通二维码忽略继续扫（防误跳）；**三通道降级**：iOS 微信网页禁调相机 → 引导右上角浏览器打开/相册选图、权限拒绝/无摄像头/非 HTTPS → 中文错误、相册拍照选图全环境可用（含 iOS 微信）；命中/离开即释放相机流。入口接线：首页大按钮 + 手机底栏（扫码项 /q/ 虚拟路径改真实 /scan，/trace 结果页保持高亮）+ PC 顶部菜单。验证：tsc 0 错误 + 构建 + CDP 移动视口 18 项 / zxing 兜底 4 项 / PC 3 项 / DOM 测量全通过
 - H5 扫码页 10 场景（正品·已绑定/已生成、查无此码、登记证过期、重复查询、冻结、作废、过有效期、信息存疑、格式错误）
 - 后台：登录、数据概览、追溯码生成（1049结构+自定义段+导出）、码库管理（异常标记/批量修正）、外箱码管理、产品规格管理、产品管理、生产批次管理、生产采集、扫码统计、系统设置（企业信息/用户权限/操作日志/通知配置/数据备份）、风险预警中心、消息中心
 - H5 扫码为真实链路：查库 + 写 scan_log + 异常判定 + 自动触发风险预警（重复查询/登记证过期已接入）
@@ -84,6 +85,7 @@
 - **「附近农资店」页重做**（2026-09-01，提交 ae2f609）：按用户设计稿实现双布局——PC 左 38% 列表 + 右 62% 整高地图（hover 联动 marker 详情卡）、移动端顶栏+搜索+列表+35vh 折叠地图（可全屏）+ 底部详情弹窗；配色 #f8f9f4/#2c5c3a/#e67e22 仅限本页。新增 fullbleed 无壳布局与 StoreMap 画布组件（单一实例 + CSS 裁剪实现折叠/全屏，零 resize）。CDP 双视口 20 项全通过
 
 **待办（按 PRD 版本规划）**：
+- **真机验证 /scan 扫码**：Android Chrome（原生 BarcodeDetector 路径）与 iOS Safari 17+ 各扫一张真实印刷码；确认 HTTPS 下权限弹窗与后置摄像头调用正常
 - **等待用户提供微信凭据**：AppID/AppSecret（另需在公众平台配置网页授权域名 www.nz315.cn）；到位后需真机验证授权回调
 - **上线前**：高德 JS API key 须在控制台配置**域名白名单**（本地未受限但线上必配）；演示门店 3 家须清空并导入真实数据
 - 自动备份调度与异地备份（OSS）、微信推送（需公众号对接）、异常类型 2/3/5/6/7/8 预警触发接入（依赖 D2 登记证库/IP 归属地）
@@ -132,3 +134,6 @@
 | reka-ui 选项用 pointerup 选择 | CDP 自动化点击下拉选项须派发 pointerup（click 无效）；面板关闭需真实 pointer 事件 |
 | headless 点击视口外元素无效 | CDP Input 点击前先 scrollIntoView |
 | Vue 3.5 生产模式元素无 __vueParentComponent/_vei | 排查事件绑定用 DOMDebugger.getEventListeners（能看到真实监听器），勿用 _vei 判断 |
+| **zxing HybridBinarizer 对图像宽度敏感**（2026-09-02 实测） | 同一二维码渲染成 520/600px 解不出、相邻宽度（480/640）成功——二值化分块与模块宽度的相位问题。zxing 兜底解码必须**多尺度重试**（useQrScanner 已实现 1x/0.8x/0.6x） |
+| **zxing MultiFormatReader 解码失败会打 console.warn 刷屏** | 相机逐帧解码失败是本路径的预期行为，MultiFormatReader 内部对每个失败的 reader 记 warn。改用**显式顺序尝试**（QRCodeReader → DataMatrixReader）自行 catch，控制台零噪音 |
+| **网页扫码能力分层（无微信 JS-SDK 凭据时）** | ①系统浏览器：getUserMedia + BarcodeDetector（Android Chrome/iOS Safari 17+），zxing 兜底（无 BarcodeDetector 的 Edge/旧 Safari）；②**iOS 微信内网页禁调相机**（系统限制，无解）→ 引导「右上角在浏览器打开」+ 相册选图识别兜底；③getUserMedia 必须 HTTPS + 用户手势触发（iOS 强制）；④扫码页参考实现 `app/pages/scan.vue` + `app/composables/useQrScanner.ts` |
