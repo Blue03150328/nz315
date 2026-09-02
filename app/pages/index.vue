@@ -19,10 +19,8 @@ const handleManualQuery = async () => {
 }
 
 const handleScan = () => {
-  // 网页内无法直接调相机，聚焦输入框并提示
-  const input = document.getElementById('trace-input')
-  input?.focus()
-  toast.add({ title: '请扫描瓶身二维码，或手动输入32位追溯码', color: 'primary' })
+  // 跳转扫码页：相机取景实时识别（原「聚焦输入框」占位实现已于本轮替换为真实扫码）
+  router.push('/scan')
 }
 </script>
 

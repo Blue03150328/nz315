@@ -1,30 +1,24 @@
 <script setup lang="ts">
 const route = useRoute()
-const toast = useToast()
 
 // 当前已实现页面（新增入口前须确认后端已有对应实现）
 const NAV = [
   { path: '/', label: '首页', icon: 'i-lucide-home', action: 'link' },
-  { path: '/q/', label: '扫码查询', icon: 'i-lucide-scan-search', action: 'scan' },
+  { path: '/scan', label: '扫码查询', icon: 'i-lucide-scan-search', action: 'scan' },
   { path: '/nearby-stores', label: '附近门店', icon: 'i-lucide-store', action: 'link' },
   { path: '/profile', label: '我的', icon: 'i-lucide-user-round', action: 'link' },
 ]
 
 const isActive = (path: string) => {
   if (path === '/') return route.path === '/'
+  // 扫码页 /scan 与查询结果页 /trace（扫码后跳转）都视为「扫码查询」高亮
+  if (path === '/scan') return route.path === '/scan' || route.path.startsWith('/trace')
   return route.path.startsWith(path)
 }
 
-// 扫码查询入口：手机无相机权限时聚焦首页输入框，引导手动输入（与参考首页交互一致）
+// 扫码查询入口：跳转 /scan 扫码页（相机实时识别 + 相册选图 + 手动输入三通道）
 const handleScanTap = () => {
-  const input = document.getElementById('trace-input')
-  if (input) {
-    input.focus()
-    input.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    toast.add({ title: '请扫描瓶身二维码，或手动输入32位追溯码', color: 'primary' })
-  } else {
-    toast.add({ title: '请在首页输入32位追溯码查询', color: 'primary' })
-  }
+  navigateTo('/scan')
 }
 </script>
 

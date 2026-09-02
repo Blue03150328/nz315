@@ -5,6 +5,7 @@ const route = useRoute()
 // 当前已实现页面（新增入口前须确认后端已有对应实现）
 const MENU = [
   { path: '/', label: '首页' },
+  { path: '/scan', label: '扫码查询' },
   { path: '/nearby-stores', label: '附近农资店' },
   { path: '/profile', label: '个人中心' },
 ]
