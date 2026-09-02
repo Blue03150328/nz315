@@ -1,5 +1,18 @@
 ## 变更记录
 
+### 2026-09-02 | 删除外箱码管理模块及其关联部分（按用户指示收敛功能边界）
+- **工作内容**：用户指示删除外箱码管理（PRD 5.5.6：上传绑定/查询/解绑）。该功能为后台独立模块，数据落在 `trace_code.outer_box_code` 列（无独立表），删除范围如下：
+  - **删除后台页面**：`app/pages/admin/boxes/index.vue`（上传解析/绑定/查询/解绑/详情整页）；
+  - **删除 5 个管理 API**：`server/api/admin/boxes.get.ts`（列表）、`boxes/[code].get.ts`（箱内码详情）、`boxes/parse.post.ts`（文件解析校验）、`boxes/bind.post.ts`（一对多绑定，事务）、`boxes/unbind.post.ts`（解绑+审计）；
+  - **删除入口与冗余字段**：`admin.vue` 侧栏菜单项；`codes.get.ts` 码列表 SELECT 中无人使用的 `outer_box_code` 字段；
+  - **数据库清理**：`db-init.mjs` trace_code DDL 删除 `outer_box_code` 列；`migrate()` 新增**条件删列**（查 information_schema 确认存在才 DROP，幂等）——本地库已实测执行删除，历史库/生产库下次跑 db-init 自动清理；
+  - **文档同步**：README 后台模块表删除「外箱码管理」行；AGENTS 模块列表与进度段同步（后台剩 11 个模块页，12 张表不变——外箱码本无独立表）。
+  - 说明：PRD 需求原文（5.5.6、术语表、数据字典 outer_box_code 行）为需求文档历史口径，按惯例不动；公众端扫码页 `/scan` 与外箱码无耦合（提示文案曾提及「可复用解码层识别外箱码」，属建议性描述，不构成代码依赖）。
+- **修改文件**：删除 `app/pages/admin/boxes/`（1 文件）、`server/api/admin/boxes*.ts`（5 文件）；修改 `app/layouts/admin.vue`、`server/api/admin/codes.get.ts`、`scripts/db-init.mjs`、`README.md`、`AGENTS.md`；-571 行
+- **测试情况**：全绿——tsc 0 错误；生产构建成功（10.5MB）；SSR 冒烟 `/admin/boxes`、`/api/admin/boxes`、`/api/admin/boxes/bind` 均 404；登录后台（admin/admin123）侧栏含数据概览/追溯码生成、**不含外箱码管理与 /admin/boxes 链接**；码库页 200 无外箱码文案；db-init 首次运行执行「迁移：trace_code 删除列 outer_box_code」，重跑幂等无重复日志；数据库 information_schema 确认列与索引引用零残留；stats/登录等接口 200（数据库连通正常）。提交 b49ec23
+- **遗留问题/待办**：①外箱码相关操作日志（历史 operation_log 中「外箱码绑定/解绑」action 记录）为历史数据，保留不动；②其余待办不变（真机验证 /scan、微信凭据、高德白名单、D1-D4 等）。
+- **给下一个 Agent 的提示**：①外箱码已全量下线：不要新增读取/写入 `outer_box_code` 的代码（该列已从 DDL 与存量库删除）；②删除历史库冗余列的幂等写法参考 `scripts/db-init.mjs` migrate()（information_schema 探测后 ALTER，勿用 `DROP COLUMN IF EXISTS`——MySQL 8 不支持）；③本次为功能收敛删除，与 557b13a（门店管理）同模式：公众端扫码页与 /scan 的 zxing 解码层可复用于未来其他码类识别，但需先确认有后端支撑。
+
 ### 2026-09-02 | 附近农资店切换为高德 POI 周边检索（用户选定数据源方案 1，弃自建门店库）
 - **工作内容**：继删除后台门店管理后，用户选定「附近门店」数据源方案 1——**授权定位后由高德实时检索附近农资店**，自建门店库（`agro_store`）彻底退出。
   - **接口重写**（`server/api/stores/nearby.get.ts`）：未定位（缺坐标）→ `located:false` 空数据引导定位；双关键词检索——实测济南 `keywords=农药` 结果干净、`农资` 混入大量「农贸市场/市集」噪音，故按名称过滤（剔除不含农资/农药/化肥/种子/植保/农化/农业词的市场类条目）后合并去重，按 POI 自带 distance 升序截取最近 20 家；高德坐标即 GCJ-02 直接使用；**配额保护**：1km 网格内存缓存 10 分钟（实测二次请求 2ms）；两路查询全失败才 502，未配 key 明确 503，不做假数据（红线）。
