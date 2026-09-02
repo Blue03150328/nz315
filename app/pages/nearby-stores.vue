@@ -22,7 +22,7 @@ const locating = ref(false)
 const locateError = ref('')
 const keyword = ref('')
 
-const { data, pending, refresh } = await useFetch<any>('/api/stores/nearby', {
+const { data, pending, refresh, error: dataError } = await useFetch<any>('/api/stores/nearby', {
   key: 'stores-nearby-v3',
   query: computed(() => ({
     lng: pos.value?.lng,
@@ -50,7 +50,7 @@ const locate = () => {
     (err) => {
       locating.value = false
       locateError.value = err.code === err.PERMISSION_DENIED
-        ? '未获得定位权限，已按授权门店优先展示'
+        ? '未获得定位权限，请在浏览器设置中允许定位后重试'
         : '定位失败，请检查定位服务是否开启'
       if (!locatingToastShown.value) {
         toast.add({ title: '定位不可用', description: locateError.value, color: 'warning' })
@@ -149,7 +149,7 @@ const closeSheet = () => { showDetailSheet.value = false; detailStore.value = nu
             <UIcon name="i-lucide-store" class="h-4.5 w-4.5 text-white" />
           </div>
           <span class="text-[15px] font-bold text-[#2c5c3a]">附近农资店</span>
-          <span class="topbar-sub">授权农资门店 一查即达</span>
+          <span class="topbar-sub">附近农药农资门店 授权定位即可查</span>
         </div>
       </div>
       <button type="button" class="topbar-btn topbar-locate-btn" @click="locate">
@@ -198,10 +198,35 @@ const closeSheet = () => { showDetailSheet.value = false; detailStore.value = nu
       <!-- ② 门店列表 -->
       <section class="zone-list">
         <!-- 空状态 -->
+                <!-- 接口失败提示（高德服务不可用/未配置 key） -->
+        <div v-if="dataError && !pending" class="load-error">
+          <UIcon name="i-lucide-alert-circle" class="h-4 w-4 shrink-0" />
+          <span>附近门店查询暂不可用，请稍后重试</span>
+          <button type="button" class="load-error-retry" @click="refresh">重试</button>
+        </div>
+
+        <!-- 空状态：按定位状态区分引导文案 -->
         <div v-if="!pending && stores.length === 0" class="empty-state">
-          <div class="empty-icon"><UIcon name="i-lucide-store" class="h-9 w-9 text-[#c7d6c0]" /></div>
-          <p class="empty-title">附近暂无收录的农资店</p>
-          <p class="empty-sub">可尝试搜索其它名称，或稍后再来看看</p>
+          <div class="empty-icon">
+            <UIcon :name="pos ? 'i-lucide-store' : 'i-lucide-map-pin'" class="h-9 w-9 text-[#c7d6c0]" />
+          </div>
+          <p class="empty-title">{{ pos ? '附近未找到农资门店' : '开启定位查看附近农资门店' }}</p>
+          <p class="empty-sub">
+            {{ pos
+              ? '可尝试移动位置或稍后再来查询'
+              : '授权位置后，将按距离展示附近的农药农资门店' }}
+          </p>
+          <button
+            v-if="!pos"
+            type="button"
+            class="empty-locate-btn"
+            :disabled="locating"
+            @click="locate"
+          >
+            <UIcon v-if="!locating" name="i-lucide-locate-fixed" class="h-4 w-4" />
+            <UIcon v-else name="i-lucide-loader-circle" class="h-4 w-4 animate-spin" />
+            开启定位
+          </button>
         </div>
 
         <button
@@ -387,6 +412,12 @@ const closeSheet = () => { showDetailSheet.value = false; detailStore.value = nu
   font-size: 12px; font-weight: 600; color: var(--c-primary); background: #eef2e9; }
 .call-btn:hover { background: #e0e9d8; }
 /* 空状态 */
+.load-error { display: flex; align-items: center; gap: 8px; margin: 0 12px 10px; padding: 10px 14px;
+  border-radius: 8px; font-size: 13px; color: #b4551d; background: #fdf0e2; }
+.load-error-retry { margin-left: auto; font-weight: 600; color: #2c5c3a; }
+.empty-locate-btn { display: inline-flex; align-items: center; gap: 6px; margin-top: 14px; padding: 9px 20px;
+  border-radius: 8px; font-size: 14px; font-weight: 600; color: #fff; background: #2c5c3a; }
+.empty-locate-btn:hover { background: #244f33; }
 .empty-state { display: flex; flex-direction: column; align-items: center; padding: 44px 16px; }
 .empty-icon { display: flex; align-items: center; justify-content: center; width: 72px; height: 72px; border-radius: 50%;
   background: #e9efe3; margin-bottom: 12px; }

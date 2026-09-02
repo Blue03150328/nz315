@@ -213,28 +213,6 @@ const DDL = [
     KEY idx_enterprise_read (enterprise_id, is_read),
     KEY idx_user (user_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='站内消息'`,
-  // 农资店（自建门店库；高德仅用于地图展示，门店数据与授权状态由平台自行维护）
-  `CREATE TABLE IF NOT EXISTS agro_store (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(200) NOT NULL COMMENT '门店名称',
-    contact VARCHAR(50) NULL COMMENT '联系人',
-    phone VARCHAR(30) NULL COMMENT '联系电话',
-    province VARCHAR(50) NULL,
-    city VARCHAR(50) NULL,
-    district VARCHAR(50) NULL,
-    address VARCHAR(255) NULL COMMENT '详细地址',
-    lng DECIMAL(10,6) NULL COMMENT '经度（GCJ-02 火星坐标系，与高德一致）',
-    lat DECIMAL(10,6) NULL COMMENT '纬度（GCJ-02）',
-    license_no VARCHAR(100) NULL COMMENT '农药经营许可证号（925号公告定点经营）',
-    is_authorized TINYINT NOT NULL DEFAULT 0 COMMENT '0普通门店 1授权经销商',
-    enterprise_id BIGINT NULL COMMENT '授权归属企业',
-    business_hours VARCHAR(100) NULL COMMENT '营业时间',
-    status TINYINT NOT NULL DEFAULT 1 COMMENT '0停用 1启用',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    KEY idx_geo (lat, lng),
-    KEY idx_status (status),
-    KEY idx_enterprise (enterprise_id)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='农资店（自建门店库）'`,
   // 消费者（公众端微信网页授权登录，与后台 user 表完全隔离）
   `CREATE TABLE IF NOT EXISTS consumer (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -376,24 +354,6 @@ async function seed(conn) {
       );
     }
   }
-  // 7) 演示农资店（坐标为济南市区 GCJ-02，仅供本地验证「附近农资店」排序与展示）
-  const demoStores = [
-    { name: '绿丰农资服务站（历下店）', contact: '刘师傅', phone: '0531-86001234', province: '山东省', city: '济南市', district: '历下区', address: '历下区经十路 12345 号', lng: 117.081196, lat: 36.651216, licenseNo: '农药经营许可证(鲁济)0012', isAuthorized: 1, hours: '08:00-18:00' },
-    { name: '丰收农资超市（市中店）', contact: '张经理', phone: '0531-86005678', province: '山东省', city: '济南市', district: '市中区', address: '市中区英雄山路 88 号', lng: 117.005657, lat: 36.634787, licenseNo: '农药经营许可证(鲁济)0035', isAuthorized: 0, hours: '08:30-17:30' },
-    { name: '惠农植保药械店（槐荫店）', contact: '王女士', phone: '0531-86009012', province: '山东省', city: '济南市', district: '槐荫区', address: '槐荫区经四路 200 号', lng: 116.940148, lat: 36.651387, licenseNo: null, isAuthorized: 0, hours: '09:00-18:00' },
-  ];
-  for (const s of demoStores) {
-    const [ex] = await conn.query('SELECT id FROM agro_store WHERE name = ?', [s.name]);
-    if (ex.length === 0) {
-      await conn.query(
-        `INSERT INTO agro_store (name, contact, phone, province, city, district, address, lng, lat, license_no, is_authorized, enterprise_id, business_hours)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [s.name, s.contact, s.phone, s.province, s.city, s.district, s.address, s.lng, s.lat, s.licenseNo, s.isAuthorized, s.isAuthorized ? enterpriseId : null, s.hours]
-      );
-    }
-  }
-
-  console.log('[seed] 演示数据就绪：企业/规格/产品/批次/追溯码/用户(admin, lvfeng, codeop / admin123)/农资店 3 家');
 }
 
 async function main() {
