@@ -41,8 +41,7 @@ export default defineNuxtConfig({
     // 微信公众号网页授权（消费者登录）：未配置时登录入口整体不可用，不做模拟登录
     wechatAppId: process.env.WECHAT_APP_ID || '',
     wechatAppSecret: process.env.WECHAT_APP_SECRET || '',
-    // 高德 Web服务 key（服务端调用地理编码：地址→经纬度），不下发到浏览器
-    amapWebKey: process.env.AMAP_WEB_KEY || '',
+
     // 扫码 URL 前缀（PRD 3.3：https://{域名}/trace?code={32位码}），部署环境可用 NUXT_PUBLIC_TRACE_BASE_URL 覆盖
     public: {
       traceBaseUrl: process.env.NUXT_PUBLIC_TRACE_BASE_URL || 'https://www.nz315.cn/trace?code=',
