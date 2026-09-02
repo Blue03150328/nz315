@@ -81,6 +81,8 @@
 
 - **高德地图接入完成**（2026-09-01，提交 d630e3a）：JS API key 用于公众端地图渲染（CDP 实测瓦片全 200、WebGL 画布正常、控制台零错误）；Web服务 key 用于后台「按地址自动获取坐标」，消除门店坐标人工录入。**关键防护**：高德地理编码是**模糊匹配**，乱码地址会返回其它省市的兴趣点且 level 仍为「兴趣点」（实测「zzzz不存在的地址xxxx」→ 湖南某针织店），已加省/市交叉校验 + 拒绝省市级精度 + 精确度分级提示。真实 key 仅在 `.env`（不入库）
 
+- **「附近农资店」页重做**（2026-09-01，提交 ae2f609）：按用户设计稿实现双布局——PC 左 38% 列表 + 右 62% 整高地图（hover 联动 marker 详情卡）、移动端顶栏+搜索+列表+35vh 折叠地图（可全屏）+ 底部详情弹窗；配色 #f8f9f4/#2c5c3a/#e67e22 仅限本页。新增 fullbleed 无壳布局与 StoreMap 画布组件（单一实例 + CSS 裁剪实现折叠/全屏，零 resize）。CDP 双视口 20 项全通过
+
 **待办（按 PRD 版本规划）**：
 - **等待用户提供微信凭据**：AppID/AppSecret（另需在公众平台配置网页授权域名 www.nz315.cn）；到位后需真机验证授权回调
 - **上线前**：高德 JS API key 须在控制台配置**域名白名单**（本地未受限但线上必配）；演示门店 3 家须清空并导入真实数据
@@ -113,6 +115,8 @@
 | **Nuxt UI v4 UTabs items 必须显式给 value** （2026-09-01 实测） | 不给 value 时回退为索引 '0'/'1'…，配 `v-if="tab === 'xxx'"` 判断会**静默全部落空、页面空白无报错**；settings 页曾因此 4 个模块不可达 |
 | **reka-ui 禁止 SelectItem 空字符串 value** | `{ value: '' }` 抛「must have a value prop that is not an empty string」500 错误页；筛选「全部」用 placeholder + 默认值 undefined，表单「不修改」用哨兵值（0 / 'keep'）提交时归一 |
 | **Nuxt UI v4 Toast 不自动注入**（v3 自动） | 必须显式 `<UToaster />`（已放 app.vue），否则 21 处 useToast 静默失效——所有操作提示丢失 |
+| **scoped 样式会压过同权重 Tailwind 响应式类** | Vue 作用域样式的特异性与层叠会把 `.pc-topbar{display:flex}` 压在 `lg:hidden` 之上（2026-09-01 踩，PC 顶栏在移动端显示）。**页面自绘响应式时：断点一律收进 CSS 媒体查询，不要与 Tailwind 类混用同一属性** |
+| **AMap2.0 `setFitView` 只接受 [lng,lat] 数组** | 传 {lng,lat} 对象会报 `getBounds is not a function`；同城多点要显式传 maxZoom 参数，否则视口拉满门店缩成小点 |
 | **两套身份体系刻意隔离，勿混用** | 后台用 `requireBackendUser`/`nz315_user`，消费者用 `requireConsumer`/`nz315_consumer`。两者共用签名密钥，靠 payload 命名空间前缀（`consumer:`）区分，**互换 token 必被拒**。新增消费者接口勿复用后台守卫 |
 | **第三方「智能解析」接口会模糊匹配，必须交叉校验** | 高德地理编码对乱码地址**照样返回高置信度结果**（`zzzz不存在的地址xxxx`→湖南怀化某针织店、`阿斯顿发发发`→深圳某店，level 均为「兴趣点」）。若直接采信会把错误坐标当精确值写库。必须用业务侧已知信息（省/市）交叉校验，并拒绝省市级粗精度。**这与被清理的「伪造核验接口」是同类风险：看似有效的假数据** |
 | **高德两把 key 用途不可混用** | Web服务 key（`AMAP_WEB_KEY`）仅服务端用于地理编码，**绝不能下发浏览器**；JS API key（`NUXT_PUBLIC_AMAP_JS_KEY`）用于前端地图，会暴露，**上线前须配域名白名单**。免费额度有 QPS 上限（`CUQPS_HAS_EXCEEDED_THE_LIMIT`），批量解析须限速 |

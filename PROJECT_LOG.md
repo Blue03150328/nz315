@@ -1,5 +1,19 @@
 ## 变更记录
 
+### 2026-09-01 | 重做「附近农资店」页面（PC 双栏 / 移动端折叠地图 + 底部弹窗，按用户设计稿）
+- **工作内容**：用户提供了「附近农资店」PC 与移动端效果图并要求重做该板块。**技术栈裁决**：规格原文要求 Vue3+Nuxt3+Element Plus+SCSS，与项目实际（Nuxt 4 + Nuxt UI v4 + Tailwind v4）冲突——两套组件库共存会产生 CSS 重置/主题冲突，且违反本项目的统一视觉基调；开工前已与用户确认改用项目技术栈实现，**视觉规格（配色/布局/交互/响应式）全部保留**。
+- **实现要点**：
+  ① **新增 fullbleed 无壳布局**：default 布局的 480px 移动壳与 PC 居中限宽（max-w-6xl）与「整屏沉浸式地图」规格冲突，新布局让页面自绘顶栏并全宽铺开；
+  ② **配色按稿**：背景 `#f8f9f4` / 主色 `#2c5c3a` / 强调橙 `#e67e22` / 卡片 8px 圆角柔和阴影——仅作用本页（scoped + 页内 CSS 变量），不污染全局；
+  ③ **PC 双栏**：左 38%（搜索+列表滚动）右 62%（地图整高 calc(100dvh-58px)）；列表 hover/点击联动 marker 高亮与详情卡（marker 容器坐标换算锚点 + 边界收敛防溢出）；
+  ④ **移动端**：顶栏（返回+标题+定位）→ 搜索卡 → 列表 → 折叠地图 35vh 可全屏展开（**单一 StoreMap 实例 + 纯 CSS 裁剪**实现，画布恒 100dvh，切换零 resize 抖动）；点击门店弹底部弹窗（详情+拨号橙+导航绿，上滑动画）；
+  ⑤ **状态处理**：定位拒绝橙色提示+Toast、空列表占位、无高德 key 降级提示（列表不受影响）；
+  ⑥ **修复测试发现的 AMap2.0 兼容问题**：`setFitView` 只接受 [lng,lat] 数组不接受对象（报 getBounds 错），同城点位过密须显式限 maxZoom 否则门店缩成小点。
+- **修改文件**：`app/pages/nearby-stores.vue`（重写，-120/+550 行）、`app/components/StoreMap.vue`（新增地图画布组件）、`app/composables/useAmapLoader.ts`（新增加载器单例）、`app/layouts/fullbleed.vue`（新增）
+- **测试情况**：Edge headless CDP **双视口 20 项全通过**——PC 1440×900（左 37.9%/右 62.0%、主体不出视口、hover 联动、详情卡弹出含拨号+导航且可关闭、控制台零错误）；移动 375×812（DOM 顺序搜索<列表<地图、折叠 35vh、全屏覆盖视口、底部弹窗贴底可关闭）；全站 SSR 回归 16 项 + 公众端链路 7 项全通过；视觉模型复核配色与分区符合设计稿，按其指摘统一了两端图标/按钮色语言（拨号统一橙）。提交 ae2f609
+- **遗留问题/待办**：①微信凭据仍待用户提供；②**页面与 default 布局的关系**——本页脱离默认壳意味着无全局底部导航与 PC 顶部菜单，若用户希望保留全局导航需另行方案（当前按设计稿沉浸式优先）；③3 家演示门店上线前清空；④底部弹窗为自绘（未用 UModal），因其需要 bottom-sheet 形态与拖拽无关的简单呈现。
+- **给下一个 Agent 的提示**：①AMap2.0 的 `setFitView` 只接受 [lng,lat] 数组或覆盖物实例；②移动端折叠地图的「画布恒 100dvh + 外层裁剪」技巧可复用于任何「可展开全屏地图」，展开切换不需要 map.resize()；③本页 scoped 样式与 Tailwind 响应式类同时存在时，**scoped 样式会覆盖同权重 Tailwind 类**（如 .pc-topbar{display:flex} 会压过 lg:hidden），两套断点机制不要混用；④vue 作用域样式下 media query 的层叠顺序正常，可放心在媒体查询内做桌面覆盖。
+
 ### 2026-09-01 | 接入高德地图（地图渲染 + 地址自动解析坐标），并识破高德地理编码的模糊匹配陷阱
 - **工作内容**：用户提供高德两把 key（Web端 JS API、Web服务），据用途分离配置并完成接入。**真实 key 仅写入 `.env`**（已确认被 `.gitignore` 排除且未被 git 跟踪），`.env.example` 只留空占位与用途说明；提交前用 grep 全库复查无明文 key 泄露，并实测前端 HTML 中不含 Web服务 key。
   ① **公众端地图**：`NUXT_PUBLIC_AMAP_JS_KEY` 下发浏览器，`/nearby-stores` 地图正常渲染；
@@ -196,17 +210,3 @@
 ### 2026-08-31 | 外箱码管理 + 批量修正工具（PRD 5.5.6 / 5.8）
 - **工作内容**：① 外箱码管理（PRD 5.5.6）：上传解析（每行"外箱码,单品码"）→ 校验（外箱码全局唯一/单品码在系统且标记正常/单品码未归属其他外箱/文件内重复）→ 事务绑定（一对多）→ 外箱码列表（箱内码数/箱状态随最低码联动/含作废码标红）→ 箱内码详情 → 解绑（需输入"确认解绑"二次确认+审计日志）；② 批量修正工具（PRD 5.8 场景8）：码库勾选 → 重新绑定批次（仅"已生成"码，产品一致性校验，绑定后自动"已绑定"）/生产日期/有效期至/质检结果/合格证号（按批次更新+冗余同步）→ 异常标记优先（含冻结/作废码整批拒绝）→ 已绑定码修改记合规更正强日志。菜单新增「外箱码管理」。
 - **修改文件**：`server/api/admin/boxes/parse.post.ts`、`boxes/bind.post.ts`、`boxes.get.ts`、`boxes/[code].get.ts`、`boxes/unbind.post.ts`（新增5个）、`server/api/admin/codes/batch-correct.post.ts`（新增）、`app/pages/admin/boxes/index.vue`（新增）、`app/pages/admin/codes/index.vue`（+批量修正对话框）、`app/layouts/admin.vue`
-- **测试情况**：端到端全过：解析（有效/无效原因分类）、绑定（bound=1）、列表/详情、重复归属拦截、解绑确认词校验（错误拒绝/正确通过）；批量修正绑定批次 rebound=1、生产日期 corrected=1、含作废码整批拒绝；页面 SSR 全过
-- **遗留问题/待办**：自动备份调度与异地备份（OSS）、微信推送（需公众号凭据）、异常类型 2/3/5/6/7/8 预警接入（依赖 D2/IP 归属地）、码生成 Web 版与离线 EXE、部署文档与 1049 合规自检（上线前）
-- **给下一个 Agent 的提示**：conn.query 返回 [rows,fields]，取第一行须先解构 rows 再 [0]（本模块踩坑已修）；外箱码状态联动=箱内最高 abnormal_flag
-
----
-### 2026-08-31 | 消息中心与通知配置 + 数据备份（PRD 5.11/5.12.5/5.12.6）
-- **工作内容**：① 站内消息系统：message 表 + 消息工具（notify.ts），风险预警触发/生产采集导入完成自动生成消息，消息中心页（/admin/messages：类型筛选/只看未读/标记已读/跳转链接/未读角标）；② 通知配置（PRD 5.12.5）：system_setting KV 表 + 配置页 Tab（库存预警阈值/日报时间/5 类通知开关），厂家/平台级隔离存储；③ 数据备份（PRD 5.12.6）：mysqldump 全库手动备份（--single-transaction 不锁表）→ backup/ 目录（已 gitignore），历史/下载/删除（文件名纯数字防穿越），仅总部管理员；④ 系统设置新增「通知配置」「数据备份」两个 Tab；菜单新增「消息中心」。
-- **修改文件**：`server/utils/notify.ts`（新增）、`server/utils/risk-alert.ts`（预警→消息）、`server/api/admin/codes/import.post.ts`（导入→消息）、`server/api/admin/messages.get.ts`、`messages/[id].patch.ts`（新增）、`server/api/admin/settings/notify.get.ts`、`notify.put.ts`（新增）、`server/api/admin/backup.post.ts`、`backup.get.ts`、`backup.delete.ts`、`backup/download.get.ts`（新增）、`app/pages/admin/messages/index.vue`（新增）、`app/pages/admin/settings/index.vue`（+2 Tab）、`app/layouts/admin.vue`、`scripts/db-init.mjs`（+message/system_setting 表）、`.gitignore`（+backup/）
-- **测试情况**：端到端全过：预警触发→自动消息（未读计数正确）→标记已读；通知配置保存/读取（厂家/平台隔离）；备份执行（23KB SQL）→历史→下载（200）→文件名校验；页面 SSR 全过
-- **遗留问题/待办**：自动备份调度（频率/时间/保留周期）、异地备份（OSS）、微信推送（需公众号对接）；异常类型 2/3/5/6/7/8 预警接入；码生成离线工具；外箱码管理；批量修正工具
-- **给下一个 Agent 的提示**：备份文件在 backup/（gitignore，含全量数据勿提交）；消息由 notify.ts 发送，新事件类型只需调用 sendMessage
-
----
-### 2026-08-31 | 异常码处理与风险预警中心（PRD 5.8/5.9）
