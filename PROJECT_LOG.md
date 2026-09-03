@@ -1,5 +1,17 @@
 ## 变更记录
 
+### 2026-09-03 | 追溯码生成自定义段配置固定为平台标准参数（去掉三个下拉框，仅展示不可修改）
+- **工作内容**：用户决策——追溯码生成模块的「自定义段配置（码第 12 位后，共 21 位）」全部固定死，防止客户乱配置导致追溯码出错。固定参数：时间戳段=毫秒级、随机数字段=6位随机+2位校验、校验位段=MD5取后2位；用户不可选择修改，只做展示。引用面核查：三个配置项仅存在于 3 个文件（页面 generator/index.vue form + 三个 USelect 下拉、API generate.post.ts body 取值、引擎 code-generator.ts），引擎与其它消费方零关联。
+  ① **页面**（app/pages/admin/generator/index.vue）：删除时间戳段/随机数字段/校验位段三个下拉框（旧选项：毫秒级/秒级/年月日/不使用、不使用/8位随机数字/6位随机+2位校验、MD5取后2位/CRC16取后2位/不使用），改为三列只读徽标展示（FIXED_SEGMENTS 常量 + lock 图标 + 浅底只读块，样式对齐规格码只读回显先例）；区块说明文案改「平台已固定，仅展示不可修改」；结构说明同步固定口径「毫秒时间戳 13 位 + 随机 6 位，共 19 位内容 + 末 2 位 MD5 校验位」；form 不再携带配置字段
+  ② **服务端**（server/api/admin/codes/generate.post.ts）：FIXED_CONFIG 锁定 { ms, rand6c2, md5 }，生成接口不再读取客户端 timestampType/randomType/checksumType（防绕过乱配）；清理 DEFAULT_CONFIG/TIMESTAMP_TYPES/RANDOM_TYPES/CHECKSUM_TYPES 引用
+  ③ **引擎**（server/utils/code-generator.ts）：**零改动**（底层生成逻辑不变，多选项能力保留供离线工具等复用）
+- **修改文件**：app/pages/admin/generator/index.vue、server/api/admin/codes/generate.post.ts
+- **测试情况**：tsc 0 错误（-p .nuxt/tsconfig.json）；生产构建成功 10.5MB（全权模式——沙箱 partial 下 nitro 打包 EPERM 已复现）；引擎冒烟 300 条——全部 32 位纯数字、唯一，结构=11 头 + 13 位毫秒时间戳 + 6 位随机 + 末 2 位 MD5 校验，校验位按同规则可重算比对；端到端 17/17 全过——登录→生成接口**故意传旧配置值 sec/rand8/crc16 被忽略**、返回 cfg 固定 ms/rand6c2/md5、SSR /admin/generator 200 含三项固定值与「不可修改」提示、旧下拉选项「8位随机数字/CRC16」已从 HTML 消失。提交 16b7efc
+- **遗留问题/待办**：①固定参数为平台级写死（非 system_setting 可配），后续若需按租户放开须另行设计；②注意本机曾检出 3100 端口旧构建残留服务器（懒加载 500），冒烟一律用刚构建的服务器；③其余待办不变
+- **给下一个 Agent 的提示**：①自定义段配置唯一入口 = generator/index.vue 的 FIXED_SEGMENTS（展示）与 generate.post.ts 的 FIXED_CONFIG（生效），两处必须同步修改；②引擎 code-generator.ts 的 DEFAULT_CONFIG/TIMESTAMP_TYPES/RANDOM_TYPES/CHECKSUM_TYPES 已无 API 引用但保留导出（离线工具/测试可能复用），勿删；③「随机数字段=6位随机+2位校验」选项在启用末 2 位校验位时其内嵌 2 位校验会被 19 位截断规则丢弃（引擎既定行为，与离线工具一致），页面说明按固定口径描述即可
+
+---
+
 ### 2026-09-03 | 规格含量单位中文化：下拉选项与存储英改中（仅含量单位，存量由用户自行迁移）
 - **工作内容**：用户决策——含量单位下拉选项由「ml、L、g、kg、片、包、粒」改为「毫升、升、克、千克、片、包、粒」，包装单位不受影响；后端存储即为所选中文文本；存量英文缩写数据由用户自行在库中修改（不做迁移）。引用面核查：单位选项唯一定义在 app/pages/admin/specs/index.vue 的 UNITS 常量（筛选下拉与新增/编辑表单下拉共用，单点改动全覆盖）；后端 specs post/patch 仅非空校验、值透传存储，无需改校验；列表/产品建档/扫码页均为展示存储值，存量由用户迁移后自然显示中文。
 - **修改文件**：app/pages/admin/specs/index.vue（UNITS 常量中文 + 新增默认单位「毫升」+ 名称占位示例 200毫升/瓶）、scripts/db-init.mjs（content_unit 列注释同步中文口径 + 演示 seed 名称/单位中文化——仅新环境生效，幂等不动存量行）
