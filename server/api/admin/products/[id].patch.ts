@@ -22,9 +22,10 @@ export default defineEventHandler(async (event) => {
 
   const name = String(body.name || '').trim()
   const registrationNo = String(body.registrationNo || '').trim().toUpperCase()
-  if (!registrationNo) throw createError({ statusCode: 400, statusMessage: '请先从登记数据源选择产品' })
-  if (!name) throw createError({ statusCode: 400, statusMessage: '请先从登记数据源选择产品并回填登记信息' })
+  if (!registrationNo) throw createError({ statusCode: 400, statusMessage: '请输入登记证号' })
+  if (!name) throw createError({ statusCode: 400, statusMessage: '请输入农药名称' })
   if (!body.specId) throw createError({ statusCode: 400, statusMessage: '请选择规格' })
+  if (!String(body.category || '').trim()) throw createError({ statusCode: 400, statusMessage: '请选择产品类别' })
 
   const [dup] = await query<any[]>(
     'SELECT id FROM product WHERE registration_no = ? AND id <> ? LIMIT 1', [registrationNo, id])

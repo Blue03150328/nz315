@@ -9,9 +9,10 @@ export default defineEventHandler(async (event) => {
 
   const name = String(body.name || '').trim()
   const registrationNo = String(body.registrationNo || '').trim().toUpperCase()
-  if (!registrationNo) throw createError({ statusCode: 400, statusMessage: '请先从登记数据源选择产品' })
-  if (!name) throw createError({ statusCode: 400, statusMessage: '请先从登记数据源选择产品并回填登记信息' })
+  if (!registrationNo) throw createError({ statusCode: 400, statusMessage: '请输入登记证号' })
+  if (!name) throw createError({ statusCode: 400, statusMessage: '请输入农药名称' })
   if (!body.specId) throw createError({ statusCode: 400, statusMessage: '请选择规格（来自产品规格主数据）' })
+  if (!String(body.category || '').trim()) throw createError({ statusCode: 400, statusMessage: '请选择产品类别' })
 
   // 登记证号全局唯一（PRD 5.4 业务规则1）
   const [dup] = await query<any[]>('SELECT id FROM product WHERE registration_no = ? LIMIT 1', [registrationNo])
