@@ -1,5 +1,19 @@
 ## 变更记录
 
+### 2026-09-03 | 规格字段精简：规格码企业内自动分配 + 下线「适用剂型」（用户决策：规格不限定剂型，产品建档全量可见）
+- **工作内容**：用户提出「新增规格页面的企业合规码与适用剂型能否去掉」。核查澄清：系统中不存在「企业合规码」，实际为「企业规格码」（32 位追溯码第 9-11 位，1049 结构强制段，不可物理删除）——按用户意图将其从人工录入改为**系统自动分配**（界面不再出现录入框，概念上对用户透明）；「适用剂型」（product_spec.dosage_forms）经全库核查**零下游消费**（PRD 5.3 设想的「产品建档按剂型过滤候选规格」从未实现，产品页规格下拉本就全量启用可见），按用户确认整体下线：
+  ① **规格码自动分配**（specs.post.ts）：删除 specCode 入参与 3 位数字校验，新增 nextSpecCode()——企业内 MAX 规格码数值 +1 补零 3 位（首个 001、上限 999 报错）；并发撞唯一键 uq_enterprise_spec_code 自动换码重试（最多 5 次）；返回体带 specCode 供前端提示
+  ② **编辑不再改码**（[id].patch.ts）：删除规格码修改路径与 dosage_forms；顺带修复既有缺陷——常规编辑 UPDATE 补 status 落库（此前编辑弹窗的启用开关保存不生效，仅列表行内按钮可切状态）
+  ③ **列表 API**（specs.get.ts）：移除 dosage_forms JSON 解析映射（列删后 SELECT * 天然无键）
+  ④ **页面**（specs/index.vue）：删「适用剂型」多选字段、列表列与 FORMS 常量；规格码输入框改为「保存后系统自动分配（001 起，对应 32 位追溯码第 9-11 位）」提示，编辑模式只读回显（displayCode，细边框浅灰底块）；产品建档规格下拉 label 去掉「（码 xxx）」后缀（码为系统内部概念）
+  ⑤ **数据库**（db-init.mjs）：product_spec DDL 删 dosage_forms 列；migrate() 新增幂等删列（information_schema 探测，仿 outer_box_code 先例，已实测执行）；seed INSERT 同步
+- **修改文件**：server/api/admin/specs.post.ts、specs.get.ts、specs/[id].patch.ts、app/pages/admin/specs/index.vue、app/pages/admin/products/index.vue（label 一处）、scripts/db-init.mjs
+- **测试情况**：tsc 0 错误（fid 类型收窄修复：platform_admin 必传 enterpriseId、企业角色必有绑定企业，两端均显式校验）；生产构建 10.5MB 成功（全权模式——沙箱内 nitro esbuild spawn EPERM）；db 迁移日志「product_spec 删除列 dosage_forms」；API 冒烟全过——列表无 dosage_forms 键、lvfeng 新增自动分配 006（企业已有 001/005，max+1）、编辑改名+停用 status=0 落库、重复名称 400、停用规格退出 status=1 列表；SSR /admin/specs 与 /admin/products 200 无旧字段文案；DB 中文 HEX 核验正常（pwsh 控制台乱码为 GBK 显示层问题）。提交 2e44d16
+- **遗留问题/待办**：①总部 admin（platform_admin）在规格页新增仍须指定企业（API 400 提示）——页面无企业选择器为**既有 UX 缺口**（本轮未扩范围，若总部需建规格应补企业下拉）；②历史规格的 dosage_forms 值已随删列丢弃（仅演示数据，无真实损失）；③其余待办不变
+- **给下一个 Agent 的提示**：①规格码现在是**系统自动分配**（企业内自增），任何人不要再实现「手填规格码」UI；DB 层唯一键与「规格码=码第 9-11 位」规则不变，code-generator/code-validator 无需感知变化；②migrate 删列先例在 db-init.mjs migrate()（information_schema 探测 + DROP COLUMN，勿用 IF EXISTS——MySQL 8 不支持）；③沙箱内跑生产构建会在 nitro 打包阶段 spawn EPERM 失败，且失败构建会**清空 .output/server/chunks** 使正在运行/后续启动的服务器页面懒加载 404——构建务必全权模式，失败后要重跑完整构建再启服务器；④本机 3100 服务器进程独立于 DSH job 存活（job 显示 completed 但 node 常驻），收尾需 taskkill 对应 PID
+
+---
+
 ### 2026-09-03 | 修复数据概览「产品分布」SQL 企业过滤歧义（厂家账号访问仪表盘 500）
 - **工作内容**：三轮产品弹窗改造验证期间（lvfeng 全站 SSR 回归）发现既有 bug：stats.get.ts 产品分布查询 `trace_code t LEFT JOIN product p` 后企业过滤条件未限定表名（`enterprise_id = ?` 两表同名）→ MySQL errno 1052 ambiguous 500。历史验证多用 admin（platform_admin 无企业条件）未暴露；厂家账号打开数据概览即报错。修复：与同文件 stockRows 既有处理一致改用 `fidSql.replace('enterprise_id', 't.enterprise_id')` 限定 trace_code；全库 grep 复查无同类隐患（logs.get.ts JOIN 的 ON 子句已限定 l.enterprise_id）。
 - **修改文件**：server/api/admin/stats.get.ts
