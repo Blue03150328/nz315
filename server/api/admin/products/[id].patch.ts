@@ -1,6 +1,7 @@
 // PATCH /api/admin/products/:id —— 编辑产品 / 停用启用（PRD 5.4）
 import { query, execute } from '../../../utils/db'
 import { requireWritableUser } from '../../../utils/auth'
+import { findOriginalCandidates } from '../../../utils/regdata'
 
 export default defineEventHandler(async (event) => {
   const user = await requireWritableUser(event)
@@ -21,8 +22,8 @@ export default defineEventHandler(async (event) => {
 
   const name = String(body.name || '').trim()
   const registrationNo = String(body.registrationNo || '').trim().toUpperCase()
-  if (!name) throw createError({ statusCode: 400, statusMessage: '请输入农药名称' })
-  if (!registrationNo) throw createError({ statusCode: 400, statusMessage: '请输入登记证号' })
+  if (!registrationNo) throw createError({ statusCode: 400, statusMessage: '请先从登记数据源选择产品' })
+  if (!name) throw createError({ statusCode: 400, statusMessage: '请先从登记数据源选择产品并回填登记信息' })
   if (!body.specId) throw createError({ statusCode: 400, statusMessage: '请选择规格' })
 
   const [dup] = await query<any[]>(
@@ -34,11 +35,18 @@ export default defineEventHandler(async (event) => {
   if (originalRegNo && !originalCompany) {
     throw createError({ statusCode: 400, statusMessage: '填写原药登记证号时，原药生产企业名称必填' })
   }
+  // 制剂多原药必填（登记数据源校验，与新增一致）：制剂匹配到多条有效期内原药时必须选择，不允许空值提交
+  if (!originalRegNo) {
+    const { isOriginal, candidates } = await findOriginalCandidates(registrationNo)
+    if (!isOriginal && candidates.length > 1) {
+      throw createError({ statusCode: 400, statusMessage: '该产品匹配到多家原药登记，请选择原药登记证号' })
+    }
+  }
 
   await execute(
     `UPDATE product SET trademark = ?, name = ?, registration_no = ?, registration_expire = ?, reg_category = ?,
        holder_name = ?, produce_type = ?, original_company = ?, original_reg_no = ?, dosage = ?, content = ?,
-       spec_id = ?, shelf_life = ?, category = ?, toxicity = ?, is_restricted = ?, label_image = ?, manual_image = ?
+       spec_id = ?, category = ?, toxicity = ?, is_restricted = ?, label_image = ?, manual_image = ?
      WHERE id = ?`,
     [String(body.trademark || '').trim(), name, registrationNo,
      body.registrationExpire || null,
@@ -47,7 +55,7 @@ export default defineEventHandler(async (event) => {
      body.produceType !== undefined ? Number(body.produceType) : prod.produce_type,
      originalCompany || null, originalRegNo || null,
      String(body.dosage || '').trim(), String(body.content || '').trim(),
-     Number(body.specId), String(body.shelfLife || '').trim(),
+     Number(body.specId),
      String(body.category || '').trim(), String(body.toxicity || '').trim(),
      body.isRestricted ? 1 : 0,
      String(body.labelImage || '').trim() || null,
