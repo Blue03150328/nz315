@@ -1,5 +1,15 @@
 ## 变更记录
 
+### 2026-09-03 | 修复规格编辑状态丢失 + 产品规格下拉停用规格回显两处 bug
+- **工作内容**：按 code-review 全量审查（crg + semgrep + tsc + 真机 E2E）发现并修复 2 处规格/产品模块缺陷：
+  ① **规格编辑静默停用缺陷**（specs/[id].patch.ts）：常规编辑 UPDATE 中 status 取值 `Number(body.status) ? 1 : 0`——请求体未携带 status 时 Number(undefined)=NaN，NaN 为 falsy 被判为 0（停用），启用中的规格只要编辑时没传 status 就被静默停用（前端现恒传 status 未触发，但 API 缺防御，任何客户端漏传即中招）。修复：未传 status 保留原值（与 products/[id].patch.ts 的 prod.status 语义一致），显式传才覆盖。
+  ② **产品编辑规格下拉空白缺陷**（products/index.vue）：规格下拉只查 status=1（启用），但「已被产品引用的规格仅可停用不可删除」（AGENTS.md 规则），编辑绑定停用规格的产品时 USelect 无匹配项显示空白（看似未选规格）。修复：下拉改查全量规格，停用项 label 标注「（已停用）」且 disabled 禁选（新产品只能绑启用规格，历史绑定可正常回显）。
+- **修改文件**：server/api/admin/specs/[id].patch.ts、app/pages/admin/products/index.vue
+- **测试情况**：tsc 0 错误；生产构建 10.5MB 成功；E2E——不带 status PATCH 启用规格后状态保持 1（修复前会变 0）、显式 status:0 正确停用、恢复 status:1 正常；SSR /login /admin/products /admin/specs 全 200。提交 a0114ce
+- **遗留问题/待办**：见 AGENTS.md 待办段；另复查发现规格列表「被引用计数」为全局口径（spec 全局唯一，企业间规格码可重复但 id 唯一），语义正确无需改
+- **给下一个 Agent 的提示**：①PATCH 类接口的布尔/状态字段凡有「未传保留原值」语义的，一律先判 `body.x === undefined` 再取 `Number(body.x)`（NaN 陷阱）；②产品规格下拉数据源已含停用项（disabled），新增校验勿改回 status=1 过滤；③规格码企业内唯一可跨企业重复（001 在不同企业并存是正常的）
+
+---
 ### 2026-09-03 | 追溯码生成自定义段配置固定为平台标准参数（去掉三个下拉框，仅展示不可修改）
 - **工作内容**：用户决策——追溯码生成模块的「自定义段配置（码第 12 位后，共 21 位）」全部固定死，防止客户乱配置导致追溯码出错。固定参数：时间戳段=毫秒级、随机数字段=6位随机+2位校验、校验位段=MD5取后2位；用户不可选择修改，只做展示。引用面核查：三个配置项仅存在于 3 个文件（页面 generator/index.vue form + 三个 USelect 下拉、API generate.post.ts body 取值、引擎 code-generator.ts），引擎与其它消费方零关联。
   ① **页面**（app/pages/admin/generator/index.vue）：删除时间戳段/随机数字段/校验位段三个下拉框（旧选项：毫秒级/秒级/年月日/不使用、不使用/8位随机数字/6位随机+2位校验、MD5取后2位/CRC16取后2位/不使用），改为三列只读徽标展示（FIXED_SEGMENTS 常量 + lock 图标 + 浅底只读块，样式对齐规格码只读回显先例）；区块说明文案改「平台已固定，仅展示不可修改」；结构说明同步固定口径「毫秒时间戳 13 位 + 随机 6 位，共 19 位内容 + 末 2 位 MD5 校验位」；form 不再携带配置字段
