@@ -8,7 +8,8 @@ const filters = reactive({ keyword: '', contentUnit: undefined as string | undef
 const page = ref(1)
 const pageSize = 20
 
-const UNITS = ['ml', 'L', 'g', 'kg', '片', '包', '粒']
+// 含量单位选项：全中文（2026-09-03 用户决策，英改中；新增记录存储即中文，存量英文数据由用户在库中自行修改）
+const UNITS = ['毫升', '升', '克', '千克', '片', '包', '粒']
 const PACKS = ['瓶', '袋', '桶', '盒', '罐', '支', '箱']
 
 const { data, pending, refresh, error } = await useFetch<any>('/api/admin/specs', {
@@ -37,7 +38,7 @@ const displayCode = ref('')
 
 const openCreate = () => {
   editingId.value = null
-  Object.assign(form, { specName: '', netContent: null, contentUnit: 'ml', packUnit: '瓶', status: 1 })
+  Object.assign(form, { specName: '', netContent: null, contentUnit: '毫升', packUnit: '瓶', status: 1 })
   displayCode.value = ''
   showModal.value = true
 }
@@ -205,7 +206,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
           <div class="b-modal-body">
             <div>
               <label class="b-label-lg">规格名称 <span class="b-required">*</span></label>
-              <UInput v-model="form.specName" placeholder="如：200ml/瓶（企业内唯一）" />
+              <UInput v-model="form.specName" placeholder="如：200毫升/瓶（企业内唯一）" />
             </div>
             <div class="grid grid-cols-3 gap-3">
               <div>

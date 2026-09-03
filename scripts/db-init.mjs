@@ -55,7 +55,7 @@ const DDL = [
     enterprise_id BIGINT NOT NULL,
     spec_name VARCHAR(100) NOT NULL COMMENT '规格名称，企业内唯一',
     net_content DECIMAL(12,3) NULL COMMENT '净含量数值',
-    content_unit VARCHAR(10) NULL COMMENT 'ml/L/g/kg/片/包/粒',
+    content_unit VARCHAR(10) NULL COMMENT '含量单位：毫升/升/克/千克/片/包/粒（2026-09-03 起存中文，存量英文由用户自行迁移）',
     pack_unit VARCHAR(10) NULL COMMENT '瓶/袋/桶/盒/罐/支/箱',
     spec_code CHAR(3) NOT NULL COMMENT '企业规格码（码第9-11位，系统自动分配）',
     status TINYINT NOT NULL DEFAULT 1 COMMENT '0停用 1启用',
@@ -320,7 +320,7 @@ async function seed(conn) {
   if (specRows.length === 0) {
     const [r] = await conn.query(
       'INSERT INTO product_spec (enterprise_id, spec_name, net_content, content_unit, pack_unit, spec_code) VALUES (?,?,?,?,?,?)',
-      [enterpriseId, '200ml/瓶', 200, 'ml', '瓶', '001']
+      [enterpriseId, '200毫升/瓶', 200, '毫升', '瓶', '001']
     );
     specId = r.insertId;
   } else {
