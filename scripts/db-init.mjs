@@ -233,6 +233,31 @@ const DDL = [
     v TEXT NULL COMMENT '配置值（JSON 或标量）',
     UNIQUE KEY uq_ent_key (enterprise_id, k)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统配置'`,
+  // 农药登记数据源字典表（2026农药登记证大全2.xlsx 导入：产品弹窗选择产品自动回填，登记证号唯一主键匹配；只读不参与业务写）
+  `CREATE TABLE IF NOT EXISTS pesticide_reg (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    registration_no VARCHAR(40) NOT NULL COMMENT '登记证号（全局唯一）',
+    product_name VARCHAR(255) NOT NULL COMMENT '产品名称',
+    commodity_name VARCHAR(255) NULL COMMENT '商品名称',
+    trademark VARCHAR(255) NULL COMMENT '商标',
+    content VARCHAR(100) NULL COMMENT '总含量原文（如 50克/升 / 30.5%）',
+    dosage VARCHAR(60) NULL COMMENT '剂型（乳油/悬浮剂/原药/母药…）',
+    toxicity VARCHAR(30) NULL COMMENT '毒性（归一化：去括号注释，如 低毒(原药高毒)→低毒）',
+    start_date DATE NULL COMMENT '有效起始日',
+    expire_date DATE NULL COMMENT '有效截止日（登记证有效期至）',
+    company VARCHAR(255) NULL COMMENT '生产厂家（登记证持有人）',
+    ingredients VARCHAR(800) NULL COMMENT '有效成分及含量原文',
+    ingredient_main VARCHAR(120) NULL COMMENT '主有效成分名（制剂取首成分名，原药取自身成分名）',
+    ingredient_all JSON NULL COMMENT '全部有效成分名数组（复配检测/原药匹配用）',
+    mixture VARCHAR(20) NULL COMMENT '单剂/混剂',
+    category VARCHAR(50) NULL COMMENT '农药类别（杀虫剂/除草剂…）',
+    temp_reg_no VARCHAR(40) NULL COMMENT '临时登记证号',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_registration_no (registration_no),
+    KEY idx_dosage_ingredient (dosage, ingredient_main),
+    KEY idx_company (company),
+    KEY idx_expire (expire_date)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='农药登记数据源字典表（产品表单自动回填）'`,
 ];
 
 // 增量迁移：CREATE TABLE IF NOT EXISTS 不会修改已存在的表，历史库需单独补列/补索引（幂等）
