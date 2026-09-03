@@ -3,7 +3,11 @@
 import { query } from '../../../utils/db'
 import { requireBackendUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
-import { generateBatch, segments, DEFAULT_CONFIG, TIMESTAMP_TYPES, RANDOM_TYPES, CHECKSUM_TYPES, type GenerateConfig } from '../../../utils/code-generator'
+import { generateBatch, segments, type GenerateConfig } from '../../../utils/code-generator'
+
+// 自定义段固定配置（PRD 3.2）：时间戳段=毫秒级、随机数字段=6位随机+2位校验、校验位段=MD5取后2位
+// 平台标准锁定：生成接口不接受客户端传入配置，防止客户乱配置导致追溯码结构错乱（引擎逻辑不变）
+const FIXED_CONFIG: GenerateConfig = { timestampType: 'ms', randomType: 'rand6c2', checksumType: 'md5' }
 
 export default defineEventHandler(async (event) => {
   const user = await requireBackendUser(event)
@@ -25,12 +29,8 @@ export default defineEventHandler(async (event) => {
     fid ? [productId, fid] : [productId])
   if (!prod || !prod.spec_code) throw createError({ statusCode: 400, statusMessage: '产品不存在或未配置规格' })
 
-  // 自定义段配置（PRD 3.2；非法值回退默认）
-  const cfg: GenerateConfig = {
-    timestampType: TIMESTAMP_TYPES.includes(body.timestampType) ? body.timestampType : DEFAULT_CONFIG.timestampType,
-    randomType: RANDOM_TYPES.includes(body.randomType) ? body.randomType : DEFAULT_CONFIG.randomType,
-    checksumType: CHECKSUM_TYPES.includes(body.checksumType) ? body.checksumType : DEFAULT_CONFIG.checksumType,
-  }
+  // 自定义段配置：固定参数（毫秒时间戳 + 6位随机+2位校验 + MD5校验位），仅展示不可改
+  const cfg: GenerateConfig = FIXED_CONFIG
 
   // 系统内已存在码（重码检测）
   const [existCond, existParams] = fid

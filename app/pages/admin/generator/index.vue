@@ -14,12 +14,17 @@ const { data: productData } = await useFetch<any>('/api/admin/products', {
   query: { page: 1, pageSize: 100, status: 1 },
 })
 
+// 自定义段配置（码第 12 位后 21 位）已按平台标准固定（PRD 3.2）：时间戳=毫秒级 / 随机=6位随机+2位校验 / 校验=MD5取后2位
+// 用户不可选择修改、仅展示——防止客户乱配置导致追溯码结构错乱；服务端生成接口亦不接受配置参数（generate.post.ts 固定）
+const FIXED_SEGMENTS = [
+  { name: '时间戳段', value: '毫秒级' },
+  { name: '随机数字段', value: '6位随机+2位校验' },
+  { name: '校验位段', value: 'MD5 取后2位' },
+]
+
 const form = reactive({
   productId: null as number | null,
   quantity: 100,
-  timestampType: 'ms',   // 时间戳段（PRD 3.2）
-  randomType: 'none',    // 随机数字段
-  checksumType: 'md5',   // 校验位段
 })
 const generating = ref(false)
 const result = ref<any>(null)
@@ -220,43 +225,25 @@ const downloadZip = () => {
           </div>
         </div>
 
-        <!-- 自定义段配置（PRD 3.2） -->
+        <!-- 自定义段配置（PRD 3.2）——参数按平台标准固定，仅展示不可修改（防客户乱配置导致追溯码出错） -->
         <div class="border-t border-[var(--b-divider)]">
           <div class="b-card-head">
             <span class="b-card-title">自定义段配置（码第 12 位后，共 21 位）</span>
-            <span class="b-card-extra">第 1-11 位为 1049 公告强制结构，不可配置</span>
+            <span class="b-card-extra">第 1-11 位为 1049 公告强制结构；以下参数平台已固定，仅展示不可修改</span>
           </div>
-          <div class="b-form-grid sm:grid-cols-3">
-            <div>
-              <label class="b-label">时间戳段</label>
-              <USelect v-model="form.timestampType" class="w-full" :items="[
-                { value: 'ms', label: '毫秒级' },
-                { value: 'sec', label: '秒级' },
-                { value: 'ymd', label: '年月日' },
-                { value: 'none', label: '不使用' },
-              ]" />
-            </div>
-            <div>
-              <label class="b-label">随机数字段</label>
-              <USelect v-model="form.randomType" class="w-full" :items="[
-                { value: 'none', label: '不使用' },
-                { value: 'rand8', label: '8位随机数字' },
-                { value: 'rand6c2', label: '6位随机+2位校验' },
-              ]" />
-            </div>
-            <div>
-              <label class="b-label">校验位段</label>
-              <USelect v-model="form.checksumType" class="w-full" :items="[
-                { value: 'md5', label: 'MD5 取后2位' },
-                { value: 'crc16', label: 'CRC16 取后2位' },
-                { value: 'none', label: '不使用' },
-              ]" />
+          <div class="grid gap-3 px-4 pb-3.5 sm:grid-cols-3">
+            <div v-for="seg in FIXED_SEGMENTS" :key="seg.name">
+              <label class="b-label">{{ seg.name }}</label>
+              <div class="flex h-9 items-center gap-1.5 rounded border border-[var(--b-border)] bg-[var(--b-fill)] px-2.5 text-[13px] font-medium text-[var(--b-text-title)]">
+                <UIcon name="i-lucide-lock" class="h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+                <span>{{ seg.value }}</span>
+              </div>
             </div>
           </div>
           <div class="px-4 pb-4">
             <div class="b-note">
               <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
-              <p class="b-note-text">时间戳 + 随机段 + 流水号填充至 19 位（开启校验位时），末 2 位为校验位；32 位码保持纯数字，校验位按同规则可重算比对</p>
+              <p class="b-note-text">标准结构固定：毫秒时间戳 13 位 + 随机 6 位，共 19 位内容 + 末 2 位 MD5 校验位；32 位码保持纯数字，校验位按同规则可重算比对</p>
             </div>
           </div>
         </div>
