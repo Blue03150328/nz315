@@ -37,12 +37,13 @@
 |---|---|
 | `npm run dev -- --host 0.0.0.0 --port 3100` | 启动开发服务器（**端口 3100**！3000 被农码查残留实例占用，勿用 3000） |
 | `node scripts/db-init.mjs` | 初始化数据库（建库建表 + 演示数据，幂等可重跑；连接凭据从 `.env` 读取） |
+| `node scripts/import-regdata.mjs` | 导入农药登记数据源（pesticide_reg 字典表，97,471 条；数据源 2026农药登记证大全2.xlsx 不入库；幂等重灌） |
 | `npm run build` / `npm run preview` | 生产构建与预览 |
 | `node "E:\software\nodejs\install\node_modules\npm\bin\npm-cli.js" install ...` | npm wrapper（npm.ps1/cmd）损坏时的替代调用方式 |
 
 ### 🗄️ 数据库（MySQL：`nz315`，连接配置在 `.env`，不提交仓库）
 
-12 张表（PRD 第七章 9 张 + message 消息 + system_setting 配置 + consumer 消费者；农资店改用高德 POI 实时检索，无自建表）：`enterprise`（企业）· `product_spec`（产品规格主数据，规格码=码第9-11位）· `product`（产品 SKU，登记证号全局唯一）· `batch`（生产批次，三要素）· `trace_code`（追溯码：两状态 status 1已生成/2已绑定 + 异常标记 abnormal_flag 0正常/1冻结/2作废，正交）· `user`（角色 platform_admin/enterprise_admin/code_admin/viewer，bcrypt 密码）· `operation_log` · `scan_log`（含 `consumer_id`，登录消费者扫码归属） · `risk_alert` · `consumer`（微信 openid 唯一，公众端消费者）
+13 张表（PRD 第七章 9 张 + message 消息 + system_setting 配置 + consumer 消费者 + **pesticide_reg 农药登记数据源字典表**（97,471 条，登记证号唯一，产品弹窗自动回填；农资店改用高德 POI 实时检索，无自建表）：`enterprise`（企业）· `product_spec`（产品规格主数据，规格码=码第9-11位）· `product`（产品 SKU，登记证号全局唯一）· `batch`（生产批次，三要素）· `trace_code`（追溯码：两状态 status 1已生成/2已绑定 + 异常标记 abnormal_flag 0正常/1冻结/2作废，正交）· `user`（角色 platform_admin/enterprise_admin/code_admin/viewer，bcrypt 密码）· `operation_log` · `scan_log`（含 `consumer_id`，登录消费者扫码归属） · `risk_alert` · `consumer`（微信 openid 唯一，公众端消费者）
 
 演示账号：`admin/admin123`（总部）、`lvfeng/admin123`（厂家）、`codeop/admin123`（码管理员）
 
@@ -65,6 +66,7 @@
 ### ✅ 项目进度（截至 2026-09-02）
 
 **已实现（V1.0 核心）**：
+- **产品弹窗接入农药登记数据源自动回填**（2026-09-03，提交 d2362b3 / 00d4f46）：新增/编辑产品改为「先选生产类型 → 搜登记产品（登记证号主键，97,471 条数据源表 pesticide_reg）→ 自动回填 8 个登记字段（只读）→ 原药两字段三态联动」；持有人生产只选本厂（企业名称归一化过滤）、委托加工/分装可选全部；原药：剂型原药/母药=自身回填，制剂按有效成分匹配原药（唯一自动/多家必选下拉/无匹配手填提示）；**保质期录入整行移除**（服务端不再写，历史值保留）；切换生产类型自动核对清空。数据源导入脚本 scripts/import-regdata.mjs（xlsx 不入库，.gitignore 已排除）。验证：tsc 0 错误 + 生产构建 + API 12 项 + CDP 73 项 + SSR 13 页全过
 - **修复侧栏菜单高亮跟随**（2026-09-02）：isActive 前缀匹配 bug 导致根级菜单 /admin（数据概览）永远高亮——startsWith('/admin/') 命中全部子路由；改根路径精确匹配后，点击/直达/切换页面菜单高亮均正确跟随（CDP 5 场景实测）
 - **删除外箱码管理模块**（2026-09-02，提交 b49ec23）：按用户指示整体下线 PRD 5.5.6 外箱码管理——后台页面 app/pages/admin/boxes/、侧栏入口、5 个管理 API（列表/详情/bind/parse/unbind）、码库查询冗余字段一并清除；trace_code 表 DDL 删 outer_box_code 列并新增 migrate() 增量删列（幂等，已实测执行）；数据库列与索引引用零残留，后台剩 11 个模块页
 - **公众端「扫一扫」真正落地**（2026-09-02，提交 5090eb8）：原首页/BottomNav 扫码按钮仅聚焦输入框提示手动输入（占位），用户反馈「手机点开网站无法扫一扫」。新增沉浸式扫码页 `/scan`（fullbleed 黑底 + 取景框四角/扫描线/框外压暗）+ 核心 composable `useQrScanner.ts`——**BarcodeDetector 原生优先 + @zxing/library 逐帧兜底**（复用已有依赖），识别 32 位纯码或 `/trace?code=` URL 自动跳查询页，普通二维码忽略继续扫（防误跳）；**三通道降级**：iOS 微信网页禁调相机 → 引导右上角浏览器打开/相册选图、权限拒绝/无摄像头/非 HTTPS → 中文错误、相册拍照选图全环境可用（含 iOS 微信）；命中/离开即释放相机流。入口接线：首页大按钮 + 手机底栏（扫码项 /q/ 虚拟路径改真实 /scan，/trace 结果页保持高亮）+ PC 顶部菜单。验证：tsc 0 错误 + 构建 + CDP 移动视口 18 项 / zxing 兜底 4 项 / PC 3 项 / DOM 测量全通过
@@ -140,3 +142,7 @@
 | **zxing HybridBinarizer 对图像宽度敏感**（2026-09-02 实测） | 同一二维码渲染成 520/600px 解不出、相邻宽度（480/640）成功——二值化分块与模块宽度的相位问题。zxing 兜底解码必须**多尺度重试**（useQrScanner 已实现 1x/0.8x/0.6x） |
 | **zxing MultiFormatReader 解码失败会打 console.warn 刷屏** | 相机逐帧解码失败是本路径的预期行为，MultiFormatReader 内部对每个失败的 reader 记 warn。改用**显式顺序尝试**（QRCodeReader → DataMatrixReader）自行 catch，控制台零噪音 |
 | **网页扫码能力分层（无微信 JS-SDK 凭据时）** | ①系统浏览器：getUserMedia + BarcodeDetector（Android Chrome/iOS Safari 17+），zxing 兜底（无 BarcodeDetector 的 Edge/旧 Safari）；②**iOS 微信内网页禁调相机**（系统限制，无解）→ 引导「右上角在浏览器打开」+ 相册选图识别兜底；③getUserMedia 必须 HTTPS + 用户手势触发（iOS 强制）；④扫码页参考实现 `app/pages/scan.vue` + `app/composables/useQrScanner.ts` |
+| **企业名归一化匹配必须 SQL/JS 两侧同一替换链**（2026-09-03） | 「本厂产品」判定 = 数据源厂家列与 enterprise.name 都做（股份有限公司→有限责任公司→有限公司→集团→去空格）后相等；`server/utils/regdata.ts normalizeOrgName` 与 `regdata.get.ts COMPANY_NORM_SQL` 任一改动必须同步另一侧，否则过滤结果漂移 |
+| **SQL 列清单与 VALUES 占位符人工删列易错**（2026-09-03） | 移除 product 表 shelf_life 写入时列改 19 个但 VALUES 只留 18 个 ?，运行期才报 `Column count doesn't match`（500，生产构建与 tsc 均查不出）。删列后数一遍列名与 ? 数量 |
+| **数据源有效成分提取勿把含量单位「/」当成分分隔符**（2026-09-03） | 「50克/升」含斜杠；成分名分隔只按间隔号/顿号/分号/加号（·、；+），每段取首个空白前 token；复配制剂按主成分（首成分）匹配原药（product 模型仅单原药字段） |
+| **登记证过期记录不入产品/原药下拉** | regdata 候选一律 (expire_date IS NULL OR expire_date >= CURDATE())；原药候选同规则——历史 LS 老证被自然过滤，避免误建「登记证过期」产品 |
