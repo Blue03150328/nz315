@@ -17,10 +17,11 @@ const TOXICITY = ['微毒', '低毒', '中等毒', '高毒', '剧毒']
 const REG_CATEGORIES = [{ value: 1, label: 'PD（代码1）' }, { value: 2, label: 'WP（代码2）' }]
 const PRODUCE_TYPES = [{ value: 1, label: '持有人生产' }, { value: 2, label: '委托加工' }, { value: 3, label: '委托分装' }]
 
-// 启用中的规格（供下拉选择）
+// 规格主数据（含停用）：编辑已绑定「已停用规格」的产品时下拉需能显示当前值（否则 USelect 空白），
+// 停用项标记「（已停用）」且禁选——新产品只能选启用规格，历史绑定不受影响
 const { data: specData } = await useFetch<any>('/api/admin/specs', {
   key: 'admin-specs-all',
-  query: { page: 1, pageSize: 100, status: 1 },
+  query: { page: 1, pageSize: 100 },
 })
 
 const { data, pending, refresh, error } = await useFetch<any>('/api/admin/products', {
@@ -509,7 +510,11 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                 <label class="b-label-lg">规格（来自主数据，不可手填）<span class="b-required">*</span></label>
                 <USelect
                   v-model="form.specId"
-                  :items="(specData?.rows || []).map((s: any) => ({ value: Number(s.id), label: s.spec_name }))"
+                  :items="(specData?.rows || []).map((s: any) => ({
+                    value: Number(s.id),
+                    label: Number(s.status) === 1 ? s.spec_name : s.spec_name + '（已停用）',
+                    disabled: Number(s.status) !== 1 && Number(s.id) !== Number(form.specId),
+                  }))"
                   placeholder="选择规格"
                   class="w-full"
                   :content="{ class: 'min-w-72' }"

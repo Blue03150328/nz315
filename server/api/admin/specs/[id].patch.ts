@@ -35,10 +35,12 @@ export default defineEventHandler(async (event) => {
     [spec.enterprise_id, specName, id])
   if (dupName) throw createError({ statusCode: 400, statusMessage: '该规格名称已存在' })
 
-  // 常规编辑同时落状态（编辑弹窗内开关），避免「开关勾选后保存不生效」的既有缺陷
+  // 常规编辑同时落状态（编辑弹窗内开关），避免「开关勾选后保存不生效」的既有缺陷；
+  // 未携带 status 时保留原值（Number(undefined)=NaN 会误判为停用，与 products 的 patch 语义一致）
+  const nextStatus = body?.status === undefined ? (Number(spec.status) ? 1 : 0) : (Number(body.status) ? 1 : 0)
   await execute(
     'UPDATE product_spec SET spec_name = ?, net_content = ?, content_unit = ?, pack_unit = ?, status = ? WHERE id = ?',
-    [specName, netContent ?? null, contentUnit, packUnit, Number(body.status) ? 1 : 0, id]
+    [specName, netContent ?? null, contentUnit, packUnit, nextStatus, id]
   )
   return { ok: true }
 })
