@@ -27,9 +27,10 @@ export default defineEventHandler(async (event) => {
     'SELECT status, COUNT(*) AS c FROM trace_code WHERE 1=1' + fidSql + ' GROUP BY status', fidParams)
   const flagRows = await query<any[]>(
     'SELECT abnormal_flag, COUNT(*) AS c FROM trace_code WHERE 1=1' + fidSql + ' GROUP BY abnormal_flag', fidParams)
+  // 注意：JOIN product 后 enterprise_id 两表同名，厂家过滤必须限定 trace_code（t.）——与下方 stockRows 同坑
   const productRows = await query<any[]>(
     `SELECT p.name AS name, COUNT(*) AS c FROM trace_code t LEFT JOIN product p ON t.product_id = p.id
-     WHERE 1=1` + fidSql + ' GROUP BY t.product_id, p.name ORDER BY c DESC LIMIT 10', fidParams)
+     WHERE 1=1` + fidSql.replace('enterprise_id', 't.enterprise_id') + ' GROUP BY t.product_id, p.name ORDER BY c DESC LIMIT 10', fidParams)
   const trendRows = await query<any[]>(
     `SELECT DATE(scan_time) AS d, COUNT(*) AS c FROM scan_log
      WHERE scan_time >= DATE_SUB(CURDATE(), INTERVAL 29 DAY)` + fidSql + ' GROUP BY DATE(scan_time) ORDER BY d', fidParams)
