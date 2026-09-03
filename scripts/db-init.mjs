@@ -57,8 +57,7 @@ const DDL = [
     net_content DECIMAL(12,3) NULL COMMENT '净含量数值',
     content_unit VARCHAR(10) NULL COMMENT 'ml/L/g/kg/片/包/粒',
     pack_unit VARCHAR(10) NULL COMMENT '瓶/袋/桶/盒/罐/支/箱',
-    spec_code CHAR(3) NOT NULL COMMENT '企业规格码（码第9-11位）',
-    dosage_forms JSON NULL COMMENT '适用剂型',
+    spec_code CHAR(3) NOT NULL COMMENT '企业规格码（码第9-11位，系统自动分配）',
     status TINYINT NOT NULL DEFAULT 1 COMMENT '0停用 1启用',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_enterprise_spec_name (enterprise_id, spec_name),
@@ -292,6 +291,12 @@ async function migrate(conn) {
     await conn.query('ALTER TABLE trace_code DROP COLUMN outer_box_code');
     console.log('[db] 迁移：trace_code 删除列 outer_box_code（外箱码模块已移除）');
   }
+
+  // product_spec.dosage_forms：适用剂型字段已下线（2026-09-03 用户决策：规格不限定剂型），历史库清理（幂等）
+  if (await hasColumn('product_spec', 'dosage_forms')) {
+    await conn.query('ALTER TABLE product_spec DROP COLUMN dosage_forms');
+    console.log('[db] 迁移：product_spec 删除列 dosage_forms（适用剂型已下线）');
+  }
 }
 
 // 演示数据（seed）
@@ -314,8 +319,8 @@ async function seed(conn) {
   let specId;
   if (specRows.length === 0) {
     const [r] = await conn.query(
-      'INSERT INTO product_spec (enterprise_id, spec_name, net_content, content_unit, pack_unit, spec_code, dosage_forms) VALUES (?,?,?,?,?,?,?)',
-      [enterpriseId, '200ml/瓶', 200, 'ml', '瓶', '001', JSON.stringify(['可湿性粉剂', '乳油'])]
+      'INSERT INTO product_spec (enterprise_id, spec_name, net_content, content_unit, pack_unit, spec_code) VALUES (?,?,?,?,?,?)',
+      [enterpriseId, '200ml/瓶', 200, 'ml', '瓶', '001']
     );
     specId = r.insertId;
   } else {

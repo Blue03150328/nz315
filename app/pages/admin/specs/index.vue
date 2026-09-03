@@ -10,7 +10,6 @@ const pageSize = 20
 
 const UNITS = ['ml', 'L', 'g', 'kg', '片', '包', '粒']
 const PACKS = ['瓶', '袋', '桶', '盒', '罐', '支', '箱']
-const FORMS = ['乳油', '可湿性粉剂', '水剂', '悬浮剂', '颗粒剂', '水分散粒剂', '微乳剂', '粉剂', '烟剂', '其他']
 
 const { data, pending, refresh, error } = await useFetch<any>('/api/admin/specs', {
   key: 'admin-specs',
@@ -31,27 +30,29 @@ const editingId = ref<number | null>(null)
 const saving = ref(false)
 const form = reactive({
   specName: '', netContent: null as number | null, contentUnit: '', packUnit: '',
-  specCode: '', dosageForms: [] as string[], status: 1,
+  status: 1,
 })
+// 规格码由系统自动分配（= 32 位追溯码第 9-11 位）；编辑时仅回显展示，不可修改
+const displayCode = ref('')
 
 const openCreate = () => {
   editingId.value = null
-  Object.assign(form, { specName: '', netContent: null, contentUnit: 'ml', packUnit: '瓶', specCode: '', dosageForms: [], status: 1 })
+  Object.assign(form, { specName: '', netContent: null, contentUnit: 'ml', packUnit: '瓶', status: 1 })
+  displayCode.value = ''
   showModal.value = true
 }
 const openEdit = (row: any) => {
   editingId.value = row.id
   Object.assign(form, {
     specName: row.spec_name, netContent: row.net_content === null ? null : Number(row.net_content),
-    contentUnit: row.content_unit, packUnit: row.pack_unit, specCode: row.spec_code,
-    dosageForms: row.dosage_forms || [], status: Number(row.status),
+    contentUnit: row.content_unit, packUnit: row.pack_unit, status: Number(row.status),
   })
+  displayCode.value = String(row.spec_code || '')
   showModal.value = true
 }
 
 const save = async () => {
   if (!form.specName.trim()) { toast.add({ title: '请输入规格名称', color: 'warning' }); return }
-  if (!/^\d{3}$/.test(form.specCode)) { toast.add({ title: '企业规格码必须为 3 位数字', color: 'warning' }); return }
   saving.value = true
   try {
     if (editingId.value) {
@@ -142,7 +143,6 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
               <th>规格名称</th>
               <th>净含量</th>
               <th>规格码</th>
-              <th>适用剂型</th>
               <th>被引用</th>
               <th>状态</th>
               <th class="text-right">操作</th>
@@ -153,7 +153,6 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
               <td class="b-strong font-medium">{{ r.spec_name }}</td>
               <td>{{ r.net_content !== null && r.net_content !== undefined ? Number(r.net_content) : '-' }} {{ r.content_unit }} / {{ r.pack_unit }}</td>
               <td><span class="font-code text-[13px] b-strong">{{ r.spec_code }}</span></td>
-              <td>{{ (r.dosage_forms || []).join('、') || '-' }}</td>
               <td>{{ r.ref_count }} 个产品</td>
               <td>
                 <span class="b-tag" :class="Number(r.status) === 1 ? 'b-tag-success' : 'b-tag-default'">
@@ -171,7 +170,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
               </td>
             </tr>
             <tr v-if="!pending && !data?.rows?.length">
-              <td colspan="7" class="b-empty">
+              <td colspan="6" class="b-empty">
                 <div class="b-empty-inner">
                   <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
                   <span class="text-sm">暂无规格数据，点击右上角「新增规格」创建</span>
@@ -223,13 +222,10 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
               </div>
             </div>
             <div>
-              <label class="b-label-lg">企业规格码（码第 9-11 位）<span class="b-required">*</span></label>
-              <UInput v-model="form.specCode" placeholder="3 位数字，如 001（企业内唯一）" maxlength="3" />
-              <p class="b-help">已被追溯码使用的规格码不可修改</p>
-            </div>
-            <div>
-              <label class="b-label-lg">适用剂型</label>
-              <USelect v-model="form.dosageForms" :items="FORMS.map(f => ({ value: f, label: f }))" multiple placeholder="选择适用剂型" class="w-full" />
+              <label class="b-label-lg">企业规格码</label>
+              <div v-if="displayCode" class="w-fit rounded border border-[var(--b-border)] bg-[var(--b-fill)] px-2.5 py-1.5 font-code text-[13px] font-medium text-[var(--b-text-title)]">{{ displayCode }}</div>
+              <p v-else class="b-help">保存后由系统自动分配（001 起，对应 32 位追溯码第 9-11 位），无需填写</p>
+              <p v-if="displayCode" class="b-help">系统自动分配（对应 32 位追溯码第 9-11 位），不可修改</p>
             </div>
             <div class="flex items-center gap-2">
               <USwitch v-model="form.status" />

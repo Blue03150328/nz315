@@ -509,7 +509,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                 <label class="b-label-lg">规格（来自主数据，不可手填）<span class="b-required">*</span></label>
                 <USelect
                   v-model="form.specId"
-                  :items="(specData?.rows || []).map((s: any) => ({ value: Number(s.id), label: s.spec_name + '（码 ' + s.spec_code + '）' }))"
+                  :items="(specData?.rows || []).map((s: any) => ({ value: Number(s.id), label: s.spec_name }))"
                   placeholder="选择规格"
                   class="w-full"
                   :content="{ class: 'min-w-72' }"

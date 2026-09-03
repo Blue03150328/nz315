@@ -34,14 +34,6 @@ export default defineEventHandler(async (event) => {
   return {
     total: Number(cntRow?.c || 0),
     page, pageSize,
-    rows: rows.map(r => ({
-      ...r,
-      // mysql2 默认已解析 JSON 列（返回数组）；兼容字符串形式做二次解析
-      dosage_forms: (() => {
-        if (Array.isArray(r.dosage_forms)) return r.dosage_forms
-        if (!r.dosage_forms) return []
-        try { return JSON.parse(r.dosage_forms) } catch { return [] }
-      })(),
-    })),
+    rows,
   }
 })

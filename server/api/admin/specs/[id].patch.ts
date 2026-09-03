@@ -14,7 +14,7 @@ export default defineEventHandler(async (event) => {
     'SELECT * FROM product_spec WHERE id = ?' + (fid ? ' AND enterprise_id = ?' : ''), fid ? [id, fid] : [id])
   if (!spec) throw createError({ statusCode: 404, statusMessage: '规格不存在' })
 
-  // 仅状态变更
+  // 仅状态变更（停用/启用；已被产品引用的规格仅可停用，不可删除）
   if (body?.status !== undefined && Object.keys(body).length === 1) {
     await execute('UPDATE product_spec SET status = ? WHERE id = ?', [Number(body.status) ? 1 : 0, id])
     return { ok: true }
@@ -24,35 +24,21 @@ export default defineEventHandler(async (event) => {
   const netContent = body?.netContent
   const contentUnit = String(body?.contentUnit || '').trim()
   const packUnit = String(body?.packUnit || '').trim()
-  const specCode = String(body?.specCode || '').trim()
-  const dosageForms = Array.isArray(body?.dosageForms) ? body.dosageForms : []
 
   if (!specName) throw createError({ statusCode: 400, statusMessage: '请输入规格名称' })
-  if (!/^\d{3}$/.test(specCode)) throw createError({ statusCode: 400, statusMessage: '企业规格码必须为 3 位数字' })
+  if (!contentUnit) throw createError({ statusCode: 400, statusMessage: '请选择含量单位' })
+  if (!packUnit) throw createError({ statusCode: 400, statusMessage: '请选择包装单位' })
 
-  // 规格码已被追溯码使用的不可修改（PRD 5.3 业务规则2）
-  if (specCode !== spec.spec_code) {
-    const [used] = await query<any[]>(
-      'SELECT COUNT(*) AS c FROM trace_code WHERE enterprise_id = ? AND code LIKE ?',
-      [spec.enterprise_id, '%' + spec.spec_code + '%'])
-    if (Number(used?.c || 0) > 0) {
-      throw createError({ statusCode: 400, statusMessage: '该规格码已被追溯码使用，不可修改' })
-    }
-  }
-
-  // 名称唯一（排除自身）
+  // 名称唯一（排除自身）；规格码为系统自动分配，编辑不可修改
   const [dupName] = await query<any[]>(
     'SELECT id FROM product_spec WHERE enterprise_id = ? AND spec_name = ? AND id <> ? LIMIT 1',
     [spec.enterprise_id, specName, id])
   if (dupName) throw createError({ statusCode: 400, statusMessage: '该规格名称已存在' })
-  const [dupCode] = await query<any[]>(
-    'SELECT id FROM product_spec WHERE enterprise_id = ? AND spec_code = ? AND id <> ? LIMIT 1',
-    [spec.enterprise_id, specCode, id])
-  if (dupCode) throw createError({ statusCode: 400, statusMessage: '该企业规格码已存在' })
 
+  // 常规编辑同时落状态（编辑弹窗内开关），避免「开关勾选后保存不生效」的既有缺陷
   await execute(
-    'UPDATE product_spec SET spec_name = ?, net_content = ?, content_unit = ?, pack_unit = ?, spec_code = ?, dosage_forms = ? WHERE id = ?',
-    [specName, netContent ?? null, contentUnit, packUnit, specCode, JSON.stringify(dosageForms), id]
+    'UPDATE product_spec SET spec_name = ?, net_content = ?, content_unit = ?, pack_unit = ?, status = ? WHERE id = ?',
+    [specName, netContent ?? null, contentUnit, packUnit, Number(body.status) ? 1 : 0, id]
   )
   return { ok: true }
 })
