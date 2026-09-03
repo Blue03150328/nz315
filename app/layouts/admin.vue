@@ -1,6 +1,8 @@
 <script setup lang="ts">
 // 后台布局：左侧深色导航（参考风格 #283850）+ 右侧内容区
 // 菜单按角色渲染；已实现模块可点击，规划中模块置灰提示
+// 路由高亮说明：数据概览（/admin 根路径）仅精确匹配当前路由；其余模块按前缀匹配，
+// 否则 /admin 前缀会吞掉全部 /admin/* 子路由，导致数据概览永远高亮
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
@@ -24,7 +26,12 @@ const MENU_READY = [
 // V1.0 规划菜单（模块建设中）
 const MENU_PLANNED: { label: string; icon: string }[] = []
 
-const isActive = (path: string) => route.path === path || route.path.startsWith(path + '/')
+const isActive = (path: string) => {
+  // 根路径菜单（数据概览）：仅当前路由恰为该路径时高亮
+  if (path === '/admin') return route.path === '/admin'
+  // 子路径菜单：精确命中或位于其下级路由时高亮
+  return route.path === path || route.path.startsWith(path + '/')
+}
 
 const onLogout = async () => {
   await logout()
