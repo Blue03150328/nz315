@@ -1,5 +1,13 @@
 ## 变更记录
 
+### 2026-09-03 | 修复数据概览「产品分布」SQL 企业过滤歧义（厂家账号访问仪表盘 500）
+- **工作内容**：三轮产品弹窗改造验证期间（lvfeng 全站 SSR 回归）发现既有 bug：stats.get.ts 产品分布查询 `trace_code t LEFT JOIN product p` 后企业过滤条件未限定表名（`enterprise_id = ?` 两表同名）→ MySQL errno 1052 ambiguous 500。历史验证多用 admin（platform_admin 无企业条件）未暴露；厂家账号打开数据概览即报错。修复：与同文件 stockRows 既有处理一致改用 `fidSql.replace('enterprise_id', 't.enterprise_id')` 限定 trace_code；全库 grep 复查无同类隐患（logs.get.ts JOIN 的 ON 子句已限定 l.enterprise_id）。
+- **修改文件**：server/api/admin/stats.get.ts
+- **测试情况**：tsc 0 错误；生产构建；lvfeng stats 200（productDist 正常）+ /admin SSR 200 + 全后台 11 页 200。提交 3fd51b3
+- **遗留问题/待办**：无（其余待办不变）
+- **给下一个 Agent 的提示**：凡 `trace_code/scan_log JOIN 其它表` 后追加企业过滤的 SQL，一律显式限定主表别名（t./s.），MySQL 8 对同名列不猜测；stats.get.ts 内 productRows 与 stockRows 两处均已处理
+
+---
 ### 2026-09-03 | 产品弹窗原药字段升级「下拉+手输」双通道组合框（第三轮需求：双向联动 + 场景化必填）
 - **工作内容**：用户第三轮迭代需求：原药登记证号/原药生产企业名称两字段行为重构——①制剂匹配多条原药候选：下拉选项（「证号 | 持有人（原药企业）」）与手动输入两种方式都支持，该场景两字段保存必填（非空即可，自定义内容允许）；②双向联动：修改任一端命中候选自动带出另一端，输入不匹配内容清空另一端并允许自由录入自定义内容；③剂型=原药/母药：回填自身登记信息后保留下拉+手输（候选=同有效成分原药含自身，服务端 originals 接口按成分查询天然返回）；④无匹配场景：候选为空、两字段纯手动（不做联动）
 - **实现**：新增 app/components/RegOrigCombobox.vue（组合框：UInput 自由输入 + chevron/聚焦展开候选面板、输入实时过滤、点击候选回填；@mousedown.prevent 防输入框失焦）；products/index.vue 的 computeOriginal 统一按有效成分拉候选（原药产品自身必在候选内），mode 收敛为回填动作+hint+必填标记；新增两个 watch 双向联动（命中带出/不匹配清空），**候选为空（manual/编辑回显 idle）时跳过联动保证两字段自由输入**（修复 v5 C3 实测发现：无候选时清空逻辑误伤自由录入）；保存校验 select 模式两字段均必填（原只查证号）
