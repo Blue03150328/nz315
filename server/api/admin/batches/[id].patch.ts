@@ -16,10 +16,11 @@ export default defineEventHandler(async (event) => {
   const batchNo = String(body.batchNo || '').trim()
   const produceDate = String(body.produceDate || '').trim()
   const qualityCertNo = String(body.qualityCertNo || '').trim()
-  const expireDate = String(body.expireDate || '').trim()
+  // 有效期至选填（2026-09-04 采集自动建档可留空，此处补填；空值存 NULL 不在扫码页展示）
+  const expireDate = String(body.expireDate || '').trim() || null
   const quantity = Number(body.quantity || 0)
-  if (!batchNo || !produceDate || !qualityCertNo || !expireDate) {
-    throw createError({ statusCode: 400, statusMessage: '批号/生产日期/合格证号/有效期至 均为必填' })
+  if (!batchNo || !produceDate || !qualityCertNo) {
+    throw createError({ statusCode: 400, statusMessage: '批号/生产日期/质量合格证号 均为必填' })
   }
 
   // 批号唯一（排除自身）
@@ -31,6 +32,11 @@ export default defineEventHandler(async (event) => {
   await execute(
     'UPDATE batch SET batch_no = ?, produce_date = ?, quality_cert_no = ?, expire_date = ?, qc_result = ?, qc_report_no = ?, quantity = ? WHERE id = ?',
     [batchNo, produceDate, qualityCertNo, expireDate, body.qcResult === 0 ? 0 : 1, String(body.qcReportNo || '').trim() || null, quantity, id]
+  )
+  // 三要素更正同步到已绑定码的冗余列（码库列表/筛选按冗余展示），扫码页本身实时 JOIN batch 不受影响
+  await execute(
+    'UPDATE trace_code SET batch_no = ?, produce_date = ?, quality_cert_no = ? WHERE batch_id = ?',
+    [batchNo, produceDate, qualityCertNo, id]
   )
   return { ok: true }
 })

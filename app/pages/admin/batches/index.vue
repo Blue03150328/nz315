@@ -69,11 +69,7 @@ const autoExpire = () => {
   form.expireDate = d.toISOString().slice(0, 10)
 }
 
-const openCreate = () => {
-  editingId.value = null
-  Object.assign(form, { productId: null, batchNo: '', produceDate: '', qualityCertNo: '', expireDate: '', qcResult: 1, qcReportNo: '', quantity: 0 })
-  showModal.value = true
-}
+// 新建入口已移除（2026-09-04 流程改造：批次由生产采集导入时自动建档）；本弹窗仅用于编辑
 const openEdit = (row: any) => {
   editingId.value = row.id
   Object.assign(form, {
@@ -91,16 +87,11 @@ const save = async () => {
   if (!form.batchNo.trim()) { toast.add({ title: '请输入生产批次号', color: 'warning' }); return }
   if (!form.produceDate) { toast.add({ title: '请选择生产日期', color: 'warning' }); return }
   if (!form.qualityCertNo.trim()) { toast.add({ title: '请输入质量合格证号', color: 'warning' }); return }
-  if (!form.expireDate) { toast.add({ title: '请选择有效期至', color: 'warning' }); return }
   saving.value = true
   try {
-    if (editingId.value) {
-      await $fetch('/api/admin/batches/' + editingId.value, { method: 'PATCH', body: { ...form } })
-      toast.add({ title: '批次已更新', color: 'success' })
-    } else {
-      await $fetch('/api/admin/batches', { method: 'POST', body: { ...form } })
-      toast.add({ title: '批次已创建', color: 'success' })
-    }
+    if (!editingId.value) { toast.add({ title: '请选择要编辑的批次', color: 'warning' }); return }
+    await $fetch('/api/admin/batches/' + editingId.value, { method: 'PATCH', body: { ...form } })
+    toast.add({ title: '批次已更新', color: 'success' })
     showModal.value = false
     refresh()
   } catch (e: any) {
@@ -130,9 +121,8 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
     <div class="flex items-center justify-between">
       <div>
         <h1 class="b-page-title">生产批次管理</h1>
-        <p class="b-page-desc">批号三要素（生产日期/批号/质量合格证号）齐全后，关联码自动置为"已绑定"</p>
+        <p class="b-page-desc">批次由生产采集导入时自动建档（三要素齐全，码置"已绑定"）；本页用于查看批次档案、效期预警与信息更正</p>
       </div>
-      <UButton color="neutral" variant="solid" icon="i-lucide-plus" @click="openCreate">新建批号</UButton>
     </div>
 
     <!-- 筛选查询区 -->
@@ -224,7 +214,7 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
               <td colspan="9" class="b-empty">
                 <div class="b-empty-inner">
                   <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
-                  <span class="text-sm">暂无数据，点击右上角「新建批号」创建</span>
+                  <span class="text-sm">暂无批次——在生产采集导入码时填写三要素即自动建档</span>
                 </div>
               </td>
             </tr>
@@ -248,11 +238,11 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
         <!-- 弹窗头部：图标 + 标题 + 一句话说明 -->
         <div class="b-modal-head">
           <div class="b-modal-icon">
-            <UIcon :name="editingId ? 'i-lucide-pencil' : 'i-lucide-plus'" class="h-4 w-4 text-[var(--b-text-regular)]" />
+            <UIcon name="i-lucide-pencil" class="h-4 w-4 text-[var(--b-text-regular)]" />
           </div>
           <div>
-            <h3 class="b-modal-title">{{ editingId ? '编辑批次' : '新建批号' }}</h3>
-            <p class="b-modal-sub">三要素（生产日期 / 批号 / 质量合格证号）齐全后，关联码自动置为"已绑定"</p>
+            <h3 class="b-modal-title">编辑批次</h3>
+            <p class="b-modal-sub">编辑批次档案：效期/质检更正后，扫码页展示随之更新</p>
           </div>
         </div>
         <div class="b-modal-body">
@@ -278,9 +268,9 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
               <p class="b-help">请确认与产品标签喷码日期一致</p>
             </div>
             <div>
-              <label class="b-label-lg">有效期至 <span class="b-required">*</span></label>
+              <label class="b-label-lg">有效期至</label>
               <UInput v-model="form.expireDate" type="date" />
-              <p class="b-help">选择日期后按产品保质期自动计算，可覆盖调整</p>
+              <p class="b-help">采集建档时可留空，此处补填（保存后扫码页同步展示）</p>
             </div>
           </div>
           <div>
