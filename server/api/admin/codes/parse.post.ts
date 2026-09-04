@@ -22,7 +22,9 @@ export default defineEventHandler(async (event) => {
   const fid = user.role === 'platform_admin' ? null : user.enterprise_id
 
   // 加载校验上下文（企业内）
-  const [prodCond, prodParams] = fid ? [' WHERE enterprise_id = ?', [fid]] : ['', []]
+  // 条件前缀必须用 ' AND ...'（两处 SQL 基底已含 WHERE：WHERE status = 1 / WHERE 1=1），
+  // 误用 ' WHERE ...' 会拼出双重 WHERE 语法错误 → 厂家账号解析 500（2026-09-04 实测修复）
+  const [prodCond, prodParams] = fid ? [' AND enterprise_id = ?', [fid]] : ['', []]
   const products = await query<any[]>('SELECT id, registration_no, name FROM product WHERE status = 1' + prodCond, prodParams)
   const regLast6Map = new Map<string, number>()
   for (const p of products) {
