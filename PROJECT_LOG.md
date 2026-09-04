@@ -1,4 +1,12 @@
 ## 变更记录
+### 2026-09-04 | 批次码明细单行【修改】（仅作用于当前码，不影响同批其他码）
+- **需求背景**：批次码明细弹窗（批次列表【详细】）操作列新增【修改】——已作废码置灰不可点、冻结码允许修改；表单字段复用批量修正（重绑批次/生产日期/有效期至/质检结果/合格证号）；修改仅作用于当前这一条码，完成后刷新明细行。
+- **架构决策（数据模型约束）**：扫码页展示数据取自 batch 表（批次级共享），单码字段修正若写 batch 会波及同批其他码——故 trace_code 新增 **expire_date/qc_result 单码覆盖冗余列**（db-init DDL + migrate() 幂等加列，已实测），扫码页 trace.get.ts batchInfo 改 **COALESCE 优先码级值**（produce_date/quality_cert_no 复用既有冗余列）；字段修正只写本行、不触碰 batch。重绑批次：校验新批次与码产品一致（防跨产品串绑）、冗余随新批次带出（可被表单字段覆盖）、状态自动流转已绑定（bound_at 刷新）。
+- **实现**：新 API `server/api/admin/codes/[id]/correct.post.ts`（作废终态 400/冻结放行/企业隔离/审计日志）；前端 codes/index.vue 明细操作列三分支均加【修改】（作废行 disabled+已终态保留）、新增单条修改弹窗（复用批量修正表单字段与批次候选）提交后 loadDetail 刷新。
+- **修改文件**：`server/api/admin/codes/[id]/correct.post.ts`（新增）、`server/api/trace.get.ts`、`app/pages/admin/codes/index.vue`、`scripts/db-init.mjs`；提交 f45c4e3
+- **测试情况**：tsc 0 错误（-p .nuxt/tsconfig.json）；全权构建 15:57 产物（80 chunks）；端到端 API 实测——字段修正 corrected=1 且扫码页展示新值（COALESCE 生效）、重绑 rebound=1（888 换批成功）、作废码 400 终态拒绝、冻结码修正放行、空字段 400；测试数据已恢复原状
+- **给下一个 Agent 的提示**：另一 DSH 会话并行构建会清空/混合 .output（chunk 404），验证前确认无并行构建或构建后立即启动；单码覆盖列扫码生效依赖 trace.get.ts COALESCE，勿改回纯 batch 取值
+
 ### 2026-09-04 | 码库管理改为按上传文件批次聚合展示（详细弹窗/整批冻结/整批修正）
 - **需求背景**：码库管理页面直接展示每条独立追溯码，数据量大操作繁琐。用户要求改为**按上传文件批次维度聚合**：生产采集每上传一份追溯码文件 = 一个批次记录 = 码库一行；删除勾选框与底部批量操作条；操作仅【详细】【冻结】【修正】三按钮；整批作废/整批恢复正常暂不提供（仅明细页单行作废/恢复）。
 - **数据模型（关键架构决策）**：原 trace_code 无「上传文件」维度（import 一次调用=一个文件但文件名未落库），聚合必须新增维度：**新表 upload_batch（上传文件批次）**（enterprise_id/file_name/product_id/batch_id/batch_no 快照/created_by/created_at）+ **trace_code.upload_batch_id 列**（含索引）。import.post.ts 事务内批次确定后建档 upload_batch（fileName=生产采集页原始文件名，粘贴导入缺省自动命名「手动导入 时间」），插码带归属，失败整体回滚；响应新增 uploadBatchId。db-init DDL 加表 + migrate() 幂等补列补索引 + **backfillUploadBatches() 历史码兜底**（seed 后执行，按企业把 upload_batch_id IS NULL 的存量码归并到「历史数据（码库聚合改造前导入）」批次，本库 104 条已迁移，原文件信息不可考）。生成器 generate 不入库（与采集闭环），无可见性盲区。
