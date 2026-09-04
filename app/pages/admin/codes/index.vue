@@ -139,6 +139,34 @@ const submitCorrect = async () => {
   }
 }
 
+// ============ 整批删除（上传批次 + 批次下全部追溯码） ============
+// 删除约束：批次内存在已绑定码（status=2）时按钮置灰不可删——已绑定码扫码可追溯，
+// 删除会破坏 1049 合规可查性；仅全部未绑定批次允许删除（canDelete 由服务端聚合计算）
+const showDeleteModal = ref(false)
+const deleting = ref(false)
+const deleteTarget = ref<any>(null)
+const openDelete = (row: any) => {
+  if (!row.canDelete) {
+    toast.add({ title: '该批次存在已绑定追溯码，无法删除', color: 'warning' })
+    return
+  }
+  deleteTarget.value = row
+  showDeleteModal.value = true
+}
+const submitDelete = async () => {
+  deleting.value = true
+  try {
+    const res = await $fetch('/api/admin/codes/upload-batches/' + deleteTarget.value.id, { method: 'DELETE' })
+    toast.add({ title: '批次已删除（含追溯码 ' + res.deletedCodes + ' 条），数据不可恢复', color: 'success' })
+    showDeleteModal.value = false
+    refresh()
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage || '删除失败', color: 'error' })
+  } finally {
+    deleting.value = false
+  }
+}
+
 // ============ 批次明细弹窗（查看 + 单行冻结/作废/恢复，无批量操作） ============
 const showDetailModal = ref(false)
 const detailRow = ref<any>(null)
@@ -388,6 +416,12 @@ const flagBadge = (f: number) => {
                   >冻结</UButton>
                   <span class="b-sep" />
                   <UButton variant="link" color="neutral" size="xs" icon="i-lucide-wrench" @click="openCorrect(row)">修正</UButton>
+                  <span class="b-sep" />
+                  <!-- 删除：批次内存在已绑定码时置灰不可点，hover 提示原因（disabled 按钮自身不触发 title，由外层 span 承载） -->
+                  <span v-if="!row.canDelete" :title="'该批次存在已绑定追溯码，无法删除（已绑定 ' + row.boundCount + ' 条）'">
+                    <UButton variant="link" color="error" size="xs" icon="i-lucide-trash-2" disabled>删除</UButton>
+                  </span>
+                  <UButton v-else variant="link" color="error" size="xs" icon="i-lucide-trash-2" @click="openDelete(row)">删除</UButton>
                 </div>
               </td>
             </tr>
@@ -496,6 +530,35 @@ const flagBadge = (f: number) => {
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showCorrectModal = false">取消</UButton>
             <UButton color="neutral" variant="solid" :loading="correcting" @click="submitCorrect">确认修正</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- 整批删除确认对话框（删除上传批次及其全部追溯码，不可恢复） -->
+    <UModal v-model:open="showDeleteModal">
+      <template #content>
+        <div class="b-modal">
+          <div class="b-modal-head">
+            <div class="b-modal-icon">
+              <UIcon name="i-lucide-trash-2" class="h-4 w-4 text-red-600" />
+            </div>
+            <div>
+              <h3 class="b-modal-title">删除上传批次</h3>
+              <p class="b-modal-sub max-w-xl truncate" :title="deleteTarget?.file_name">{{ deleteTarget?.file_name }}</p>
+            </div>
+          </div>
+          <div class="b-modal-body">
+            <div class="b-note">
+              <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
+              <p class="b-note-text">
+                确认删除该批次以及批次下全部追溯码数据（{{ deleteTarget?.codeTotal || 0 }} 条）？删除后数据不可恢复，请谨慎操作。
+              </p>
+            </div>
+          </div>
+          <div class="b-modal-foot">
+            <UButton variant="outline" color="neutral" @click="showDeleteModal = false">取消</UButton>
+            <UButton color="error" variant="solid" :loading="deleting" @click="submitDelete">确认删除</UButton>
           </div>
         </div>
       </template>

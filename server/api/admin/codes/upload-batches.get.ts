@@ -51,7 +51,8 @@ export default defineEventHandler(async (event) => {
        p.name AS product_name,
        COUNT(t.id) AS code_total,
        COALESCE(SUM(t.abnormal_flag = 1), 0) AS frozen_count,
-       COALESCE(SUM(t.abnormal_flag = 2), 0) AS voided_count
+       COALESCE(SUM(t.abnormal_flag = 2), 0) AS voided_count,
+       COALESCE(SUM(t.status = 2), 0) AS bound_count
      FROM upload_batch ub
      LEFT JOIN product p ON p.id = ub.product_id
      LEFT JOIN trace_code t ON t.upload_batch_id = ub.id
@@ -67,15 +68,19 @@ export default defineEventHandler(async (event) => {
       const codeTotal = Number(r.code_total || 0)
       const frozenCount = Number(r.frozen_count || 0)
       const voidedCount = Number(r.voided_count || 0)
+      const boundCount = Number(r.bound_count || 0)
       return {
         ...r,
         codeTotal,
         frozenCount,
         voidedCount,
+        boundCount,
         normalCount: Math.max(0, codeTotal - frozenCount - voidedCount),
         summary: summaryOf(codeTotal, frozenCount, voidedCount),
         // 行内可操作数（冻结/恢复不动作废终态）
         flagableCount: Math.max(0, codeTotal - voidedCount),
+        // 删除约束：批次内存在已绑定码（status=2）时禁止删除；空批次（孤儿行）也可删
+        canDelete: boundCount === 0,
       }
     }),
   }
