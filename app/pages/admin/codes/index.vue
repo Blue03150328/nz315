@@ -232,6 +232,49 @@ const submitRowFlag = async () => {
   }
 }
 
+// ============ 明细单行【修改】（2026-09-04：单条码数据修改，表单复用批量修正字段，仅作用于当前行） ============
+const showRowEditModal = ref(false)
+const rowEditTarget = ref<any>(null)
+const rowEditing = ref(false)
+// batchId=0 与 qcResult='keep' 为「不修改」哨兵值（与整批修正表单同构）
+const rowEditForm = reactive({
+  batchId: 0 as number,
+  produceDate: '', expireDate: '', qcResult: 'keep', qualityCertNo: '',
+})
+const openRowEdit = (row: any) => {
+  rowEditTarget.value = row
+  Object.assign(rowEditForm, { batchId: 0, produceDate: '', expireDate: '', qcResult: 'keep', qualityCertNo: '' })
+  showRowEditModal.value = true
+}
+const submitRowEdit = async () => {
+  if (!rowEditForm.batchId && !rowEditForm.produceDate && !rowEditForm.expireDate && rowEditForm.qcResult === 'keep' && !rowEditForm.qualityCertNo) {
+    toast.add({ title: '请至少选择一个要修改的字段', color: 'warning' }); return
+  }
+  rowEditing.value = true
+  try {
+    const res = await $fetch('/api/admin/codes/' + rowEditTarget.value.id + '/correct', {
+      method: 'POST',
+      body: {
+        batchId: rowEditForm.batchId || undefined,
+        produceDate: rowEditForm.produceDate || undefined,
+        expireDate: rowEditForm.expireDate || undefined,
+        qcResult: rowEditForm.qcResult === 'keep' ? undefined : Number(rowEditForm.qcResult),
+        qualityCertNo: rowEditForm.qualityCertNo || undefined,
+      },
+    })
+    const parts: string[] = []
+    if (res.rebound > 0) parts.push('已重新绑定批次')
+    if (res.corrected > 0) parts.push('字段已修正')
+    toast.add({ title: '修改成功：' + (parts.join('，') || '无变更'), color: 'success' })
+    showRowEditModal.value = false
+    loadDetail() // 刷新当前明细（仅本条变化）
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage || '修改失败', color: 'error' })
+  } finally {
+    rowEditing.value = false
+  }
+}
+
 // 状态/异常标签（浅底深字）
 const statusBadge = (s: number) => {
   if (s === 2) return { cls: 'b-tag-success', label: '已绑定' }
@@ -521,11 +564,18 @@ const flagBadge = (f: number) => {
                         <UButton variant="link" color="neutral" size="xs" @click="openRowFlag('freeze', r)">冻结</UButton>
                         <span class="b-sep" />
                         <UButton variant="link" color="error" size="xs" @click="openRowFlag('void', r)">作废</UButton>
+                        <span class="b-sep" />
+                        <UButton variant="link" color="neutral" size="xs" @click="openRowEdit(r)">修改</UButton>
                       </div>
                       <div v-else-if="Number(r.abnormal_flag) === 1" class="b-actions justify-end">
                         <UButton variant="link" color="neutral" size="xs" @click="openRowFlag('restore', r)">恢复正常</UButton>
+                        <span class="b-sep" />
+                        <UButton variant="link" color="neutral" size="xs" @click="openRowEdit(r)">修改</UButton>
                       </div>
-                      <div v-else class="b-card-extra text-right text-xs">已终态</div>
+                      <div v-else class="flex items-center justify-end gap-2">
+                        <UButton variant="link" color="neutral" size="xs" disabled title="已作废为终态，不可修改">修改</UButton>
+                        <span class="b-card-extra text-xs">已终态</span>
+                      </div>
                     </td>
                   </tr>
                   <tr v-if="!detailLoading && !detailRows.length">
@@ -581,6 +631,64 @@ const flagBadge = (f: number) => {
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showRowFlagModal = false">取消</UButton>
             <UButton color="neutral" variant="solid" :loading="rowFlagging" @click="submitRowFlag">确认执行</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- 明细单行【修改】对话框（2026-09-04：表单复用批量修正字段，仅修改当前这一条追溯码） -->
+    <UModal v-model:open="showRowEditModal">
+      <template #content>
+        <div class="b-modal">
+          <div class="b-modal-head">
+            <div class="b-modal-icon">
+              <UIcon name="i-lucide-pencil-line" class="h-4 w-4 text-[var(--b-text-regular)]" />
+            </div>
+            <div>
+              <h3 class="b-modal-title">修改追溯码</h3>
+              <p class="b-modal-sub max-w-lg truncate" :title="rowEditTarget?.code">{{ rowEditTarget?.code }}</p>
+            </div>
+          </div>
+          <div class="b-modal-body">
+            <div>
+              <label class="b-label-lg">重新绑定批次（仅修改当前这条码的关联，不会影响同批次其他码）</label>
+              <USelect
+                v-model="rowEditForm.batchId"
+                :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
+                class="w-full"
+                :content="{ class: 'min-w-72' }"
+                :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
+              />
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="b-label-lg">生产日期</label>
+                <UInput v-model="rowEditForm.produceDate" type="date" />
+                <p class="b-help">仅本条码展示生效，不改变批次其他码</p>
+              </div>
+              <div>
+                <label class="b-label-lg">有效期至</label>
+                <UInput v-model="rowEditForm.expireDate" type="date" />
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="b-label-lg">质量检验结果</label>
+                <USelect v-model="rowEditForm.qcResult" :items="[{ value: 'keep', label: '不修改' }, { value: '1', label: '合格' }, { value: '0', label: '不合格' }]" class="w-full" />
+              </div>
+              <div>
+                <label class="b-label-lg">质量合格证号</label>
+                <UInput v-model="rowEditForm.qualityCertNo" placeholder="不修改留空" />
+              </div>
+            </div>
+            <div class="b-note">
+              <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+              <p class="b-note-text">修改仅作用于当前追溯码（不触碰批次共享数据，同批次其他码不受影响）；扫码页展示以本条为准；已作废码为终态不可修改（冻结码可正常修改）</p>
+            </div>
+          </div>
+          <div class="b-modal-foot">
+            <UButton variant="outline" color="neutral" @click="showRowEditModal = false">取消</UButton>
+            <UButton color="neutral" variant="solid" :loading="rowEditing" @click="submitRowEdit">确认修改</UButton>
           </div>
         </div>
       </template>

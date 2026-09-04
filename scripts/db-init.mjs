@@ -115,9 +115,11 @@ const DDL = [
     code VARCHAR(32) NOT NULL COMMENT '追溯码（32位，全局唯一）',
     product_id BIGINT NULL,
     batch_id BIGINT NULL,
-    produce_date DATE NULL COMMENT '生产日期（冗余）',
+    produce_date DATE NULL COMMENT '生产日期（冗余，扫码优先于批次）',
     batch_no VARCHAR(64) NULL COMMENT '生产批号（冗余）',
-    quality_cert_no VARCHAR(64) NULL COMMENT '质量合格证号（冗余）',
+    quality_cert_no VARCHAR(64) NULL COMMENT '质量合格证号（冗余，扫码优先于批次）',
+    expire_date DATE NULL COMMENT '有效期至（单码覆盖冗余，扫码优先于批次）',
+    qc_result TINYINT NULL COMMENT '质检结果0不合格1合格（单码覆盖冗余，扫码优先于批次）',
     status TINYINT NOT NULL DEFAULT 1 COMMENT '码状态：1已生成 2已绑定',
     abnormal_flag TINYINT NOT NULL DEFAULT 0 COMMENT '异常标记：0正常 1已冻结 2已作废',
     abnormal_reason VARCHAR(200) NULL,
@@ -322,6 +324,17 @@ async function migrate(conn) {
   if (await hasColumn('product_spec', 'dosage_forms')) {
     await conn.query('ALTER TABLE product_spec DROP COLUMN dosage_forms');
     console.log('[db] 迁移：product_spec 删除列 dosage_forms（适用剂型已下线）');
+  }
+
+  // trace_code.expire_date / qc_result：批次码明细单行修改（2026-09-04）——单码字段修正只写本行冗余覆盖列，
+  // 不触碰批次级共享数据（batch 表），扫码页 COALESCE 优先码级值，保证「仅修改这一条码」且扫码展示生效
+  if (!(await hasColumn('trace_code', 'expire_date'))) {
+    await conn.query("ALTER TABLE trace_code ADD COLUMN expire_date DATE NULL COMMENT '有效期至（单码覆盖冗余，扫码优先于批次）' AFTER quality_cert_no");
+    console.log('[db] 迁移：trace_code 补充列 expire_date（单码覆盖冗余）');
+  }
+  if (!(await hasColumn('trace_code', 'qc_result'))) {
+    await conn.query("ALTER TABLE trace_code ADD COLUMN qc_result TINYINT NULL COMMENT '质检结果0不合格1合格（单码覆盖冗余，扫码优先于批次）' AFTER expire_date");
+    console.log('[db] 迁移：trace_code 补充列 qc_result（单码覆盖冗余）');
   }
 }
 

@@ -116,12 +116,14 @@ export default defineEventHandler(async (event) => {
     manualImage: prod.manual_image || '',
   } : undefined
 
+  // 批次信息展示：单码字段修正只写 trace_code 覆盖列（produce_date/quality_cert_no/expire_date/qc_result），
+  // 扫码展示 COALESCE 优先码级值（批次码明细单行修改功能，2026-09-04），未覆盖时回退批次级数据
   const batchInfo = batch ? {
     batchNo: batch.batch_no,
-    produceDate: String(batch.produce_date || '').slice(0, 10),
-    expireDate: String(batch.expire_date || '').slice(0, 10),
-    qcResult: Number(batch.qc_result) === 1 ? '合格' : '不合格',
-    qualityCertNo: batch.quality_cert_no || '',
+    produceDate: String(tc.produce_date || batch.produce_date || '').slice(0, 10),
+    expireDate: String(tc.expire_date || batch.expire_date || '').slice(0, 10),
+    qcResult: Number(tc.qc_result ?? batch.qc_result) === 1 ? '合格' : '不合格',
+    qualityCertNo: tc.quality_cert_no || batch.quality_cert_no || '',
     qcReportNo: batch.qc_report_no || '',
   } : undefined
 
