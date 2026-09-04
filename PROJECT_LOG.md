@@ -1,4 +1,15 @@
 ## 变更记录
+### 2026-09-04 | 上传批次列表操作列新增【删除】（删除批次及批次下全部追溯码）
+- **需求**：码库管理-上传批次列表操作列在【详细】【冻结】【修正】后新增【删除】；点击二次确认（文案「确认删除该批次以及批次下全部追溯码数据？删除后数据不可恢复，请谨慎操作。」）后删除批次记录与批次下全部追溯码；**置灰约束：批次内任意一条码为已绑定（status=2）即置灰不可删**，全部未绑定才可删，hover 提示「该批次存在已绑定追溯码，无法删除」。
+- **工作内容**（提交 81a155e）：
+  ① upload-batches.get.ts 聚合 SQL 新增 COALESCE(SUM(t.status = 2),0) AS bound_count → 行返回 boundCount/canDelete（boundCount===0；空批次孤儿行也可删）——异常标记（冻结/作废）与码状态（已绑定）正交，置灰判定必须按 status 而非 abnormal_flag（演示码即存在 已绑定+冻结 组合）；
+  ② 新 API DELETE /api/admin/codes/upload-batches/:id（upload-batches/[id].delete.ts，注意命名：文件放 upload-batches/ 目录名为 [id].delete.ts，放 [id]/delete.ts 会映射成 /:id/delete 404 踩坑一次）——归属校验 404 + **已绑定保护 400（服务端强制，与前端置灰同语义防绕过）** + 事务内先删 trace_code 再删 upload_batch 行（失败回滚）+ logOperation 审计 + 生产批次 batch/扫码历史 scan_log 不随删（独立概念）；
+  ③ codes/index.vue 操作列第 4 按钮【删除】（error 链接 + trash-2 图标）：**disabled 按钮自身不触发 title 悬浮提示（浏览器行为），由外层 span 承载 title**；删除确认弹窗（危险样式、显示码总量），成功 toast 显示删除码数并 refresh。
+- **验证**：tsc 0；构建 10.7MB；**API 冒烟 10/10**（SQL 造全未绑定批 A：canDelete=true→DELETE 200 码 2 条连带删除；import 造已绑定批 B：canDelete=false boundCount=2→DELETE 400 且数据未动；404）；**CDP 页面 7/7**（未绑定行删除可用/历史批次（102 条已绑定）删除置灰/hover 提示文案/确认弹窗/取消不删/确认后行消失/库核验码与批次行删除干净）；SSR 200；验证数据清理恢复基线 104。脚本 scripts/_tmp-verify-del.mjs（API 10 场景）、scripts/_tmp-cdp-del.mjs（CDP 7 场景）可复用。
+- **遗留问题/待办**：①删除是大表 DELETE，单批上限 10 万码（import 约束）单条 DELETE 可接受；亿级后按 D1 评估；②删除的是文件维度行，若后续需要删除后对应生产批次被清空重建等联动需另行决策（当前明确不联动）；③其余待办不变。
+- **给下一个 Agent 的提示**：①**Nitro 路由文件命名**：upload-batches/[id].delete.ts（方括号文件名在 upload-batches/ 目录下）= DELETE /upload-batches/:id；而 [id]/delete.ts = DELETE /upload-batches/:id/delete（多一段，404 踩坑）；②PowerShell Move-Item/Get-ChildItem 对含 [id] 的路径会把方括号当通配符——必须 -LiteralPath；③**disabled 按钮不触发原生 title tooltip**（浏览器规范），hover 提示需求用外层 span 承载 title；④可删除判定=无已绑定码（status=2），与冻结/作废（abnormal_flag）无关——两维度正交勿混。
+
+---
 ### 2026-09-04 | 批次码明细单行【修改】（仅作用于当前码，不影响同批其他码）
 - **需求背景**：批次码明细弹窗（批次列表【详细】）操作列新增【修改】——已作废码置灰不可点、冻结码允许修改；表单字段复用批量修正（重绑批次/生产日期/有效期至/质检结果/合格证号）；修改仅作用于当前这一条码，完成后刷新明细行。
 - **架构决策（数据模型约束）**：扫码页展示数据取自 batch 表（批次级共享），单码字段修正若写 batch 会波及同批其他码——故 trace_code 新增 **expire_date/qc_result 单码覆盖冗余列**（db-init DDL + migrate() 幂等加列，已实测），扫码页 trace.get.ts batchInfo 改 **COALESCE 优先码级值**（produce_date/quality_cert_no 复用既有冗余列）；字段修正只写本行、不触碰 batch。重绑批次：校验新批次与码产品一致（防跨产品串绑）、冗余随新批次带出（可被表单字段覆盖）、状态自动流转已绑定（bound_at 刷新）。
