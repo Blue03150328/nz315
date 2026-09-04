@@ -75,7 +75,13 @@ const doImport = async () => {
     toast.add({ title: '没有可导入的有效码', color: 'warning' }); return
   }
   if (!importForm.productId) { toast.add({ title: '请选择关联产品', color: 'warning' }); return }
-  const validCodes = (parseResult.value.results || []).filter((r: any) => r.valid).map((r: any) => r.code)
+  // 有效码清单取自服务端返回的 validCodes（parse 响应不含完整 results，只有前 20 条 preview；
+  // 2026-09-04 修复——此前误依赖 results 过滤，validCodes 恒为空 → 导入必报「没有可导入的码」）
+  // 保留 results 过滤兜底，防接口版本错配
+  const raw = parseResult.value
+  const validCodes: string[] = raw.validCodes?.length
+    ? raw.validCodes
+    : (raw.results || []).filter((r: any) => r.valid).map((r: any) => r.code)
   importing.value = true
   try {
     const res = await $fetch('/api/admin/codes/import', {

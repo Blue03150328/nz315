@@ -53,6 +53,9 @@ export default defineEventHandler(async (event) => {
     invalidCount: batch.invalidCount,
     reasonCount: batch.reasonCount,
     productGroups,
+    // 全部有效码清单（导入接口入参来源）——必须随响应返回，否则前端只能拿到前 20 条 preview，
+    // 导入时构造不出完整码数组（2026-09-04 修复：此前页面误依赖未返回的 results 字段，导入必败）
+    validCodes: batch.results.filter(r => r.valid).map(r => r.code),
     preview: batch.results.slice(0, 20).map(r => ({
       code: r.code, valid: r.valid, reason: r.reason, matchedProductId: r.matchedProductId,
     })),
