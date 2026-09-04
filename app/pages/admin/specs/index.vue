@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 产品规格管理（PRD 5.3：主数据，规格码对应 32 位码第 9-11 位）
-definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
+// Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
+definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '产品规格管理' })
 
 const toast = useToast()

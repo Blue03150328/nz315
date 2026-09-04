@@ -3,7 +3,8 @@
 // 2026-09 迭代：登记产品（数据源）选中后自动回填登记信息作为默认值——
 // 回填字段全部可手动编辑修改；产品类别随数据源农药类别回填（不在标准集合时并入选项）；
 // 原药两字段：原药/母药自身回填可编辑、制剂按首个有效成分匹配（唯一回填可编辑/多家双下拉联动必选/无匹配手填提示）
-definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
+// Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
+definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '产品管理' })
 
 const toast = useToast()

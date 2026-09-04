@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 风险预警中心（PRD 5.9：8 类异常后台预警的处理与统计）
-definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
+// Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
+definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '风险预警' })
 
 const toast = useToast()

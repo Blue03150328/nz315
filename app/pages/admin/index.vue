@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 数据概览仪表盘（PRD 5.2：统计卡片/状态分布/产品分布/30 天趋势/快捷入口；5.5.8：码库存预警）
-definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
+// Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
+definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '数据概览' })
 
 const { user, isPlatformAdmin } = useUser()

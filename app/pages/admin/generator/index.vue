@@ -2,7 +2,8 @@
 // 追溯码生成（PRD 5.5.1：离线生成工具 Web 版——生成不入库，导出文件后经生产采集导入）
 // 自定义段配置对齐 PRD 3.2：时间戳段 + 随机数字段 + 校验位段；导出命名对齐 PRD 5.5.1 强制命名规范
 // 二维码图片输出对齐合规第一条（QR/DM 码制，供印刷厂赋码）
-definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
+// Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
+definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '追溯码生成' })
 
 const toast = useToast()

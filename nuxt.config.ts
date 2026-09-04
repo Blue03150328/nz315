@@ -4,6 +4,12 @@ export default defineNuxtConfig({
   modules: ['@nuxt/ui'],
   css: ['~/assets/css/main.css'],
 
+  // 页面组件 name 对齐路由名（Keep-Alive 按组件 name 精确缓存的前提）：
+  // 后台页面均为 admin/*/index.vue，不开启时组件名全是 'index'，无法区分/精确缓存
+  experimental: {
+    normalizePageNames: true,
+  },
+
   // Vite 文件监听忽略：调试残留与截图文件被浏览器锁定会触发 EBUSY
   vite: {
     server: {

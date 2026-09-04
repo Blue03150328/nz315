@@ -56,6 +56,10 @@ export function useUser() {
     } finally {
       user.value = null
       clear()
+      // 清空全部 useFetch/useAsyncData 内存缓存（含各业务页面接口数据）：
+      // 页面 Keep-Alive 实例随布局切换销毁，但 Nuxt 数据缓存不随之清除——
+      // 不清会导致切换账号后，旧账号的页面数据被同 key 的 useFetch 直接复用（数据串号）
+      clearNuxtData()
     }
   }
 

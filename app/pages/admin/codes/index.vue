@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // 码库管理：码列表查询 + 异常标记操作（PRD 5.5.5/5.5.7：冻结/作废/解冻，与码状态正交）
 // 视觉规范：标准中后台（参考 Element Plus / AntD Pro）——小圆角、细分割线、浅底深字标签、中性色按钮、黑深灰浅灰主色调
-definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
+// Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
+definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '码库管理' })
 
 const toast = useToast()

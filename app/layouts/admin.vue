@@ -34,8 +34,10 @@ const isActive = (path: string) => {
 }
 
 const onLogout = async () => {
-  await logout()
+  await logout() // logout() 内已清 Nuxt 数据缓存（clearNuxtData），防切换账号串数据
   toast.add({ title: '已退出登录', color: 'success' })
+  // 登录页为 layout: false：admin → 无布局切换会使 NuxtPage 卸载重建，
+  // 全部业务页 Keep-Alive 缓存实例随之销毁（内存级缓存，不留任何用户页面数据）
   await router.push('/login')
 }
 </script>

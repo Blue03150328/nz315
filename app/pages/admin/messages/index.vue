@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 消息中心（PRD 5.11：风险预警/上传完成/库存预警等站内消息）
-definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
+// Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
+definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '消息中心' })
 
 const toast = useToast()
