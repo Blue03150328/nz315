@@ -104,13 +104,18 @@ const doImport = async () => {
         expireDate: importForm.expireDate || undefined,
       },
     })
-    // 成功提示区分「新建批次」与「归并已有批次」（补采），重复码数如实提示
+    // 成功提示区分「新建批次」与「归并已有批次」（补采）；校验失败/重复码数如实提示
+    // （文件含其他产品/错构码时服务端跳过，不静默丢码——与导入接口 skippedInvalid/skippedDup 契约一致）
+    const invalid = Number(res.skippedInvalid || 0)
     const dup = Number(res.skippedDup || 0)
     const boundTxt = res.batchCreated ? '已新建批次 ' + res.batchNo : '已绑定批次 ' + res.batchNo
-    const msg = dup > 0
-      ? '导入成功 ' + res.imported + ' 条，跳过重复 ' + dup + ' 条，' + boundTxt
+    const skipTxt: string[] = []
+    if (dup > 0) skipTxt.push('重复 ' + dup + ' 条')
+    if (invalid > 0) skipTxt.push('校验/归属不符 ' + invalid + ' 条（请核对所选产品）')
+    const msg = skipTxt.length
+      ? '导入成功 ' + res.imported + ' 条，跳过' + skipTxt.join('、') + '，' + boundTxt
       : '导入成功 ' + res.imported + ' 条，' + boundTxt
-    toast.add({ title: msg, color: dup > 0 ? 'warning' : 'success' })
+    toast.add({ title: msg, color: skipTxt.length ? 'warning' : 'success' })
     parseResult.value = null
     pasteText.value = ''
     fileName.value = ''
