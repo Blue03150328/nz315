@@ -303,6 +303,37 @@ const submitRowEdit = async () => {
   }
 }
 
+// ============ 明细单行【删除】（仅删除当前这一条码，不影响同批次其他码） ============
+// 约束：码状态为已绑定（status=2）时按钮置灰不可删（已绑定码扫码可追溯，删除会破坏合规可查性）；
+// 仅未绑定码允许删除（冻结/作废但未绑定的码同样可删，删除为物理清除）
+const showRowDeleteModal = ref(false)
+const rowDeleting = ref(false)
+const rowDeleteTarget = ref<any>(null)
+const openRowDelete = (row: any) => {
+  if (Number(row.status) === 2) {
+    toast.add({ title: '该追溯码已绑定，不允许删除', color: 'warning' })
+    return
+  }
+  rowDeleteTarget.value = row
+  showRowDeleteModal.value = true
+}
+const submitRowDelete = async () => {
+  rowDeleting.value = true
+  try {
+    await $fetch('/api/admin/codes/' + rowDeleteTarget.value.id, { method: 'DELETE' })
+    toast.add({ title: '追溯码已删除，数据不可恢复', color: 'success' })
+    showRowDeleteModal.value = false
+    // 当前页删空且非第一页时回退一页，避免停留在空页
+    if (detailRows.value.length === 1 && detailPage.value > 1) detailPage.value--
+    loadDetail() // 刷新当前明细表格
+    refresh()    // 同步刷新主列表汇总（码数量变化）
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage || '删除失败', color: 'error' })
+  } finally {
+    rowDeleting.value = false
+  }
+}
+
 // 状态/异常标签（浅底深字）
 const statusBadge = (s: number) => {
   if (s === 2) return { cls: 'b-tag-success', label: '已绑定' }
@@ -629,15 +660,30 @@ const flagBadge = (f: number) => {
                         <UButton variant="link" color="error" size="xs" @click="openRowFlag('void', r)">作废</UButton>
                         <span class="b-sep" />
                         <UButton variant="link" color="neutral" size="xs" @click="openRowEdit(r)">修改</UButton>
+                        <span class="b-sep" />
+                        <!-- 删除：仅未绑定码可删（已绑定置灰，disabled 按钮自身不触发 title，由外层 span 承载 hover 提示） -->
+                        <span v-if="Number(r.status) === 2" :title="'该追溯码已绑定，不允许删除'">
+                          <UButton variant="link" color="error" size="xs" icon="i-lucide-trash-2" disabled>删除</UButton>
+                        </span>
+                        <UButton v-else variant="link" color="error" size="xs" icon="i-lucide-trash-2" @click="openRowDelete(r)">删除</UButton>
                       </div>
                       <div v-else-if="Number(r.abnormal_flag) === 1" class="b-actions justify-end">
                         <UButton variant="link" color="neutral" size="xs" @click="openRowFlag('restore', r)">恢复正常</UButton>
                         <span class="b-sep" />
                         <UButton variant="link" color="neutral" size="xs" @click="openRowEdit(r)">修改</UButton>
+                        <span class="b-sep" />
+                        <span v-if="Number(r.status) === 2" :title="'该追溯码已绑定，不允许删除'">
+                          <UButton variant="link" color="error" size="xs" icon="i-lucide-trash-2" disabled>删除</UButton>
+                        </span>
+                        <UButton v-else variant="link" color="error" size="xs" icon="i-lucide-trash-2" @click="openRowDelete(r)">删除</UButton>
                       </div>
                       <div v-else class="flex items-center justify-end gap-2">
                         <UButton variant="link" color="neutral" size="xs" disabled title="已作废为终态，不可修改">修改</UButton>
                         <span class="b-card-extra text-xs">已终态</span>
+                        <span v-if="Number(r.status) === 2" :title="'该追溯码已绑定，不允许删除'">
+                          <UButton variant="link" color="error" size="xs" icon="i-lucide-trash-2" disabled>删除</UButton>
+                        </span>
+                        <UButton v-else variant="link" color="error" size="xs" icon="i-lucide-trash-2" @click="openRowDelete(r)">删除</UButton>
                       </div>
                     </td>
                   </tr>
@@ -752,6 +798,33 @@ const flagBadge = (f: number) => {
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showRowEditModal = false">取消</UButton>
             <UButton color="neutral" variant="solid" :loading="rowEditing" @click="submitRowEdit">确认修改</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- 明细单行删除确认对话框（仅删除当前这一条追溯码，不可恢复） -->
+    <UModal v-model:open="showRowDeleteModal">
+      <template #content>
+        <div class="b-modal">
+          <div class="b-modal-head">
+            <div class="b-modal-icon">
+              <UIcon name="i-lucide-trash-2" class="h-4 w-4 text-red-600" />
+            </div>
+            <div>
+              <h3 class="b-modal-title">删除追溯码</h3>
+              <p class="b-modal-sub max-w-lg truncate font-code text-xs" :title="rowDeleteTarget?.code">{{ rowDeleteTarget?.code }}</p>
+            </div>
+          </div>
+          <div class="b-modal-body">
+            <div class="b-note">
+              <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
+              <p class="b-note-text">确认删除该条追溯码？删除后数据不可恢复，请谨慎操作。（仅删除当前这一条，不影响同批次其他码）</p>
+            </div>
+          </div>
+          <div class="b-modal-foot">
+            <UButton variant="outline" color="neutral" @click="showRowDeleteModal = false">取消</UButton>
+            <UButton color="error" variant="solid" :loading="rowDeleting" @click="submitRowDelete">确认删除</UButton>
           </div>
         </div>
       </template>
