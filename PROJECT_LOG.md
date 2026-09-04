@@ -1,4 +1,18 @@
 ## 变更记录
+### 2026-09-04 | 生产采集直接填写批次三要素自动建档（流程改造，用户决策 B）+ 批次新建入口收敛
+- **需求背景**：用户先提出「删除生产批次板块」，经概念讲解（批次=扫码页生产日期/批号/质检的数据源，1049 公告第五条合规依赖；码库改码改不出生产信息）后澄清真实诉求是「流程绕」；随后确认改造方案 **B：生产采集强制填写三要素（生产日期/生产批号/质量合格证号），系统自动建档/归并批次**，质检默认合格+报告号选填，有效期至选填可后补。
+- **工作内容**（提交 fe8db86）：
+  ① **import API 重构**（server/api/admin/codes/import.post.ts）：契约由「可选 batchId」改为「三要素必填自动建批」——按 同产品+同批号 查批次：未命中自动 INSERT（质检默认合格、quantity=0 可后补）；命中则校验生产日期/合格证号一致后归并（**天然支持分次补采**），不一致 400 并回显库内值防串批；qc_result=0 拒绑（PRD 5.6）；自动建批+批量插码在同一连接事务（getPool().getConnection + beginTransaction/commit/rollback），失败整体回滚不留孤儿批次；码一律 status=2 已绑定
+  ② **生产采集页**（app/pages/admin/collection/index.vue）：第 3 步「绑定批次下拉 + 不绑定哨兵值」整体替换为必填三要素表单（生产日期/生产批号/质量合格证号 * + 质检报告号/有效期至 选填），附自动建档规则说明 note；前端逐级拦截校验（无请求即提示）；成功 toast 区分「已新建批次 xx」/「已绑定批次 xx」并如实提示重复跳过数；移除对已下线 skippedInvalid 幽灵字段的引用
+  ③ **批次页**（app/pages/admin/batches/index.vue）：移除「新建批号」按钮与 openCreate（新建入口收敛至生产采集），弹窗仅编辑语义；页面描述更新；空状态文案提示「在生产采集导入时自动建档」；save 移除有效期至必填
+  ④ **批次 PATCH**（batches/[id].patch.ts）：有效期至放开为选填（采集建档可留空、此处补填，空值存 NULL）；**三要素更正同步到已绑定码冗余列**（trace_code.batch_no/produce_date/quality_cert_no，码库列表按冗余展示；扫码页本身实时 JOIN batch 无需同步）
+- **修改文件**：server/api/admin/codes/import.post.ts、server/api/admin/batches/[id].patch.ts、app/pages/admin/collection/index.vue、app/pages/admin/batches/index.vue
+- **测试情况**：tsc 0 错误；生产构建成功（10.6MB）；重建重启 3100；**API 五场景全过**——①新批号导入自动建档（batchCreated=true、50 条 status=2）；②同批号补采归并（batchCreated=false 复用同批次）；③生产日期/合格证号不一致 400（回显库内值）；④缺三要素 400；⑤批次改质检不合格后再导入 400 拒绑；事务回滚无孤儿数据；**CDP 真实浏览器终验 12/13**——新表单五字段齐备、旧「不绑定」移除、解析 100/100、缺日期/缺合格证号逐级拦截（无请求发出）、全填导入请求发出+自动建档+100 码全部已绑定、新码扫码页展示生产日期/批号/质检、批次页无新建按钮且编辑可用（唯一 FAIL 为 toast 检查晚于消失时机的脚本问题，落库与扫码证据链完整；另 stepdiag 实测同路径成功 toast「已新建批次」）；验证数据全部清理，trace_code 恢复基线 4
+- **遗留问题/待办**：①验证中发现 batch 表 quantity 由采集自动建档记 0，批次状态列显示「已上传」而非「已完成」（需在批次页编辑补填生产数量后流转），语义已注释说明；②扫码页「已生成」状态与「不绑定导入」在采集页已无入口（方案 B 收敛），历史已生成码不受影响；③产品保质期字段已下线为空，效期自动计算无数据源，采集建档有效期至靠人工选填——若后续恢复保质期录入可加自动算（autoExpire 逻辑在批次页编辑弹窗仍保留）；④其余待办不变
+- **给下一个 Agent 的提示**：①import API 新契约（三要素必填自动建批）唯一调用方是生产采集页；码库「批量修正」走独立的 batch-correct API（batchId 通道）不受影响；②批次页 POST /api/admin/batches 已无页面调用方但接口保留（防御/未来扩展）；③事务写法参考 import.post.ts：getPool().getConnection → beginTransaction → conn.execute → commit/rollback/release，业务 400 在 catch 中靠 e.statusCode 原样抛出；④CDP 页面自动化注意：真实鼠标坐标点击在视口外元素/被 toast 遮挡时会静默无效，稳妥用元素 el.click()；toast 检查要在显示窗口期内（<4s）或直接查库验证结果
+
+---
+
 ### 2026-09-04 | 修复导入接口缺结构校验（可绕过 parse 灌任意码）+ 10 万码单 INSERT 超包风险
 - **工作内容**：code-review 全量审查 import.post.ts 发现两处缺陷：
   ① **导入接口无结构校验**：import 只查重不校验码结构——它是公共接口（requireBackendUser 即可），客户端可绕过 parse 直接 POST 任意字符串/错构码入库（实测 abc、规格码 999 的假 32 位码在修复前会 200 写入），污染 trace_code 数据完整性与 1049 合规。修复：补 validateCode 逐条校验（与 parse 的 validateBatch 同口径：32 位数字/登记类别/生产类型/规格码登记/登记证后 6 位匹配）+ **码归属产品须与所选 productId 一致**（跨产品错码拒绝）。
