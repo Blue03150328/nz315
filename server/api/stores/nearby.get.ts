@@ -91,7 +91,7 @@ export default defineEventHandler(async (event) => {
       address: ([p.pname, p.cityname, p.adname, String(p.address || '').trim()].filter(Boolean).join('')) || '',
       lng: plng,
       lat: plat,
-      phone: String(p.tel || '').split(';')[0].trim() || null,
+      phone: (String(p.tel || '').split(';')[0] || '').trim() || null,
       isAuthorized: false,
       licenseNo: null,
       businessHours: null,
