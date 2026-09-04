@@ -1,4 +1,13 @@
 ## 变更记录
+### 2026-09-04 | 修复导入接口缺结构校验（可绕过 parse 灌任意码）+ 10 万码单 INSERT 超包风险
+- **工作内容**：code-review 全量审查 import.post.ts 发现两处缺陷：
+  ① **导入接口无结构校验**：import 只查重不校验码结构——它是公共接口（requireBackendUser 即可），客户端可绕过 parse 直接 POST 任意字符串/错构码入库（实测 abc、规格码 999 的假 32 位码在修复前会 200 写入），污染 trace_code 数据完整性与 1049 合规。修复：补 validateCode 逐条校验（与 parse 的 validateBatch 同口径：32 位数字/登记类别/生产类型/规格码登记/登记证后 6 位匹配）+ **码归属产品须与所选 productId 一致**（跨产品错码拒绝）。
+  ② **10 万码单条 INSERT 超 max_allowed_packet**：100000 码 × 10 占位符拼单条 INSERT（约百万占位符），可能超 MySQL 包上限致 500。修复：分块 5000/批循环写入。
+  ③ 返回体语义拆分 skippedInvalid（结构/归属不符）与 skippedDup（系统已存在），页面 toast 明确提示跳过原因——多产品文件导入其余码被跳过不再静默丢码。
+- **修改文件**：server/api/admin/codes/import.post.ts、app/pages/admin/collection/index.vue（toast 提示）
+- **测试情况**：tsc 0 错误；生产构建 10.6MB；E2E 三场景——垃圾码（abc/123）400 拒绝、错构 32 位码（规格码 999）400 拒绝、合法码 200 导入并落库核验；测试码已作废清理。提交 0a40d76
+- **遗留问题/待办**：parse 响应 validCodes 仅含码无 matchedProductId，多产品文件需分次导入（UI 已提示 productGroups 标签与跳过提示）；可后续优化为 parse 按产品分组返回码清单
+- **给下一个 Agent 的提示**：①任何入库接口必须与 parse 同口径结构校验（import 是公共接口，勿假设调用方已校验）；②大批量 INSERT 分块写入（5000/批）；③接口返回 skippedInvalid/skippedDup 已拆分，前端勿再按旧语义合并
 ### 2026-09-04 | 修复生产采集「校验成功但导入必失败」（契约断裂）+ 厂家账号解析 500（双重 WHERE）
 - **问题现象**：用户在 /admin/collection 上传桌面码文件（1_25%多·酮可湿性粉剂_200ml_瓶_20260904 (1).txt，100 条），「解析校验」100/100 通过，点「导入 100 条有效码」提示失败。文件码经库内核对 0/100 存在（从未入库），INSERT 手工复现正常——问题不在数据与 SQL 层。
 - **排查过程**：API 直测三账号（admin/lvfeng/codeop）× parse/import 组合——意外发现 **parse 厂家账号恒 500**（此前仅总部账号验证未暴露）；import 直传 codes 数组恒 200，与用户现象相反；最终 **CDP 真实浏览器（Edge headless）页面级复现**（DOM.setFileInputFiles 真实文件 → 解析 → 点导入 + Network 请求/响应观测）才暴露真凶：import 请求发出了，响应 400「没有可导入的码」。
