@@ -375,7 +375,7 @@ const flagBadge = (f: number) => {
               <td>{{ String(row.created_at).slice(0, 16) }}</td>
               <td>
                 <div class="b-actions justify-end">
-                  <UButton variant="link" color="neutral" size="xs" icon="i-lucide-list-details" @click="openDetail(row)">详细</UButton>
+                  <UButton variant="link" color="neutral" size="xs" icon="i-lucide-eye" @click="openDetail(row)">详细</UButton>
                   <span class="b-sep" />
                   <UButton
                     variant="link"
@@ -507,7 +507,7 @@ const flagBadge = (f: number) => {
         <div class="b-modal">
           <div class="b-modal-head">
             <div class="b-modal-icon">
-              <UIcon name="i-lucide-list-details" class="h-4 w-4 text-[var(--b-text-regular)]" />
+              <UIcon name="i-lucide-eye" class="h-4 w-4 text-[var(--b-text-regular)]" />
             </div>
             <div>
               <h3 class="b-modal-title">批次码明细</h3>
