@@ -63,9 +63,10 @@
 - 码校验：`server/utils/code-validator.ts`（32位结构 + 产品/规格匹配 + 查重）
 - 主题：`app/assets/css/main.css`（UI4 变量体系，主色沉稳深绿 hsl(142 32% 30%)，圆角 --ui-radius 0.375rem，中后台克制基调）
 
-### ✅ 项目进度（截至 2026-09-03）
+### ✅ 项目进度（截至 2026-09-04）
 
 **已实现（V1.0 核心）**：
+- **后台业务页 Keep-Alive 缓存（菜单切换保留页面状态）+ 各页重置按钮**（2026-09-04，提交 94572ca / 400daa4 / 4424688）：需求——业务页表单/筛选在左侧菜单切换后保留，切回无需重填。①nuxt.config 开 `experimental.normalizePageNames`（页面组件 name 对齐路由名——NuxtPage Keep-Alive include 按组件 name 匹配，后台页全是 admin/*/index.vue 不开则全叫 index 且会误缓存公众首页）；②11 个业务页 definePageMeta 加 `keepalive: true`（登录页/门户首页/404/公众端页面不缓存，每次进入全新）；③登出清缓存双保险——NuxtLayout 以 layout 名为 key 渲染，admin→登录页切换必然卸载 NuxtPage 与全部缓存实例；useUser.logout 补 clearNuxtData() 防切换账号数据串号；④重置按钮：generator/collection（标题区右侧 resetPage）、settings（resetPanel 按当前 tab）、messages（筛选区）、codes resetSearch 补清批量勾选；⑤数据概览 onActivated 激活静默刷新（纯数据面板，缓存后数字不陈旧）。验证：tsc 0 + nuxt build 前端全流程编译通过；**CDP 运行时验证待执行**（nitro esbuild spawn EPERM + 全权审批无人应答阻塞，脚本 scripts/_tmp-verify-keepalive.mjs 已备，详见 PROJECT_LOG）
 - **自定义段配置固定为平台标准参数**（2026-09-03，提交 16b7efc）：用户决策——追溯码生成「自定义段配置（码第 12 位后 21 位）」去掉三个下拉框固定死：时间戳=毫秒级、随机=6位随机+2位校验、校验=MD5取后2位，仅展示不可修改（防客户乱配置导致追溯码出错）。页面改只读徽标展示（FIXED_SEGMENTS + lock 图标）；服务端 generate API 用 FIXED_CONFIG 锁定、不再接受客户端传参（防绕过）；**引擎 code-generator.ts 零改动**（多选项能力保留供离线工具复用）。验证：tsc 0 + 构建 10.5MB + 引擎冒烟 300 条结构正确（11头+13毫秒+6随机+2MD5校验，校验可重算）+ 端到端 17 项全过（非法传参被忽略返回固定 cfg、SSR 旧下拉选项消失）
 - **含量单位中文化：选项与存储英改中**（2026-09-03，提交 ee803d4）：含量单位下拉「ml/L/g/kg/片/包/粒」→「毫升/升/克/千克/片/包/粒」，仅含量单位（包装单位不动）；存储即中文透传，存量英文由用户自行迁移（不做数据迁移）；选项唯一源 = specs/index.vue UNITS 常量（筛选+表单共用），db-init 注释与演示 seed 同步中文（仅新环境）。验证：tsc 0 + 构建 + 冒烟（毫升落库 HEX 核验/中文筛选命中/ml 筛选仅命中存量）+ SSR 200
 - **规格字段精简：规格码企业内自动分配 + 下线「适用剂型」**（2026-09-03，提交 2e44d16）：用户提出去掉规格新增页的「企业合规码」与「适用剂型」——核查澄清系统无「企业合规码」概念（实为**企业规格码**=32 位码第 9-11 位，1049 强制段不可删），改为**系统自动分配**（企业内 MAX+1 补零 3 位、001 起上限 999、并发撞唯一键自动换码重试，界面不再录入）；适用剂型全库零下游消费（产品建档下拉本就全量启用可见、无剂型过滤）按确认整体下线：specs 三 API + 页面字段/列 + db-init DDL 与 migrate() 幂等删列（已实测）；编辑不再改码且常规编辑补 status 落库（修复编辑弹窗开关不生效缺陷）；产品建档下拉去掉码后缀。验证：tsc 0 + 构建 10.5MB（全权模式）+ 迁移删列 + API 冒烟（自动分配 006/编辑落 status/重复名 400/停用退出启用列表）+ SSR specs/products 200
@@ -95,6 +96,7 @@
 - **「附近农资店」页重做**（2026-09-01，提交 ae2f609）：按用户设计稿实现双布局——PC 左 38% 列表 + 右 62% 整高地图（hover 联动 marker 详情卡）、移动端顶栏+搜索+列表+35vh 折叠地图（可全屏）+ 底部详情弹窗；配色 #f8f9f4/#2c5c3a/#e67e22 仅限本页。新增 fullbleed 无壳布局与 StoreMap 画布组件（单一实例 + CSS 裁剪实现折叠/全屏，零 resize）。CDP 双视口 20 项全通过
 
 **待办（按 PRD 版本规划）**：
+- **Keep-Alive 缓存 CDP 运行时验证**（2026-09-04 阻塞项）：代码已提交但 nitro 构建被沙箱 EPERM + 全权审批无人应答阻塞。恢复步骤：批准全权或沙箱外构建 → `node .output/server/index.mjs`（3100，先 taskkill 旧进程）→ `node scripts/_tmp-verify-keepalive.mjs`（8 场景 30 断言：菜单切换保留/重置仅当前页/F5 清空/登出清缓存/概览激活刷新/登录页不缓存/S4 弹窗残留为未实测风险点——若 UModal teleport 在 deactivated 后残留遮罩，需给 specs/products/batches/codes/settings/alerts 加 onDeactivated 关弹窗）
 - **真机验证 /scan 扫码**：Android Chrome（原生 BarcodeDetector 路径）与 iOS Safari 17+ 各扫一张真实印刷码；确认 HTTPS 下权限弹窗与后置摄像头调用正常
 - **等待用户提供微信凭据**：AppID/AppSecret（另需在公众平台配置网页授权域名 www.nz315.cn）；到位后需真机验证授权回调
 - **上线前**：高德 JS API key 须在控制台配置**域名白名单**（本地未受限但线上必配）；Web服务 key 需确保生产环境额度充足（POI 检索每请求 2 次调用，有 1km 网格缓存）
@@ -106,6 +108,8 @@
 
 | 坑 | 应对 |
 |---|---|
+| **NuxtPage Keep-Alive 按组件 name 匹配 include**（2026-09-04 源码确认） | 页面组件 name 默认=文件名，后台全是 index.vue 同名；页面级缓存必须开 `experimental.normalizePageNames`（name=路由名）再 definePageMeta `keepalive: true`，否则 include 误命中公众首页。清缓存无 API：登出靠布局切换重建 NuxtPage（NuxtLayout 以 layout 名为 key 渲染）+ clearNuxtData 清数据缓存 |
+| **沙箱内全权模式调用可能无限挂起**（2026-09-04 实测） | danger-full-access 命令在审批无人应答时挂满 run_code 600s 墙钟才失败（timeoutMs 不生效），ask_user_question 同样无应答超时。无人值守环境验证构建前先确认审批人在线，或请用户手动构建 |
 | 端口 3000 被农码查残留 dev 实例占用 | 本项目 dev 固定用 **3100**；启动前 `Get-NetTCPConnection -LocalPort 3000` 排查 |
 | npm wrapper（npm.ps1/cmd）损坏 | 直调 `node <npm安装路径>/npm-cli.js install` |
 | mysql2 对 JSON 列自动解析为数组 | 勿再 `JSON.parse`；BIGINT 用 `Number()` 转换 |

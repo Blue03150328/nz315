@@ -1,5 +1,20 @@
 ## 变更记录
 
+### 2026-09-04 | 后台业务页面 Keep-Alive 缓存（菜单切换保留页面状态）+ 各页重置按钮
+- **工作内容**：需求——用户在业务页填表单/筛选后切换左侧菜单再切回，页面保持离开时状态（表单/下拉/筛选/页码），无需重复填写。落地三块：
+  ① **缓存基建**（提交 94572ca）：
+  - nuxt.config 开启 `experimental.normalizePageNames: true`——页面组件 name 对齐路由名。**机制关键**：NuxtPage 的 Keep-Alive include 按组件 name 精确匹配（源码 page.js：componentName = type.name || __name）；后台页面全是 admin/*/index.vue，不开此开关则组件名全为 'index'，include 会误命中公众首页（同为 index.vue）等一切 index 页面
+  - 11 个业务页（数据概览/追溯码生成/码库管理/产品规格/产品/批次/采集/扫码统计/系统设置/风险预警/消息中心）definePageMeta 加 `keepalive: true`——经 NuxtPage 内部 keepAliveInclude 集合自动按组件 name 缓存；登录页（layout:false）/门户首页/404/公众端页面无此 meta → 不缓存，每次进入全新初始
+  - **登出清缓存双保险**：①页面 Keep-Alive 实例随布局切换销毁——NuxtLayout 以 layout 名为 key 渲染（源码 nuxt-layout.js：h(LayoutLoader,{key:name})），admin→登录页（layout:false）切换必然卸载 NuxtPage 与其全部缓存实例；②useUser.logout() finally 补 `clearNuxtData()`——清空全部 useFetch/useAsyncData 内存缓存，防切换账号后旧账号接口数据被同 key 缓存复用（数据串号）
+  ② **重置按钮补齐**（提交 400daa4）：generator/collection 新增 resetPage（清表单+结果+预览，按钮在页面标题区右侧）；settings 新增 resetPanel（按当前激活 tab 重置：企业信息/通知配置回填已保存值=放弃草稿，用户/日志清空筛选刷新，数据备份提示无表单）；messages 补筛选重置按钮（与其他列表页一致放筛选卡查询旁）；codes resetSearch 补清空批量勾选。既有 6 个列表页（codes/specs/products/batches/alerts/statistics）本就有筛选重置按钮，语义已是「仅重置当前页」
+  ③ **数据概览激活静默刷新**（提交 4424688）：概览为纯数据面板（无表单/筛选类用户状态），被缓存后切回沿用旧数字会误导操作；onActivated 首帧守卫跳过（首次进入 useFetch 已取数），缓存激活时静默 refreshStats——onActivated/onDeactivated 用法示例（开发备忘要求的生命周期规范）
+- **修改文件**：nuxt.config.ts、app/composables/useUser.ts、app/layouts/admin.vue（注释）、app/pages/admin/ 下 11 个业务页（meta + 重置按钮）
+- **测试情况**：tsc 0 错误；nuxt build 前端全流程编译通过（1184 modules，含全部页面改动与配置——证明代码/配置无编译错误）；**运行时 CDP 验证未完成**——被环境阻塞：nitro 打包阶段 esbuild spawn EPERM（沙箱禁子进程管道，AGENTS 已知踩坑），dev 模式同 EPERM 不可用；全权模式（danger-full-access）4 次调用 + ask_user 均挂起 600s 超时（审批无人应答）。验证脚本已备 scripts/_tmp-verify-keepalive.mjs（S1 表单保留/S2 筛选保留/S3 重置仅当前页/S4 弹窗残留/S5 F5 清空/S6 登出清缓存/S7 概览激活刷新/S8 登录页不缓存 8 场景 30 项断言）
+- **遗留问题/待办**：①**CDP 运行时验证待执行**（步骤：批准全权或沙箱外跑 `node "E:\software\nodejs\install\node_modules\npm\bin\npm-cli.js" run build` → `node .output/server/index.mjs`（3100）→ `node scripts/_tmp-verify-keepalive.mjs`）；②S4 弹窗残留为**未实测风险点**——Vue 3.5 keep-alive + UModal（teleport to body）在页面 deactivated 时遮罩是否残留需 CDP 实测，若残留需给有弹窗的缓存页（specs/products/batches/codes/settings/alerts）加 onDeactivated 关闭弹窗；③跨布局跳转（后台→门户首页/登录页）会清空全部后台缓存（NuxtLayout key 机制所致）——属设计内行为（需求仅要求左侧菜单切换保留），如需跨布局保留需另行重构布局层级；④其余待办不变
+- **给下一个 Agent 的提示**：①Keep-Alive 机制 = NuxtPage 源码（node_modules/nuxt/dist/pages/runtime/page.js）：页面级 `definePageMeta keepalive:true` 会把该页组件 name 加入 include；**新增缓存页只需加 meta，勿手写 include 列表**；②页面组件 name 依赖 normalizePageNames（开启后 name=路由名），此配置勿删，否则 'index' 同名会让公众首页也被缓存；③业务页状态全部在组件内部 ref/reactive（本项目页面零 onMounted/零 route.query 依赖），keepalive 缓存组件实例即可 100% 保留，无需其它持久化；④F5/关标签为内存级缓存天然清空（JS 不可拦截，开发备忘已确认属设计行为）；⑤沙箱内 nitro 构建/dev 均 EPERM 且全权审批可能无人应答——验证前先确认审批人在线，或让用户手动构建；⑥3100 有历史遗留旧构建服务器进程（脱离 job 常驻），验证新代码前先 taskkill 旧进程
+
+---
+
 ### 2026-09-03 | 修复规格编辑状态丢失 + 产品规格下拉停用规格回显两处 bug
 - **工作内容**：按 code-review 全量审查（crg + semgrep + tsc + 真机 E2E）发现并修复 2 处规格/产品模块缺陷：
   ① **规格编辑静默停用缺陷**（specs/[id].patch.ts）：常规编辑 UPDATE 中 status 取值 `Number(body.status) ? 1 : 0`——请求体未携带 status 时 Number(undefined)=NaN，NaN 为 falsy 被判为 0（停用），启用中的规格只要编辑时没传 status 就被静默停用（前端现恒传 status 未触发，但 API 缺防御，任何客户端漏传即中招）。修复：未传 status 保留原值（与 products/[id].patch.ts 的 prod.status 语义一致），显式传才覆盖。
