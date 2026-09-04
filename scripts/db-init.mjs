@@ -257,6 +257,22 @@ const DDL = [
     KEY idx_company (company),
     KEY idx_expire (expire_date)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='农药登记数据源字典表（产品表单自动回填）'`,
+  // 上传文件批次（2026-09-04 码库管理聚合改造：生产采集每上传一份追溯码文件即一行；trace_code.upload_batch_id 关联）
+  `CREATE TABLE IF NOT EXISTS upload_batch (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    enterprise_id BIGINT NOT NULL,
+    file_name VARCHAR(255) NOT NULL COMMENT '上传原始文件名（码库管理批次名称）',
+    product_id BIGINT NULL COMMENT '关联产品（导入时快照）',
+    batch_id BIGINT NULL COMMENT '归并的生产批次（导入时快照）',
+    batch_no VARCHAR(64) NULL COMMENT '生产批号（导入时快照）',
+    produce_date DATE NULL COMMENT '生产日期（导入时快照）',
+    quality_cert_no VARCHAR(64) NULL COMMENT '质量合格证号（导入时快照）',
+    created_by BIGINT NULL COMMENT '导入人 user_id',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '上传时间',
+    KEY idx_ent_created (enterprise_id, created_at),
+    KEY idx_product (product_id),
+    KEY idx_batch_id (batch_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='上传文件批次（码库管理聚合维度，生产采集导入时创建）'`,
 ];
 
 // 增量迁移：CREATE TABLE IF NOT EXISTS 不会修改已存在的表，历史库需单独补列/补索引（幂等）
@@ -292,10 +308,38 @@ async function migrate(conn) {
     console.log('[db] 迁移：trace_code 删除列 outer_box_code（外箱码模块已移除）');
   }
 
+  // trace_code.upload_batch_id：码库管理按上传文件批次聚合（2026-09-04 改造）——导入码带文件批次归属，历史码由 backfill 归并
+  if (!(await hasColumn('trace_code', 'upload_batch_id'))) {
+    await conn.query("ALTER TABLE trace_code ADD COLUMN upload_batch_id BIGINT NULL COMMENT '上传文件批次ID（upload_batch）' AFTER uploaded_at");
+    console.log('[db] 迁移：trace_code 补充列 upload_batch_id');
+  }
+  if (!(await hasIndex('trace_code', 'idx_upload_batch'))) {
+    await conn.query('ALTER TABLE trace_code ADD KEY idx_upload_batch (upload_batch_id)');
+    console.log('[db] 迁移：trace_code 补充索引 idx_upload_batch');
+  }
+
   // product_spec.dosage_forms：适用剂型字段已下线（2026-09-03 用户决策：规格不限定剂型），历史库清理（幂等）
   if (await hasColumn('product_spec', 'dosage_forms')) {
     await conn.query('ALTER TABLE product_spec DROP COLUMN dosage_forms');
     console.log('[db] 迁移：product_spec 删除列 dosage_forms（适用剂型已下线）');
+  }
+}
+
+// 历史码兜底归档（2026-09-04 码库聚合改造）：改造前导入的码无 upload_batch_id，
+// 码库管理（按上传文件批次聚合）将不可见——按企业归并到一条「历史数据」批次，幂等（只处理仍为 NULL 的码）
+async function backfillUploadBatches(conn) {
+  const [groups] = await conn.query(
+    'SELECT enterprise_id, COUNT(*) AS c FROM trace_code WHERE upload_batch_id IS NULL GROUP BY enterprise_id'
+  );
+  for (const g of groups) {
+    const [r] = await conn.query(
+      'INSERT INTO upload_batch (enterprise_id, file_name, product_id, batch_id, batch_no, produce_date, quality_cert_no, created_by) VALUES (?,?,NULL,NULL,NULL,NULL,NULL,NULL)',
+      [g.enterprise_id, '历史数据（码库聚合改造前导入）']
+    );
+    const [up] = await conn.query(
+      'UPDATE trace_code SET upload_batch_id = ? WHERE enterprise_id = ? AND upload_batch_id IS NULL', [r.insertId, g.enterprise_id]
+    );
+    console.log('[db] 迁移：历史码归并 upload_batch#' + r.insertId + '（企业 ' + g.enterprise_id + '，' + up.affectedRows + ' 条，原文件信息不可考）');
   }
 }
 
@@ -410,6 +454,9 @@ async function main() {
 
   // 4) seed
   await seed(conn);
+
+  // 5) 历史码兜底归档（upload_batch 聚合维度，幂等）
+  await backfillUploadBatches(conn);
   await conn.end();
   console.log('[db] 初始化完成');
 }

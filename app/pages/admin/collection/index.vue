@@ -102,6 +102,9 @@ const doImport = async () => {
         qualityCertNo: importForm.qualityCertNo.trim(),
         qcReportNo: importForm.qcReportNo.trim() || undefined,
         expireDate: importForm.expireDate || undefined,
+        // 上传文件批次名称 = 原始文件名（码库管理按文件批次聚合展示；粘贴导入无文件时为 undefined，
+        // 服务端自动命名「手动导入 时间」）
+        fileName: fileName.value || undefined,
       },
     })
     // 成功提示区分「新建批次」与「归并已有批次」（补采）；校验失败/重复码数如实提示

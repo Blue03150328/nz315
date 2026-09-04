@@ -1,4 +1,6 @@
 // GET /api/admin/codes —— 码列表查询（PRD 5.5.7：筛选/分页/搜索）
+// 2026-09-04 码库聚合改造：新增可选参数 uploadBatchId——码库管理「详细」弹窗按上传批次查看单条明细
+// （原单条列表逻辑不变，未传该参数时行为与改造前一致）
 import { query } from '../../utils/db'
 import { requireBackendUser } from '../../utils/auth'
 
@@ -22,6 +24,7 @@ export default defineEventHandler(async (event) => {
   if (q.status) { conds.push('t.status = ?'); params.push(Number(q.status)) }
   if (q.abnormalFlag !== undefined && q.abnormalFlag !== '') { conds.push('t.abnormal_flag = ?'); params.push(Number(q.abnormalFlag)) }
   if (q.productId) { conds.push('t.product_id = ?'); params.push(Number(q.productId)) }
+  if (q.uploadBatchId) { conds.push('t.upload_batch_id = ?'); params.push(Number(q.uploadBatchId)) }
   if (q.dateFrom) { conds.push('t.created_at >= ?'); params.push(String(q.dateFrom) + ' 00:00:00') }
   if (q.dateTo) { conds.push('t.created_at <= ?'); params.push(String(q.dateTo) + ' 23:59:59') }
 

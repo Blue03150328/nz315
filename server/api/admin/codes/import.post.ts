@@ -2,6 +2,9 @@
 // 2026-09-04 流程改造（用户决策 B）：批次三要素（生产日期/批号/质量合格证号）必填，
 // 由本接口自动「创建或匹配」批次——批号不存在则自动建批（质检默认合格），已存在则校验一致后归并
 // （天然支持分次补采）；码一律置「已绑定」。生产批次新建入口已收敛到生产采集，批次页只读管理。
+// 2026-09-04 码库聚合改造：同一事务内为本次导入创建「上传文件批次」记录（upload_batch，一份上传
+// 文件=一行，fileName 取生产采集页的原始文件名，缺省自动命名），trace_code.upload_batch_id 关联，
+// 码库管理页面按此维度聚合展示；响应新增 uploadBatchId 供前端回显。
 // 安全防线（合并 0a40d76 的导入防护，勿回退）：
 //   ① 逐条结构校验（cleanLine+validateCode，与 parse 同口径）——import 是公共接口，只查重不校验结构
 //      时客户端可绕过 parse 直接灌任意字符串/错构码（如 abc、规格码 999 假 32 位码），污染合规数据；
@@ -31,6 +34,11 @@ export default defineEventHandler(async (event) => {
   const qualityCertNo = String(body.qualityCertNo || '').trim()
   const qcReportNo = String(body.qcReportNo || '').trim() || null
   const expireDate = String(body.expireDate || '').trim() || null
+  // 上传文件批次名称 = 原始文件名（码库管理聚合行名）；粘贴导入等无文件场景自动命名
+  const rawFileName = String(body.fileName || '').trim().slice(0, 255)
+  const nowTs = new Date()
+  const pad2 = (n: number) => String(n).padStart(2, '0')
+  const fileName = rawFileName || ('手动导入 ' + nowTs.getFullYear() + '-' + pad2(nowTs.getMonth() + 1) + '-' + pad2(nowTs.getDate()) + ' ' + pad2(nowTs.getHours()) + ':' + pad2(nowTs.getMinutes()))
 
   if (codes.length === 0) throw createError({ statusCode: 400, statusMessage: '没有可导入的码' })
   if (codes.length > 100000) throw createError({ statusCode: 400, statusMessage: '单次最多 10 万条码' })
@@ -88,6 +96,7 @@ export default defineEventHandler(async (event) => {
   let batchId: number
   let batchCreated = false
   let inserted = 0
+  let uploadBatchId = 0
   try {
     await conn.beginTransaction()
 
@@ -120,16 +129,23 @@ export default defineEventHandler(async (event) => {
       batchCreated = true
     }
 
-    // 2) 分块批量插码：批次三要素冗余 + 状态=2 已绑定（PRD 5.5.4：三要素齐全自动流转）
+    // 2) 上传文件批次建档（码库管理聚合维度：一份上传文件 = 一行 upload_batch，与插码同事务，
+    //    失败整体回滚不留孤儿批次行）
+    const [ubRes] = await conn.execute(
+      'INSERT INTO upload_batch (enterprise_id, file_name, product_id, batch_id, batch_no, produce_date, quality_cert_no, created_by) VALUES (?,?,?,?,?,?,?,?)',
+      [enterpriseId, fileName, productId, batchId, batchNo, produceDate, qualityCertNo, user.id]) as unknown as [{ insertId: number }, unknown]
+    uploadBatchId = Number(ubRes.insertId)
+
+    // 3) 分块批量插码：批次三要素冗余 + 状态=2 已绑定（PRD 5.5.4：三要素齐全自动流转）+ 上传批次归属
     for (let i = 0; i < finalCodes.length; i += CHUNK) {
       const chunk = finalCodes.slice(i, i + CHUNK)
       const values: any[] = []
-      const valuePlaceholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?)').join(',')
+      const valuePlaceholders = chunk.map(() => '(?,?,?,?,?,?,?,?,?,?,?)').join(',')
       for (const code of chunk) {
-        values.push(enterpriseId, code, productId, batchId, produceDate, batchNo, qualityCertNo, 2, 0, null)
+        values.push(enterpriseId, code, productId, batchId, produceDate, batchNo, qualityCertNo, 2, 0, null, uploadBatchId)
       }
       const [r] = await conn.execute(
-        'INSERT INTO trace_code (enterprise_id, code, product_id, batch_id, produce_date, batch_no, quality_cert_no, status, abnormal_flag, abnormal_reason) VALUES ' + valuePlaceholders,
+        'INSERT INTO trace_code (enterprise_id, code, product_id, batch_id, produce_date, batch_no, quality_cert_no, status, abnormal_flag, abnormal_reason, upload_batch_id) VALUES ' + valuePlaceholders,
         values) as unknown as [{ affectedRows: number }, unknown]
       inserted += Number(r.affectedRows || 0)
     }
@@ -148,7 +164,7 @@ export default defineEventHandler(async (event) => {
   await sendMessage({
     enterpriseId, type: 'upload_done',
     title: '生产采集导入完成',
-    content: '成功导入 ' + inserted + ' 条追溯码，已绑定批次 ' + batchNo + '（' + produceDate + '）',
+    content: '成功导入 ' + inserted + ' 条追溯码（' + fileName + '），已绑定批次 ' + batchNo + '（' + produceDate + '）',
     link: '/admin/codes',
   })
 
@@ -160,6 +176,8 @@ export default defineEventHandler(async (event) => {
     batchId,
     batchNo,
     batchCreated,
+    uploadBatchId: Number(uploadBatchId),
+    fileName,
     status: '已绑定',
   }
 })
