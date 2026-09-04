@@ -1,4 +1,17 @@
 ## 变更记录
+### 2026-09-04 | 修复生产采集「校验成功但导入必失败」（契约断裂）+ 厂家账号解析 500（双重 WHERE）
+- **问题现象**：用户在 /admin/collection 上传桌面码文件（1_25%多·酮可湿性粉剂_200ml_瓶_20260904 (1).txt，100 条），「解析校验」100/100 通过，点「导入 100 条有效码」提示失败。文件码经库内核对 0/100 存在（从未入库），INSERT 手工复现正常——问题不在数据与 SQL 层。
+- **排查过程**：API 直测三账号（admin/lvfeng/codeop）× parse/import 组合——意外发现 **parse 厂家账号恒 500**（此前仅总部账号验证未暴露）；import 直传 codes 数组恒 200，与用户现象相反；最终 **CDP 真实浏览器（Edge headless）页面级复现**（DOM.setFileInputFiles 真实文件 → 解析 → 点导入 + Network 请求/响应观测）才暴露真凶：import 请求发出了，响应 400「没有可导入的码」。
+- **根因 1：parse 响应缺完整码清单 → 页面构造空数组（提交 7fe926f，用户问题主因）**——parse.post.ts 响应只返回前 20 条 preview（完整 results 从未返回），页面 doImport 却从 `parseResult.results.filter(r => r.valid)` 构造导入码数组 → 恒为空 → import 400「没有可导入的码」。**该契约断裂使生产采集「解析→导入」完整链路自 V1.0 起即不可用**，此前验证均 API 直测（绕过页面构造逻辑）未暴露。修复：parse 响应新增 `validCodes`（全部有效码）；页面改读 validCodes（保留 results 过滤兜底防版本错配）。
+- **根因 2：parse 企业过滤双重 WHERE（提交 858fbe7）**——prodCond 前缀误用 `' WHERE enterprise_id = ?'`，拼出 `WHERE status = 1 WHERE enterprise_id = ?` / `WHERE 1=1 WHERE ...` 双重 WHERE 语法错误 → 厂家账号（lvfeng/codeop）解析文件必 500 Server Error。改为 `' AND ...'` 与全库范式一致。全库 grep 复查：generate.post.ts 同款写法但基底无 WHERE（`SELECT code FROM trace_code` + WHERE）实际正确，未动；其余接口均为正确范式。
+- **附带修复（提交 aee5f70）**：tsc 报存量错误 nearby.get.ts `String().split(';')[0].trim()`（noUncheckedIndexedAccess 下索引访问为 string|undefined → TS2532），加空串兜底，恢复 tsc 0 基线。
+- **修改文件**：server/api/admin/codes/parse.post.ts（validCodes + AND 前缀）、app/pages/admin/collection/index.vue（doImport 取码逻辑）、server/api/stores/nearby.get.ts（TS 类型）
+- **测试情况**：tsc 0 错误；生产构建成功（10.5MB）；重建并重启 3100 服务器（现跑修复版）；API 验证——lvfeng parse 200（修复前 500）、validCodes 100 条齐全、import 200；**CDP 页面级全流程 PASS**——admin 登录 → /admin/collection → 真实文件选择（3299 字符）→ 解析 toast「有效 100 / 无效 0」→ 点击导入 → import 请求 200 → **落库 100 条**（验证后清理恢复，trace_code 回到基线 4 条）；Edge headless 需要在全权环境启动（沙箱内 Edge 崩溃退出码 21/-2147483645，临时目录被沙箱重定向所致）
+- **遗留问题/待办**：①生产采集页面级完整导入链路建议纳入常规回归（本次暴露 V1.0 起即坏的页面流程，说明验证偏重 API 直测）；②CDP 复现脚本 scripts/_tmp-repro-cdp-import.mjs 保留（_tmp 前缀不入库），复用需全权环境跑 Edge；③其余待办不变
+- **给下一个 Agent 的提示**：①**前端依赖 API 响应字段时以接口契约为准，改动 API 返回体前先 grep 前端消费字段**（本次 parse 响应无 results、页面却 filter results，静默空数组 + 400，页面与接口各自看起来都正常）；②**厂家账号路径是验证盲区**——多租户企业过滤 SQL 条件前缀必须用 `' AND ...'`（基底已有 WHERE 时 `' WHERE ...'` 拼出双重 WHERE 必 500），新写接口后至少用 lvfeng/codeop 账号冒烟一次；③验证「页面操作类功能」优先 CDP 真实浏览器而非 API 直测；④Edge headless 启动需全权（无沙箱）环境，profile 目录独立；DOM.setFileInputFiles 前必须先 DOM.getDocument 拿 root nodeId
+
+---
+
 
 ### 2026-09-04 | 后台业务页面 Keep-Alive 缓存（菜单切换保留页面状态）+ 各页重置按钮
 - **工作内容**：需求——用户在业务页填表单/筛选后切换左侧菜单再切回，页面保持离开时状态（表单/下拉/筛选/页码），无需重复填写。落地三块：

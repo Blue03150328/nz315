@@ -66,6 +66,7 @@
 ### ✅ 项目进度（截至 2026-09-04）
 
 **已实现（V1.0 核心）**：
+- **修复生产采集「校验成功但导入必失败」+ 厂家账号解析 500**（2026-09-04，提交 7fe926f / 858fbe7 / aee5f70）：用户实测发现——生产采集页面上传码文件解析 100/100 通过、点导入提示失败。CDP 真实浏览器页面级复现定位两处根因：①**契约断裂（主因）**：parse.post.ts 响应从不返回完整 results（仅前 20 条 preview），页面 doImport 依赖 parseResult.results 过滤构造导入码数组 → 恒空 → import 400「没有可导入的码」——生产采集「解析→导入」链路自 V1.0 起即坏（API 直测绕过页面构造逻辑未暴露）；修复：parse 响应新增 validCodes 全量有效码，页面改读 validCodes；②**parse 企业过滤双重 WHERE**：prodCond 前缀 ' WHERE ' 拼出双重 WHERE → 厂家账号（lvfeng/codeop）解析必 500（仅总部账号正常，厂家路径为验证盲区），改 ' AND ' 与全库范式一致；③附带修复 nearby.get.ts TS2532 存量错误（tsc 0 基线）。验证：tsc 0 + 重建重启 3100 + CDP 全流程（真实文件→解析→导入→落库 100 条→清理恢复）；脚本 scripts/_tmp-repro-cdp-import.mjs 可复用
 - **后台业务页 Keep-Alive 缓存（菜单切换保留页面状态）+ 各页重置按钮**（2026-09-04，提交 94572ca / 400daa4 / 4424688）：需求——业务页表单/筛选在左侧菜单切换后保留，切回无需重填。①nuxt.config 开 `experimental.normalizePageNames`（页面组件 name 对齐路由名——NuxtPage Keep-Alive include 按组件 name 匹配，后台页全是 admin/*/index.vue 不开则全叫 index 且会误缓存公众首页）；②11 个业务页 definePageMeta 加 `keepalive: true`（登录页/门户首页/404/公众端页面不缓存，每次进入全新）；③登出清缓存双保险——NuxtLayout 以 layout 名为 key 渲染，admin→登录页切换必然卸载 NuxtPage 与全部缓存实例；useUser.logout 补 clearNuxtData() 防切换账号数据串号；④重置按钮：generator/collection（标题区右侧 resetPage）、settings（resetPanel 按当前 tab）、messages（筛选区）、codes resetSearch 补清批量勾选；⑤数据概览 onActivated 激活静默刷新（纯数据面板，缓存后数字不陈旧）。验证：tsc 0 + 全权构建 11.1MB + **CDP 25/25 全过**（表单/筛选切换保留、切回不重复请求、重置仅当前页、弹窗切走无残留、F5 清空、登出换账号无残留、概览激活刷新、登录页不缓存）+ SSR 14 页 200；脚本 scripts/_tmp-verify-keepalive.mjs 可复用回归
 - **自定义段配置固定为平台标准参数**（2026-09-03，提交 16b7efc）：用户决策——追溯码生成「自定义段配置（码第 12 位后 21 位）」去掉三个下拉框固定死：时间戳=毫秒级、随机=6位随机+2位校验、校验=MD5取后2位，仅展示不可修改（防客户乱配置导致追溯码出错）。页面改只读徽标展示（FIXED_SEGMENTS + lock 图标）；服务端 generate API 用 FIXED_CONFIG 锁定、不再接受客户端传参（防绕过）；**引擎 code-generator.ts 零改动**（多选项能力保留供离线工具复用）。验证：tsc 0 + 构建 10.5MB + 引擎冒烟 300 条结构正确（11头+13毫秒+6随机+2MD5校验，校验可重算）+ 端到端 17 项全过（非法传参被忽略返回固定 cfg、SSR 旧下拉选项消失）
 - **含量单位中文化：选项与存储英改中**（2026-09-03，提交 ee803d4）：含量单位下拉「ml/L/g/kg/片/包/粒」→「毫升/升/克/千克/片/包/粒」，仅含量单位（包装单位不动）；存储即中文透传，存量英文由用户自行迁移（不做数据迁移）；选项唯一源 = specs/index.vue UNITS 常量（筛选+表单共用），db-init 注释与演示 seed 同步中文（仅新环境）。验证：tsc 0 + 构建 + 冒烟（毫升落库 HEX 核验/中文筛选命中/ml 筛选仅命中存量）+ SSR 200
@@ -107,6 +108,8 @@
 
 | 坑 | 应对 |
 |---|---|
+| **前端依赖 API 响应字段时以接口契约为准（契约断裂静默成 400）**（2026-09-04 实测） | parse.post.ts 响应只含前 20 条 preview（完整 results 从未返回），生产采集页 doImport 却 `parseResult.results.filter(valid)` 构造导入码数组 → 恒空 → import 400「没有可导入的码」。接口与页面各自看似正常、API 直测永不暴露。改 API 返回体先 grep 前端消费字段；「页面操作类功能」验证用 CDP 真实浏览器而非 API 直测 |
+| **多租户 SQL 条件前缀必须 `' AND ...'`，`' WHERE ...'` 拼出双重 WHERE**（2026-09-04 实测） | 基底已有 WHERE（`WHERE status = 1`/`WHERE 1=1`）时拼接 `' WHERE enterprise_id = ?'` → 双重 WHERE 语法错误，厂家账号（lvfeng/codeop）解析文件必 500；总部账号无过滤参数正常 → 厂家路径成验证盲区（与 3fd51b3 统计 500 同类）。新写/改动企业过滤接口后至少用厂家账号冒烟一次 |
 | **NuxtPage Keep-Alive 按组件 name 匹配 include**（2026-09-04 源码确认） | 页面组件 name 默认=文件名，后台全是 index.vue 同名；页面级缓存必须开 `experimental.normalizePageNames`（name=路由名）再 definePageMeta `keepalive: true`，否则 include 误命中公众首页。清缓存无 API：登出靠布局切换重建 NuxtPage（NuxtLayout 以 layout 名为 key 渲染）+ clearNuxtData 清数据缓存 |
 | **沙箱内全权模式调用可能无限挂起**（2026-09-04 实测） | danger-full-access 命令在审批无人应答时挂满 run_code 600s 墙钟才失败（timeoutMs 不生效），ask_user_question 同样无应答超时。无人值守环境验证构建前先确认审批人在线，或请用户手动构建 |
 | 端口 3000 被农码查残留 dev 实例占用 | 本项目 dev 固定用 **3100**；启动前 `Get-NetTCPConnection -LocalPort 3000` 排查 |
