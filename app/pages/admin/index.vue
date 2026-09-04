@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 数据概览仪表盘（PRD 5.2：统计卡片/状态分布/产品分布/30 天趋势/快捷入口；5.5.8：码库存预警）
+// 数据概览仪表盘（PRD 5.2：统计卡片/状态分布/产品分布/30 天趋势；5.5.8：码库存预警；快捷入口板块已按用户要求下线）
 // Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '数据概览' })
@@ -48,18 +48,6 @@ const cards = computed(() => [
   { label: '待处理异常', value: stats.value?.abnormalCodes ?? '--', icon: 'i-lucide-shield-alert', color: 'text-amber-600', bg: 'bg-[var(--b-fill)]' },
   { label: '待处理预警', value: stats.value?.pendingAlerts ?? '--', icon: 'i-lucide-bell-ring', color: 'text-red-600', bg: 'bg-[var(--b-fill)]' },
 ])
-
-// 快捷入口（PRD 5.2 P2）
-const quickLinks = [
-  { label: '生产采集', to: '/admin/collection', icon: 'i-lucide-upload-cloud', color: 'text-[var(--b-text-muted)]' },
-  { label: '追溯码生成', to: '/admin/generator', icon: 'i-lucide-qr-code', color: 'text-[var(--b-text-muted)]' },
-  { label: '码库管理', to: '/admin/codes', icon: 'i-lucide-database', color: 'text-[var(--b-text-muted)]' },
-  { label: '产品管理', to: '/admin/products', icon: 'i-lucide-package', color: 'text-[var(--b-text-muted)]' },
-  { label: '生产批次', to: '/admin/batches', icon: 'i-lucide-layers', color: 'text-[var(--b-text-muted)]' },
-  { label: '扫码统计', to: '/admin/statistics', icon: 'i-lucide-bar-chart-3', color: 'text-[var(--b-text-muted)]' },
-  { label: '风险预警', to: '/admin/alerts', icon: 'i-lucide-shield-alert', color: 'text-[var(--b-text-muted)]' },
-  { label: '消息中心', to: '/admin/messages', icon: 'i-lucide-bell', color: 'text-[var(--b-text-muted)]' },
-]
 
 // 近 30 天扫码趋势折线图（SVG 自绘：面积渐变 + 折线 + 数据点 + 轴刻度）
 const trend = computed(() => stats.value?.scanTrend || [])
@@ -128,23 +116,6 @@ const pct = (n: number) => Math.round(n * 100) + '%'
           <span>{{ c.label }}</span>
         </div>
         <div class="b-stat-value">{{ c.value }}</div>
-      </div>
-    </div>
-
-    <!-- 快捷入口（PRD 5.2 P2） -->
-    <div class="b-card">
-      <div class="b-card-head">
-        <span class="b-card-title">快捷入口</span>
-        <span class="b-card-extra">常用功能一键直达</span>
-      </div>
-      <div class="grid grid-cols-4 gap-2 p-4 lg:grid-cols-8">
-        <NuxtLink
-          v-for="l in quickLinks" :key="l.to" :to="l.to"
-          class="flex flex-col items-center gap-1.5 rounded border border-[var(--b-border)] py-3 text-xs text-[var(--b-text-regular)] transition hover:bg-[var(--b-fill)]"
-        >
-          <UIcon :name="l.icon" class="h-4 w-4" :class="l.color" />
-          {{ l.label }}
-        </NuxtLink>
       </div>
     </div>
 
