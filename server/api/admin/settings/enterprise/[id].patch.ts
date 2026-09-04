@@ -35,7 +35,9 @@ export default defineEventHandler(async (event) => {
      String(body.description || '').trim() || null,
      String(body.licenseNo || '').trim() || null,
      body.qualificationExpire || null,
-     user.role === 'platform_admin' ? (body.status === 0 ? 0 : 1) : Number(ent.status),
+     user.role === 'platform_admin'
+       ? (body.status === undefined || body.status === null ? (Number(ent.status) === 0 ? 0 : 1) : (Number(body.status) === 0 ? 0 : 1))
+       : Number(ent.status),
      id]
   )
   // 审计日志（含修改前后摘要）

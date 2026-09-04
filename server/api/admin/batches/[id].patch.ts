@@ -29,9 +29,12 @@ export default defineEventHandler(async (event) => {
     [batch.product_id, batchNo, id])
   if (dup) throw createError({ statusCode: 400, statusMessage: '该产品下批次号已存在' })
 
+  // qc_result 未传时保留原值（body.qcResult === 0 ? 0 : 1 会把未传值误判为合格——
+  // 若用户只改其它字段，不合格批次会被静默改为合格，绕过「质检不合格不可绑定」防线）
+  const qcResult = body.qcResult === undefined || body.qcResult === null ? (Number(batch.qc_result) === 0 ? 0 : 1) : (Number(body.qcResult) === 0 ? 0 : 1)
   await execute(
     'UPDATE batch SET batch_no = ?, produce_date = ?, quality_cert_no = ?, expire_date = ?, qc_result = ?, qc_report_no = ?, quantity = ? WHERE id = ?',
-    [batchNo, produceDate, qualityCertNo, expireDate, body.qcResult === 0 ? 0 : 1, String(body.qcReportNo || '').trim() || null, quantity, id]
+    [batchNo, produceDate, qualityCertNo, expireDate, qcResult, String(body.qcReportNo || '').trim() || null, quantity, id]
   )
   // 三要素更正同步到已绑定码的冗余列（码库列表/筛选按冗余展示），扫码页本身实时 JOIN batch 不受影响
   await execute(

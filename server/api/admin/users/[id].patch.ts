@@ -24,12 +24,18 @@ export default defineEventHandler(async (event) => {
   const body = await readBody(event) || {}
   const name = String(body.name || '').trim()
   const phone = String(body.phone || '').trim()
+  // status 未传时保留原值（body.status === 0 ? 0 : 1 会把未传值误判为启用——
+  // 编辑被禁用用户的名字/电话会将其静默复活，属账号状态安全缺陷）
+  const nextStatus = body.status === undefined || body.status === null
+    ? (Number(target.status) === 0 ? 0 : 1)
+    : (Number(body.status) === 0 ? 0 : 1)
+  const action = nextStatus === 0 ? '禁用用户' : Number(target.status) === 0 ? '启用用户' : '编辑用户'
 
-  await execute('UPDATE \`user\` SET name = ?, phone = ?, status = ? WHERE id = ?', [name || null, phone || null, body.status === 0 ? 0 : 1, id])
+  await execute('UPDATE \`user\` SET name = ?, phone = ?, status = ? WHERE id = ?', [name || null, phone || null, nextStatus, id])
   await logOperation(event, {
     module: '用户管理',
-    action: body.status === 0 ? '禁用用户' : body.status === 1 && Number(target.status) === 0 ? '启用用户' : '编辑用户',
-    content: JSON.stringify({ id, username: target.username, name, phone, status: body.status === 0 ? 0 : 1 }),
+    action,
+    content: JSON.stringify({ id, username: target.username, name, phone, status: nextStatus }),
   })
   return { ok: true }
 })
