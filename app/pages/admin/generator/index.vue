@@ -47,6 +47,15 @@ const headPreview = computed(() => {
 // 分段预览配色映射（纯样式常量）：统一为 B 端「浅底深字」标签，降低饱和度
 const SEGMENT_COLORS = ['b-tag-danger', 'b-tag-info', 'b-tag-warning', 'b-tag-success', 'b-tag-default']
 
+// 页内【重置】：清空生成表单与全部结果/预览，恢复页面初始状态（Keep-Alive 缓存页互不影响）
+const resetPage = () => {
+  Object.assign(form, { productId: null, quantity: 100 })
+  result.value = null
+  Object.assign(imgForm, { codeType: 'QR', moduleSize: 4, quietZone: 2, count: null, prefix: '', startIndex: 1 })
+  imgResult.value = null
+  toast.add({ title: '已重置，页面恢复初始状态', color: 'primary' })
+}
+
 const doGenerate = async () => {
   if (!form.productId) { toast.add({ title: '请选择产品', color: 'warning' }); return }
   if (form.quantity < 1 || form.quantity > 10000) { toast.add({ title: '生成数量须为 1-10000', color: 'warning' }); return }
@@ -186,6 +195,7 @@ const downloadZip = () => {
         <h1 class="b-page-title">追溯码生成</h1>
         <p class="b-page-desc">按 1049 号公告结构批量生成 32 位追溯码（生成不入库，导出后经生产采集导入；二维码图片供印刷厂赋码）</p>
       </div>
+      <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetPage">重置</UButton>
     </div>
 
     <div class="grid gap-4 xl:grid-cols-2">

@@ -48,6 +48,8 @@ const openLink = (row: any) => {
 }
 
 const doSearch = () => { page.value = 1; refresh() }
+// 重置筛选：清空类型与未读条件，回到第 1 页并刷新（Keep-Alive 缓存页互不影响）
+const resetSearch = () => { typeFilter.value = undefined; unreadOnly.value = false; page.value = 1; refresh() }
 </script>
 
 <template>
@@ -92,6 +94,7 @@ const doSearch = () => { page.value = 1; refresh() }
         <span class="b-card-extra">共 <span class="font-medium b-strong">{{ data?.total || 0 }}</span> 条消息 · 未读 {{ data?.unread ?? 0 }} 条</span>
         <div class="flex items-center gap-2">
           <UButton color="neutral" variant="solid" :loading="pending" @click="doSearch">查询</UButton>
+          <UButton variant="outline" color="neutral" @click="resetSearch">重置</UButton>
         </div>
       </div>
     </div>

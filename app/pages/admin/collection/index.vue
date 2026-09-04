@@ -93,6 +93,15 @@ const doImport = async () => {
   }
 }
 
+// 页内【重置】：清空码文本/解析结果/导入表单，恢复页面初始状态（Keep-Alive 缓存页互不影响）
+const resetPage = () => {
+  fileName.value = ''
+  pasteText.value = ''
+  parseResult.value = null
+  Object.assign(importForm, { productId: null, batchId: 0 })
+  toast.add({ title: '已重置，页面恢复初始状态', color: 'primary' })
+}
+
 const reasonChips = computed(() => {
   const rc = parseResult.value?.reasonCount || {}
   return Object.entries(rc).map(([label, count]) => ({ label, count }))
@@ -107,6 +116,7 @@ const reasonChips = computed(() => {
         <h1 class="b-page-title">生产采集</h1>
         <p class="b-page-desc">上传追溯码文件（TXT/CSV，每行一个 32 位码）→ 校验 → 入库/绑定批次</p>
       </div>
+      <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetPage">重置</UButton>
     </div>
 
     <!-- 第一步：上传码文件 -->

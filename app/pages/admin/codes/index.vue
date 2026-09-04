@@ -169,7 +169,9 @@ const submitCorrect = async () => {
 const doSearch = () => { page.value = 1; refresh() }
 const resetSearch = () => {
   filters.keyword = ''; filters.status = undefined; filters.abnormalFlag = undefined; filters.dateFrom = ''; filters.dateTo = ''
-  page.value = 1; refresh()
+  page.value = 1
+  selected.value = [] // 重置即恢复初始状态：清空批量勾选
+  refresh()
 }
 </script>
 

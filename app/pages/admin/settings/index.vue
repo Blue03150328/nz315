@@ -194,6 +194,30 @@ const saveNotify = async () => {
   }
 }
 
+// 页内【重置】：重置当前激活面板——企业信息/通知配置回填「已保存值」（放弃未保存草稿），
+// 用户/日志清空筛选并刷新；数据备份面板无表单内容（Keep-Alive 缓存页互不影响）
+const resetPanel = async () => {
+  if (tab.value === 'enterprise') {
+    await refreshEnt() // watch(entData) 回填已保存值，丢弃草稿
+    toast.add({ title: '企业信息已恢复为已保存值', color: 'primary' })
+  } else if (tab.value === 'users') {
+    Object.assign(ufilters, { keyword: '', role: undefined, status: undefined })
+    upage.value = 1
+    refreshUsers()
+    toast.add({ title: '已重置，用户列表恢复初始筛选', color: 'primary' })
+  } else if (tab.value === 'logs') {
+    Object.assign(lfilters, { keyword: '', module: undefined, action: '', result: undefined, dateFrom: '', dateTo: '' })
+    lpage.value = 1
+    refreshLogs()
+    toast.add({ title: '已重置，操作日志恢复初始筛选', color: 'primary' })
+  } else if (tab.value === 'notify') {
+    await refreshNotify() // watch(notifyData) 回填已保存配置
+    toast.add({ title: '通知配置已恢复为已保存值', color: 'primary' })
+  } else {
+    toast.add({ title: '当前面板无表单内容可重置', color: 'primary' })
+  }
+}
+
 // ============ 数据备份（PRD 5.12.6） ============
 const backingUp = ref(false)
 const backupRows = ref<any[]>([])
@@ -239,6 +263,7 @@ const deleteBackup = async (b: any) => {
         <h1 class="b-page-title">系统设置</h1>
         <p class="b-page-desc">企业信息 · 用户权限 · 操作日志 · 通知配置 · 数据备份（日志保留至少 3 年，不可删除）</p>
       </div>
+      <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" title="重置当前面板的表单/筛选为初始状态" @click="resetPanel">重置</UButton>
     </div>
 
     <!-- Tab 切换：Nuxt UI v4 的 UTabs 必须显式给 value，否则回退为索引（'0'/'1'…），下方面板的 v-if 会全部落空导致内容空白 -->
