@@ -8,19 +8,19 @@ const router = useRouter()
 const toast = useToast()
 const { user, roleLabel, logout } = useUser()
 
-// 已实现菜单（可点击）
+// 已实现菜单（可点击）：展示顺序与文案按用户指定，路径/图标/权限不随排序改动
 const MENU_READY = [
   { path: '/admin', label: '数据概览', icon: 'i-lucide-layout-dashboard' },
-  { path: '/admin/generator', label: '追溯码生成', icon: 'i-lucide-wand-2' },
-  { path: '/admin/codes', label: '码库管理', icon: 'i-lucide-qr-code' },
-  { path: '/admin/specs', label: '产品规格管理', icon: 'i-lucide-ruler' },
   { path: '/admin/products', label: '产品管理', icon: 'i-lucide-package' },
-  { path: '/admin/batches', label: '生产批次', icon: 'i-lucide-boxes' },
+  { path: '/admin/specs', label: '规格管理', icon: 'i-lucide-ruler' },
+  { path: '/admin/generator', label: '追溯码生成', icon: 'i-lucide-wand-2' },
   { path: '/admin/collection', label: '生产采集', icon: 'i-lucide-factory' },
+  { path: '/admin/codes', label: '码库管理', icon: 'i-lucide-qr-code' },
+  { path: '/admin/batches', label: '批次管理', icon: 'i-lucide-boxes' },
   { path: '/admin/statistics', label: '扫码统计', icon: 'i-lucide-bar-chart-3' },
-  { path: '/admin/settings', label: '系统设置', icon: 'i-lucide-settings' },
   { path: '/admin/alerts', label: '风险预警', icon: 'i-lucide-shield-alert' },
   { path: '/admin/messages', label: '消息中心', icon: 'i-lucide-bell' },
+  { path: '/admin/settings', label: '系统设置', icon: 'i-lucide-settings' },
 ]
 
 // V1.0 规划菜单（模块建设中）
