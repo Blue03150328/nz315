@@ -88,7 +88,13 @@ const doImport = async () => {
       method: 'POST',
       body: { codes: validCodes, productId: importForm.productId, batchId: importForm.batchId || undefined },
     })
-    toast.add({ title: '导入成功 ' + res.imported + ' 条（状态：' + res.status + '）', color: 'success' })
+    // 导入接口按所选产品过滤码（结构校验同解析页口径）；文件含多个产品码时其余码会跳过，
+    // 必须明确提示，避免「静默丢码」（用户误以为全部导入）
+    const skipped = Number(res.skippedInvalid || 0) + Number(res.skippedDup || 0)
+    const msg = skipped > 0
+      ? '导入成功 ' + res.imported + ' 条，跳过 ' + skipped + ' 条（不属于所选产品/已存在/格式不符，请核对）'
+      : '导入成功 ' + res.imported + ' 条（状态：' + res.status + '）'
+    toast.add({ title: msg, color: skipped > 0 ? 'warning' : 'success' })
     parseResult.value = null
     pasteText.value = ''
     fileName.value = ''
