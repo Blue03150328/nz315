@@ -5,7 +5,15 @@ definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true }
 useHead({ title: '数据概览' })
 
 const { user, isPlatformAdmin } = useUser()
-const { data: stats, error: statsError } = await useFetch<any>('/api/admin/stats', { key: 'admin-stats' })
+const { data: stats, error: statsError, refresh: refreshStats } = await useFetch<any>('/api/admin/stats', { key: 'admin-stats' })
+
+// Keep-Alive 激活刷新：数据概览无表单/筛选类用户状态，从左侧菜单切回时静默拉取最新统计
+// （保留的是页面视图本身；首次进入/刷新后由 useFetch 已取数，跳过避免重复请求）
+let statsActivatedOnce = false
+onActivated(() => {
+  if (!statsActivatedOnce) { statsActivatedOnce = true; return }
+  refreshStats()
+})
 
 // 状态分布条
 const statusSegments = computed(() => {
