@@ -20,14 +20,22 @@ export default defineEventHandler(async (event) => {
 
   // 上传批次归属校验 + 快照
   const [ub] = await query<any[]>(
-    'SELECT id, file_name, product_id, batch_no FROM upload_batch WHERE id = ?' + (fid ? ' AND enterprise_id = ?' : ''),
+    'SELECT id, file_name, product_id, batch_no, enterprise_id FROM upload_batch WHERE id = ?' + (fid ? ' AND enterprise_id = ?' : ''),
     fid ? [ubId, fid] : [ubId])
   if (!ub) throw createError({ statusCode: 404, statusMessage: '上传批次不存在' })
   const productId = Number(ub.product_id)
+  const ubEnterpriseId = Number(ub.enterprise_id)
 
   const hasBatchRebind = body.batchId !== undefined && body.batchId !== null && body.batchId !== ''
   const hasBatchFields = body.produceDate || body.expireDate || body.qcResult !== undefined || body.qualityCertNo
-  if (!hasBatchRebind && !hasBatchFields) {
+  // 新建批次绑定模式（2026-09-04 方案 A）：生成入库的「已生成」码在此绑定生产批次——
+  // 传 batchNo 即进入该模式（与生产采集 import 同款建批/匹配逻辑：批号不存在自动建档，质检默认合格）
+  const newBatchNo = String(body.batchNo || '').trim()
+  const isNewBatchMode = newBatchNo !== ''
+  if (isNewBatchMode && hasBatchRebind) {
+    throw createError({ statusCode: 400, statusMessage: '绑定已有批次与新建批次只能二选一' })
+  }
+  if (!hasBatchRebind && !hasBatchFields && !isNewBatchMode) {
     throw createError({ statusCode: 400, statusMessage: '请至少选择一个要修改的字段' })
   }
 
@@ -41,6 +49,67 @@ export default defineEventHandler(async (event) => {
 
   let rebound = 0
   let corrected = 0
+
+  // ① 新建批次绑定（仅"已生成"码；生成入库留档的码在此完成生产绑定，与 import 建批/归并同口径）
+  if (isNewBatchMode) {
+    const newProduceDate = String(body.produceDate || '').trim()
+    const newQualityCertNo = String(body.qualityCertNo || '').trim()
+    const newQcReportNo = String(body.qcReportNo || '').trim() || null
+    const newExpireDate = String(body.expireDate || '').trim() || null
+    if (!newProduceDate || !newQualityCertNo) {
+      throw createError({ statusCode: 400, statusMessage: '新建批次需同时填写生产日期与质量合格证号' })
+    }
+    // 本行须存在可绑定的"已生成"码（生产采集导入的行全为已绑定，无需此操作）
+    const [unbound] = await query<any[]>(
+      'SELECT COUNT(*) AS c FROM trace_code WHERE upload_batch_id = ? AND status = 1' + (fid ? ' AND enterprise_id = ?' : ''),
+      fid ? [ubId, fid] : [ubId])
+    if (Number(unbound?.c || 0) === 0) {
+      throw createError({ statusCode: 400, statusMessage: '本批次没有「已生成（未绑定）」的码，无需新建批次绑定' })
+    }
+    // 查同产品同批号 → 命中校验一致复用 / 未命中自动建档（与 import 同规则：质检默认合格、quantity 记 0）
+    const batchCond = fid ? ' AND b.enterprise_id = ?' : ''
+    const [exist] = await query<any[]>(
+      'SELECT b.id, b.produce_date, b.quality_cert_no, b.qc_result FROM batch b WHERE b.product_id = ? AND b.batch_no = ?' + batchCond,
+      fid ? [productId, newBatchNo, fid] : [productId, newBatchNo])
+    let batchId: number
+    let batchCreated = false
+    if (exist && exist.length > 0) {
+      const b = exist[0]
+      if (Number(b.qc_result) === 0) {
+        throw createError({ statusCode: 400, statusMessage: '批次 ' + newBatchNo + ' 质检不合格，其追溯码不得绑定（请先在生产批次页处理）' })
+      }
+      const dbDate = b.produce_date ? String(b.produce_date).slice(0, 10) : ''
+      const dbCert = String(b.quality_cert_no || '')
+      if (dbDate !== newProduceDate || dbCert !== newQualityCertNo) {
+        throw createError({ statusCode: 400, statusMessage: '批次 ' + newBatchNo + ' 已存在，生产日期/合格证号不一致（库内 ' + (dbDate || '-') + ' / ' + (dbCert || '-') + '），请核对' })
+      }
+      batchId = Number(b.id)
+    } else {
+      // 注意：db.ts execute 返回 ResultSetHeader（非 mysql2 二元组），不可数组解构
+      const r = await execute(
+        'INSERT INTO batch (enterprise_id, product_id, batch_no, produce_date, quality_cert_no, expire_date, qc_result, qc_report_no, quantity) VALUES (?,?,?,?,?,?,?,?,?)',
+        [ubEnterpriseId, productId, newBatchNo, newProduceDate, newQualityCertNo, newExpireDate, 1, newQcReportNo, 0])
+      batchId = Number(r.insertId)
+      batchCreated = true
+    }
+    // 绑定本行全部"已生成"码（三要素冗余 + status=2）
+    const rb = await execute(
+      'UPDATE trace_code SET batch_id = ?, produce_date = ?, batch_no = ?, quality_cert_no = ?, status = 2, bound_at = NOW() WHERE upload_batch_id = ? AND status = 1' + (fid ? ' AND enterprise_id = ?' : ''),
+      [batchId, newProduceDate, newBatchNo, newQualityCertNo, ubId, ...(fid ? [fid] : [])])
+    rebound = Number(rb.affectedRows || 0)
+    // 同步上传批次快照（生产批号等随绑定更新）
+    if (rebound > 0) {
+      await execute(
+        'UPDATE upload_batch SET batch_id = ?, batch_no = ?, produce_date = ?, quality_cert_no = ? WHERE id = ?' + (fid ? ' AND enterprise_id = ?' : ''),
+        [batchId, newBatchNo, newProduceDate, newQualityCertNo, ubId, ...(fid ? [fid] : [])])
+    }
+    await logOperation(event, {
+      module: '码库管理',
+      action: '新建批次绑定',
+      content: JSON.stringify({ uploadBatchId: ubId, batchNo: newBatchNo, batchCreated, rebound, productId }),
+    })
+    return { ok: true, rebound, corrected: 0, batchCreated, batchId }
+  }
 
   // ② 重新绑定批次（仅"已生成"码；生产采集导入的码均为"已绑定"，此分支主要服务于历史/兜底场景）
   if (hasBatchRebind) {

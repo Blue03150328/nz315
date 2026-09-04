@@ -29,6 +29,10 @@ const form = reactive({
 })
 const generating = ref(false)
 const result = ref<any>(null)
+// 入库留档（方案 A 2026-09-04）：生成码可先入库为「已生成/未绑定」——提前印码的企业入档管理，
+// 生产时在码库管理按该上传批次【修正】绑定生产批次；stocked 防止同一批结果重复入库
+const stocking = ref(false)
+const stocked = ref(false)
 
 const selectedProduct = computed(() => (productData.value?.rows || []).find((p: any) => Number(p.id) === Number(form.productId)))
 
@@ -63,6 +67,7 @@ const doGenerate = async () => {
   generating.value = true
   try {
     result.value = await $fetch('/api/admin/codes/generate', { method: 'POST', body: { ...form } })
+    stocked.value = false // 新一批码，重置入库留档状态
     toast.add({ title: '生成成功：' + result.value.quantity + ' 条' + (result.value.duplicates ? '（跳过重码 ' + result.value.duplicates + ' 条）' : ''), color: 'success' })
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || '生成失败', color: 'error' })
@@ -140,6 +145,32 @@ const exportCsv = () => {
   }
   const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })
   download(blob, defaultFilePrefix() + '.csv')
+}
+
+// ========== 入库留档（状态：已生成/未绑定；方案 A 2026-09-04） ==========
+// 生产采集导入是「绑定入库」；这里是「留档入库」：码进码库但未绑生产批次，
+// 之后在码库管理（该上传批次行【修正】→ 新建批次绑定）完成生产绑定
+const doStockIn = async () => {
+  if (!result.value?.allCodes?.length) { toast.add({ title: '请先生成追溯码', color: 'warning' }); return }
+  stocking.value = true
+  try {
+    const res = await $fetch('/api/admin/codes/stock-in', {
+      method: 'POST',
+      body: { codes: result.value.allCodes, productId: result.value.product.id },
+    })
+    const skip = Number(res.skippedInvalid || 0) + Number(res.skippedDup || 0)
+    toast.add({
+      title: skip > 0
+        ? '已入库 ' + res.imported + ' 条（状态：已生成），跳过 ' + skip + ' 条（重复/格式不符）'
+        : '已入库 ' + res.imported + ' 条（状态：已生成，未绑定生产信息）',
+      color: skip > 0 ? 'warning' : 'success',
+    })
+    stocked.value = true
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage || '入库失败', color: 'error' })
+  } finally {
+    stocking.value = false
+  }
 }
 
 // ========== 二维码图片输出（合规第一条：QR/DM 码制，供印刷厂赋码） ==========
@@ -349,11 +380,22 @@ const downloadZip = () => {
       </div>
 
       <div class="b-card-foot">
-        <span class="b-card-extra">TXT 命名遵循 PRD 5.5.1 强制规范（企业ID_产品名_规格_日期）；urls.txt 每行为完整扫码地址，可直接用于二维码印刷</span>
+        <span class="b-card-extra">TXT 命名遵循 PRD 5.5.1 强制规范（企业ID_产品名_规格_日期）；urls.txt 每行为完整扫码地址，可直接用于二维码印刷。码文件可先「入库留档」——入库为「已生成（未绑定）」，生产时到码库管理绑定批次</span>
         <div class="flex flex-wrap items-center gap-2">
           <UButton variant="outline" color="neutral" icon="i-lucide-file-text" @click="exportTxt">导出 TXT</UButton>
           <UButton variant="outline" color="neutral" icon="i-lucide-link" @click="exportUrls">导出 urls.txt</UButton>
           <UButton color="neutral" variant="solid" icon="i-lucide-file-spreadsheet" @click="exportCsv">导出 CSV</UButton>
+          <span class="b-sep" />
+          <UButton
+            color="neutral"
+            :variant="stocked ? 'soft' : 'solid'"
+            icon="i-lucide-archive"
+            :loading="stocking"
+            :disabled="stocked"
+            @click="doStockIn"
+          >
+            {{ stocked ? '已入库 ' + result.quantity + ' 条（未绑定）' : '入库留档（状态：已生成）' }}
+          </UButton>
         </div>
       </div>
     </div>
