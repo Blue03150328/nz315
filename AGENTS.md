@@ -43,7 +43,7 @@
 
 ### 🗄️ 数据库（MySQL：`nz315`，连接配置在 `.env`，不提交仓库）
 
-13 张表（PRD 第七章 9 张 + message 消息 + system_setting 配置 + consumer 消费者 + **pesticide_reg 农药登记数据源字典表**（97,471 条，登记证号唯一，产品弹窗自动回填；农资店改用高德 POI 实时检索，无自建表）：`enterprise`（企业）· `product_spec`（产品规格主数据，规格码=码第9-11位）· `product`（产品 SKU，登记证号全局唯一）· `batch`（生产批次，三要素）· `trace_code`（追溯码：两状态 status 1已生成/2已绑定 + 异常标记 abnormal_flag 0正常/1冻结/2作废，正交）· `user`（角色 platform_admin/enterprise_admin/code_admin/viewer，bcrypt 密码）· `operation_log` · `scan_log`（含 `consumer_id`，登录消费者扫码归属） · `risk_alert` · `consumer`（微信 openid 唯一，公众端消费者）
+14 张表（PRD 第七章 9 张 + message 消息 + system_setting 配置 + consumer 消费者 + **upload_batch 上传文件批次**（2026-09-04 码库聚合改造新增：生产采集每上传一份追溯码文件即一行，trace_code.upload_batch_id 关联）+ **pesticide_reg 农药登记数据源字典表**（97,471 条，登记证号唯一，产品弹窗自动回填；农资店改用高德 POI 实时检索，无自建表）：`enterprise`（企业）· `product_spec`（产品规格主数据，规格码=码第9-11位）· `product`（产品 SKU，登记证号全局唯一）· `batch`（生产批次，三要素）· `trace_code`（追溯码：两状态 status 1已生成/2已绑定 + 异常标记 abnormal_flag 0正常/1冻结/2作废，正交；含 upload_batch_id 上传批次归属）· `user`（角色 platform_admin/enterprise_admin/code_admin/viewer，bcrypt 密码）· `operation_log` · `scan_log`（含 `consumer_id`，登录消费者扫码归属） · `risk_alert` · `consumer`（微信 openid 唯一，公众端消费者）
 
 演示账号：`admin/admin123`（总部）、`lvfeng/admin123`（厂家）、`codeop/admin123`（码管理员）
 
@@ -66,6 +66,7 @@
 ### ✅ 项目进度（截至 2026-09-04）
 
 **已实现（V1.0 核心）**：
+- **码库管理改为按上传文件批次聚合展示（详细弹窗/整批冻结/整批修正）**（2026-09-04，提交 c980f42）：用户要求码库页不再逐条展示码，改为按上传文件批次聚合（一份采集文件=一行）。**数据模型**：新增 upload_batch 表（文件维度，enterprise/file_name/产品/生产批快照）+ trace_code.upload_batch_id 列+索引；import 事务内自动建档（fileName=原始文件名，缺省「手动导入 时间」），响应返回 uploadBatchId；db-init 补 DDL/migrate 补列/backfill 历史码兜底归并「历史数据」批次（本库 104 条）。**页面**（codes/index.vue 重写）：批次列表 7 列（批次名称/关联产品/码总数量/码状态汇总/生产批号/上传时间/操作），**勾选框与底部批量条整体删除**；汇总实时聚合（正常/部分冻结/全部冻结/部分作废/全部作废，作废优先）；【详细】大弹窗看单条明细（复用 codes.get + uploadBatchId，仅查看+单行冻结/作废/恢复）；【冻结】确认框整批冻结（全冻结/全作废后置灰）；【修正】复用批量修正表单整批作用域（含异常码整批拒绝）；整批作废/恢复暂未上（flag API 已支持 0/2 可随时扩展）。**新 API**：upload-batches.get（聚合）/ [id]/flag / [id]/correct。验证：tsc 0 + 构建 10.6MB + API 31/31 + CDP 15/15 + SSR 200；脚本 scripts/_tmp-verify-uploadbatch.mjs、scripts/_tmp-cdp-codes-agg.mjs 可复用
 - **侧栏菜单排序与改名**（2026-09-04）：按用户指定重排 11 项菜单（数据概览→产品管理→规格管理→追溯码生成→生产采集→码库管理→批次管理→扫码统计→风险预警→消息中心→系统设置），产品规格管理→规格管理、生产批次→批次管理；仅改 MENU_READY 数组，路径/图标/权限/后端零改动
 - **恢复导入接口安全防线（合并 0a40d76，防重写回退）**（2026-09-04，提交 0e31394）：采集重写（fe8db86）全文覆盖了并行工作线的 0a40d76 安全修复（结构校验/归属校验/分块写入），重写版仅查重——错构码可绕过解析直接灌库并自动建批绑定。已并入：逐条 validateCode 结构校验（parse 同口径）+ 码归属产品校验 + 分块 5000/批（事务内）+ skippedInvalid/skippedDup 返回与页面提示。验证：tsc 0 + 防线四场景全过。**教训：改公共接口前先 git log 看最新 HEAD 版本，防全文重写覆盖并行改动**
 - **生产采集直接填三要素自动建档/归并批次（流程改造，用户决策 B）+ 批次新建入口收敛**（2026-09-04，提交 fe8db86）：用户先提「删除生产批次板块」，经概念澄清（批次=扫码页生产日期/批号/质检的数据源，1049 第五条合规依赖）确认真实诉求是流程绕，拍板方案 B。①import API 三要素必填自动建批——批号不存在自动建档（质检默认合格/quantity=0 后补），存在则校验日期/合格证号一致后归并（分次补采天然支持），不一致 400 回显库内值防串批，qc_result=0 拒绑；建批+插码同一事务原子执行；②采集页第 3 步改必填三要素表单（生产日期/批号/合格证号 + 质检报告号/有效期至选填），逐级前端拦截；③批次页移除「新建批号」按钮（仅编辑/删除/效期预警）；④批次 PATCH 效期放开选填 + 三要素更正同步已绑定码冗余列（码库列表口径；扫码页实时 JOIN batch）。验证：tsc 0 + 构建 10.6MB + API 五场景（自动建批/归并/不一致 400/缺要素 400/质检不合格拒绑）+ CDP 终验 12/13（新表单/拦截/导入成功落库 100 码/扫码展示/批次页无新建）；脚本 scripts/_tmp-cdp-final.mjs 可复用
@@ -111,6 +112,8 @@
 
 | 坑 | 应对 |
 |---|---|
+| **mysql2 affectedRows 是「匹配行数」而非「实际变更行数」语义**（2026-09-04 实测） | 同值 UPDATE（如对已冻结码再执行冻结）也返回全部匹配行数，靠 UPDATE 返回值判「无操作对象→400」会漏判（整批 flag 曾重复冻结/恢复 200 假成功）。凡需「无实际变化时报错」的判定：**UPDATE 前先按当前真实状态 COUNT 可操作数**，为 0 直接 400 |
+| **edit 改写含反引号多行模板字符串易丢闭合反引号**（2026-09-04 实测） | db-init DDL 数组元素尾行「反引号+逗号」在编辑中丢失反引号后，模板字符串一路吞到下一个模板开头才报错，错误行号远离真实位置（报 261 行实为 259 行缺符）。另：node --check 在本机对含中文多行模板字符串的 ESM 误报（报错回显与文件字节不符）。对策：含反引号模板的编辑后立即用 esbuild transform（或直接运行）验证语法，勿依赖 --check |
 | **全文重写会覆盖并行工作线对同一文件的修复**（2026-09-04 实测） | 三要素重写 import.post.ts 时基于旧版本全文 write，误回退了并行提交 0a40d76 的结构校验/分块写入安全修复。多 Agent/多会话协作下：改动核心接口前先 `git log --oneline -5` + `git show HEAD -- <file>` 确认最新版本；diff 型改动优先 edit 而非全文 write |
 | **前端依赖 API 响应字段时以接口契约为准（契约断裂静默成 400）**（2026-09-04 实测） | parse.post.ts 响应只含前 20 条 preview（完整 results 从未返回），生产采集页 doImport 却 `parseResult.results.filter(valid)` 构造导入码数组 → 恒空 → import 400「没有可导入的码」。接口与页面各自看似正常、API 直测永不暴露。改 API 返回体先 grep 前端消费字段；「页面操作类功能」验证用 CDP 真实浏览器而非 API 直测 |
 | **多租户 SQL 条件前缀必须 `' AND ...'`，`' WHERE ...'` 拼出双重 WHERE**（2026-09-04 实测） | 基底已有 WHERE（`WHERE status = 1`/`WHERE 1=1`）时拼接 `' WHERE enterprise_id = ?'` → 双重 WHERE 语法错误，厂家账号（lvfeng/codeop）解析文件必 500；总部账号无过滤参数正常 → 厂家路径成验证盲区（与 3fd51b3 统计 500 同类）。新写/改动企业过滤接口后至少用厂家账号冒烟一次 |
