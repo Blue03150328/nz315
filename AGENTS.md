@@ -43,7 +43,7 @@
 
 ### 🗄️ 数据库（MySQL：`nz315`，连接配置在 `.env`，不提交仓库）
 
-14 张表（PRD 第七章 9 张 + message 消息 + system_setting 配置 + consumer 消费者 + **upload_batch 上传文件批次**（2026-09-04 码库聚合改造新增：生产采集每上传一份追溯码文件即一行，trace_code.upload_batch_id 关联）+ **pesticide_reg 农药登记数据源字典表**（97,471 条，登记证号唯一，产品弹窗自动回填；农资店改用高德 POI 实时检索，无自建表）：`enterprise`（企业）· `product_spec`（产品规格主数据，规格码=码第9-11位）· `product`（产品 SKU，登记证号全局唯一）· `batch`（生产批次，三要素）· `trace_code`（追溯码：两状态 status 1已生成/2已绑定 + 异常标记 abnormal_flag 0正常/1冻结/2作废，正交；含 upload_batch_id 上传批次归属）· `user`（角色 platform_admin/enterprise_admin/code_admin/viewer，bcrypt 密码）· `operation_log` · `scan_log`（含 `consumer_id`，登录消费者扫码归属） · `risk_alert` · `consumer`（微信 openid 唯一，公众端消费者）
+15 张表（PRD 第七章 9 张 + message 消息 + system_setting 配置 + consumer 消费者 + **product_original 产品原药多行表**（2026-09-04 原药多行化：复配产品多条原药；product.original_* 单值列已迁移下线）+ **upload_batch 上传文件批次**（2026-09-04 码库聚合改造新增：生产采集每上传一份追溯码文件即一行，trace_code.upload_batch_id 关联）+ **pesticide_reg 农药登记数据源字典表**（97,471 条，登记证号唯一，产品弹窗自动回填；农资店改用高德 POI 实时检索，无自建表）：`enterprise`（企业）· `product_spec`（产品规格主数据，规格码=码第9-11位）· `product`（产品 SKU，登记证号全局唯一）· `batch`（生产批次，三要素）· `trace_code`（追溯码：两状态 status 1已生成/2已绑定 + 异常标记 abnormal_flag 0正常/1冻结/2作废，正交；含 upload_batch_id 上传批次归属）· `user`（角色 platform_admin/enterprise_admin/code_admin/viewer，bcrypt 密码）· `operation_log` · `scan_log`（含 `consumer_id`，登录消费者扫码归属） · `risk_alert` · `consumer`（微信 openid 唯一，公众端消费者）
 
 演示账号：`admin/admin123`（总部）、`lvfeng/admin123`（厂家）、`codeop/admin123`（码管理员）
 
@@ -66,6 +66,7 @@
 ### ✅ 项目进度（截至 2026-09-04）
 
 **已实现（V1.0 核心）**：
+- **产品弹窗：归属企业可搜索全量选择器 + 原药多行化**（2026-09-04，提交 4a67502）：①EnterprisePicker 替代企业 USelect——三种生产类型下均展示完整厂家列表（去掉持有人生产限制）+ 输入关键字实时过滤点击选择；②原药（母药）信息多行（product_original 表，product.original_* 列迁移后删）：行列表+添加/删除行（至少 1 行、单行禁删），每行双字段 RegOrigCombobox（候选=登记产品全有效成分池 findOriginalPool，复配合并去重）+同行双向联动；切换登记产品清空全部行并按新成分初始化首行；标题提示「有效成分匹配到 N 家…保存必填，多原药请点击添加行」、复配黄条「请核对每个有效成分对应的原药信息」；保存至少 1 行且每行两字段必填（服务端同口径）；products 三 API 多行化（事务/聚合 JSON_ARRAYAGG）、originals API ?regNo= 池模式、trace.get 返回 originals 数组。验证：tsc 0 + 构建 10.7MB + 迁移实测 + API 冒烟 + CDP v6 20/20 + SSR 22 页 200
 - **侧栏菜单两项改名**（2026-09-04）：生产采集→追溯码上传、批次管理→效期预警（仅 label，路由/图标/权限/后端零改动）
 - **数据概览下线「快捷入口」板块**（2026-09-04）：按用户要求删除快捷入口标题/8 宫格卡片/链接与 quickLinks 定义，其余统计板块随布局自然上移；构建 + CDP 验证五张卡齐全无残留
 - **追溯码生成支持入库留档——「已生成（未绑定）」状态恢复业务意义（方案 A，提交 4918fb8）**：用户质疑强制绑定后未绑定态无意义，拍板方案 A。①新 API stock-in：生成码入库为已生成（结构校验/查重/归属校验 + upload_batch 建档 + 分块插码）；②生成页「入库留档（状态：已生成）」按钮；③码库整批修正新增「新建批次绑定」模式（自动建档/归并批次并绑定行内全部已生成码，闭环打通：生成入库→码库绑定→扫码完整展示）；④修复 execute 被数组解构 500。验证：tsc 0 + API 8 项 + CDP 12 项全过；脚本 _tmp-verify-stockin.mjs 可复用。**码的入库双通道：import=采集绑定入库；stock-in=生成留档入库**（校验/建档逻辑同构需同步改）

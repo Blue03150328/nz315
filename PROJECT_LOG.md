@@ -1,4 +1,16 @@
 ## 变更记录
+### 2026-09-04 | 产品弹窗：归属企业可搜索全量选择器 + 原药（母药）信息多行化（复配多原药，product_original 表）
+- **工作内容**：第四轮需求两项：
+  ① **归属企业选择框**：去掉按生产类型对企业列表的限制（三种生产类型下均展示完整厂家列表）；组件从 USelect 改为**可输入搜索选择器**（EnterprisePicker：输入关键字实时过滤候选厂家、点击选择，本地过滤）；归属企业帮助文案移除「持有人生产时按该企业名称过滤本厂登记产品」并改为「登记产品搜索框按该企业过滤」（登记产品过滤联动不变，切换企业仍清空已选产品）
+  ② **原药（母药）信息多行化**：新增 product_original 表（product_id/ingredient/reg_no/company）；产品表单原药区从单行改**行列表**——「添加行/删除行（至少保留 1 行、删除按钮单行禁用）」，每行两字段均为 RegOrigCombobox（下拉选择+手动输入，候选=登记产品**全有效成分候选池** findOriginalPool 合并去重，复配任意成分可下拉选），**同行双向联动**（命中候选带出对方/不匹配清空对方）；切换登记产品**清空全部原药行并按新数据源成分初始化首行**（原药/母药自身回填；制剂池 0=提示手填、1=自动回填、>1=待选必填）；标题右侧提示文案「有效成分匹配到 N 家原药登记，可下拉选择或手动输入（保存必填，多原药请点击添加行）」；复配黄条文案改「本产品为复配制剂，请核对每个有效成分对应的原药信息」；保存校验：**至少 1 行且每行两字段必填**（服务端同口径 400）
+  ③ **存量迁移**：db-init migrate 把 product.original_reg_no/original_company 单值迁入 product_original 后条件删列（幂等，本地实测 2 行迁入、列已删）；product DDL 去两列；seed 补演示原药行
+  ④ **服务端链路**：products post/patch 校验 originals 数组并事务写入（先删后插）；products.get 行聚合 originals（JSON_ARRAYAGG）；regdata findOriginalPool + originals API ?regNo= 产品级模式（?ingredient= 保留兼容）；trace.get 原药改读 product_original（扫码返回 originals 多行）；shared/types TraceProduct.originals
+- **修改文件**：app/pages/admin/products/index.vue（弹窗重构）、app/components/EnterprisePicker.vue（新增）、scripts/db-init.mjs（+product_original DDL/迁移/seed）、server/api/admin/products.{get,post}.ts + products/[id].patch.ts、server/utils/regdata.ts（+findOriginalPool）、server/api/admin/regdata/originals.get.ts（?regNo=）、server/api/trace.get.ts、shared/types/trace.ts
+- **测试情况**：tsc 0 错误；生产构建 10.7MB；db-init 迁移（15 张表/存量 2 行迁入/两列删除/幂等重跑）；API 冒烟——产品列表 originals 聚合、原药池（PD20211687 复配联苯肼酯+乙螨唑 22 家、EX20210082 敌草隆+环嗪酮 27 家、EX20200002 母药池含自身）、保存 2 行（含手输自定义）落库、空数组/行内空 400、编辑替换读回 2 行、trace originals 多行返回；**CDP v6 20/20**（A：企业搜索过滤/点击回显/切委托加工候选仍全量/文案更新；B：复配初始化 1 行/标题提示 22 家/黄条新文案/单行删除禁用/空行保存拦截/添加行 2 行/行 2 下拉候选 22 家联动成对/手输候选证号带出企业/保存落库 2 行/编辑回显一致/删除行/切换产品重置回填）；SSR 全站 22 页 200。提交 4a67502
+- **遗留问题/待办**：①复配多行的行-成分未做绑定（添加行不选成分，候选池为全成分合并——用户自选即可，扫码页展示按录入顺序）；②扫码页（trace.vue）尚未渲染多行原药（trace API 已返回 originals，UI 展示待后续/如需 1049 原药展示补齐另提）；③编辑页历史产品（product_original 无行）打开显示空行提示补充，保存会被必填拦截——老产品如需保留空原药需先补行；④其余待办不变
+- **给下一个 Agent 的提示**：①原药信息唯一存储在 product_original；product.original_* 列已删，任何代码不得再读/写（grep 全库已清零）；②新增/编辑产品 body 用 originals 数组；③findOriginalPool 按 pesticide_reg.ingredient_all 全成分合并候选（含自身），行内联动候选池为空时不联动（自由输入）；④添加行不限成分，多成分原药候选混在一个池（同一登记证去重）；⑤验证样本：复配 PD20211687（22 家池）/单成分 EX20200001 制剂（21 家）/母药 EX20200002；手动输入命中候选靠 registration_no/company 精确匹配
+
+---
 ### 2026-09-04 | 侧栏菜单两项改名：生产采集→追溯码上传、批次管理→效期预警（仅展示文字）
 - **工作内容**：按用户要求改 MENU_READY 数组两处 label：生产采集→追溯码上传（/admin/collection）、批次管理→效期预警（/admin/batches）。路由/图标/权限/后端零改动；页面内部标题（h1）未在本次要求内保持原样。
 - **修改文件**：app/layouts/admin.vue（MENU_READY 两行 label）
