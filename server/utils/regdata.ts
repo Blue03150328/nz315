@@ -53,3 +53,40 @@ export async function findOriginalCandidates(registrationNo: string) {
   )
   return { reg, isOriginal, candidates }
 }
+
+/**
+ * 按登记证取「全有效成分」原药候选池（原药多行 UI 用，2026-09-04）：
+ * 复配制剂存在多个有效成分（ingredient_all），每个成分匹配到的有效期内原药/母药记录合并去重成池，
+ * 供原药行下拉候选与双向联动；剂型=原药/母药 的产品其自身必在池内（自身成分匹配）。
+ * 返回：reg=数据源行（无则 null）、isOriginal、ingredients=全部成分名、pool=合并候选池（登记证号去重）
+ */
+export async function findOriginalPool(registrationNo: string) {
+  const regNo = String(registrationNo || '').trim().toUpperCase()
+  const [reg] = await query<any[]>(
+    'SELECT registration_no, product_name, dosage, ingredient_main, ingredient_all, company, expire_date FROM pesticide_reg WHERE registration_no = ? LIMIT 1',
+    [regNo]
+  )
+  if (!reg) return { reg: null, isOriginal: false, ingredients: [] as string[], pool: [] as any[] }
+  const isOriginal = /原药|母药/.test(String(reg.dosage || ''))
+  // 成分清单：数据源 ingredient_all（JSON 数组）兜底主成分
+  const all = Array.isArray(reg.ingredient_all) ? reg.ingredient_all : []
+  const ingredients = (all.length ? all : [String(reg.ingredient_main || '').trim()]).filter(Boolean) as string[]
+  if (!ingredients.length) return { reg, isOriginal, ingredients: [], pool: [] }
+  const pool = await query<any[]>(
+    `SELECT registration_no, product_name, dosage, company, expire_date
+       FROM pesticide_reg
+      WHERE dosage IN ('原药','母药') AND ingredient_main IN (?)
+        AND (expire_date IS NULL OR expire_date >= CURDATE())
+      ORDER BY expire_date DESC
+      LIMIT 200`,
+    [ingredients]
+  )
+  // 按登记证号去重（同证只保留一条）
+  const seen = new Set<string>()
+  const unique = (pool as any[]).filter((r: any) => {
+    if (seen.has(r.registration_no)) return false
+    seen.add(r.registration_no)
+    return true
+  })
+  return { reg, isOriginal, ingredients, pool: unique }
+}

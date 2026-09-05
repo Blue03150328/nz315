@@ -1,9 +1,9 @@
 <script setup lang="ts">
 // 产品管理（PRD 5.4：SKU 化，规格来自主数据下拉选择）
-// 2026-09 迭代：登记产品（数据源）选中后自动回填登记信息作为默认值——
-// 回填字段全部可手动编辑修改；产品类别随数据源农药类别回填（不在标准集合时并入选项）；
-// 原药两字段：原药/母药自身回填可编辑、制剂按首个有效成分匹配（唯一回填可编辑/多家双下拉联动必选/无匹配手填提示）
-// Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
+// 迭代史：登记数据源自动回填（默认值可编辑）→ 原药双通道组合框 → 2026-09-04：
+//   ① 归属企业选择器：无论生产类型都展示完整厂家列表 + 可输入搜索（EnterprisePicker）
+//   ② 原药（母药）信息多行化：复配产品多原药（product_original 表）；切换登记产品重置并按数据源初始化首行
+// Keep-Alive 页面缓存：菜单切换后保留页面状态；刷新/登出自动清空；【重置】恢复初始
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '产品管理' })
 
@@ -18,8 +18,7 @@ const TOXICITY = ['微毒', '低毒', '中等毒', '高毒', '剧毒']
 const REG_CATEGORIES = [{ value: 1, label: 'PD（代码1）' }, { value: 2, label: 'WP（代码2）' }]
 const PRODUCE_TYPES = [{ value: 1, label: '持有人生产' }, { value: 2, label: '委托加工' }, { value: 3, label: '委托分装' }]
 
-// 规格主数据（含停用）：编辑已绑定「已停用规格」的产品时下拉需能显示当前值（否则 USelect 空白），
-// 停用项标记「（已停用）」且禁选——新产品只能选启用规格，历史绑定不受影响
+// 规格主数据（含停用）：编辑已绑定「已停用规格」的产品时下拉需能显示当前值
 const { data: specData } = await useFetch<any>('/api/admin/specs', {
   key: 'admin-specs-all',
   query: { page: 1, pageSize: 100 },
@@ -37,7 +36,7 @@ const { data, pending, refresh, error } = await useFetch<any>('/api/admin/produc
 
 const totalPages = computed(() => Math.max(1, Math.ceil((data.value?.total || 0) / pageSize)))
 
-// 企业列表（仅总部管理员新建产品时选择归属企业）
+// 厂家列表（完整展示，不做生产类型过滤——2026-09-04 需求 1）
 const { data: factoryData } = await useFetch<any>('/api/admin/factories', {
   key: 'admin-factories-options',
   query: { page: 1, pageSize: 100 },
@@ -49,43 +48,58 @@ const showModal = ref(false)
 const editingId = ref<number | null>(null)
 const saving = ref(false)
 
-// 归属企业：厂家账号固定本企业；总部管理员新建时需选择（决定「本厂」过滤口径与归属）
+// 归属企业：厂家账号固定本企业；总部管理员新建时选择（决定登记产品的本厂过滤口径）
 const enterpriseId = ref<number | null>(isPlatformAdmin.value ? null : (user.value?.enterprise_id || null))
 
 const form = reactive({
   trademark: '', name: '', registrationNo: '', registrationExpire: '',
   regCategory: 1, holderName: '', produceType: 1, dosage: '', toxicity: '低毒',
   specId: null as number | null, content: '', category: '杀虫剂',
-  isRestricted: false, originalRegNo: '', originalCompany: '', status: 1,
+  isRestricted: false, status: 1,
 })
 
 // 登记数据源选择状态
 const pickedReg = ref<any>(null) // 当前已选登记产品行（服务端数据源行）
 
-// 原药匹配状态：idle(未处理/编辑回显) / original(产品本身为原药·自身回填) /
-// auto(制剂唯一匹配·自动回填) / select(多匹配·必填) / manual(无匹配·手动补充)
-// 控件形态统一为「下拉+手输」组合框（RegOrigCombobox），mode 仅决定回填动作/hint/必填标记
-const orig = reactive({ mode: 'idle' as string, candidates: [] as any[], hint: '', compound: false })
+// ============ 原药（母药）多行（2026-09-04 需求 2） ============
+// 每行 = 原药登记证号 + 原药生产企业名称（RegOrigCombobox：下拉选择 + 手动输入，行内双向联动）；
+// 候选池 origPool = 登记产品全有效成分匹配到的原药候选合并（复配多成分可从中选任意成分原药）
+type OrigRow = { regNo: string; company: string }
+const makeOrigRow = (): OrigRow => ({ regNo: '', company: '' })
+const origRows = ref<OrigRow[]>([])            // 原药行（至少保留 1 行）
+const origPool = ref<any[]>([])                // 行级下拉候选池
+const origHint = ref('')                       // 标题右侧提示
+const origCompound = ref(false)                // 复配制剂提醒
+const origBusy = ref(false)                    // 候选匹配中
 
-// 双向联动：修改任一个原药字段（下拉选择或手动输入）→ 命中候选则自动带出对方；不命中则清空对方（需求第二轮·2）
-// 空值不动作（避免清空链式循环）；命中判断用「当前另一字段值同对优先」保证稳定收敛
-watch(() => form.originalRegNo, (nv) => {
-  // 无候选（未匹配 manual / 编辑回显 idle）时两字段完全自由输入，不做联动
-  if (!nv || !orig.candidates.length) return
-  const hit = orig.candidates.find(c => c.registration_no === nv && c.company === form.originalCompany)
-    || orig.candidates.find(c => c.registration_no === nv)
-  if (hit) { if (form.originalCompany !== hit.company) form.originalCompany = hit.company }
-  else if (form.originalCompany) form.originalCompany = ''
-})
-watch(() => form.originalCompany, (nv) => {
-  if (!nv || !orig.candidates.length) return
-  const hit = orig.candidates.find(c => c.company === nv && c.registration_no === form.originalRegNo)
-    || orig.candidates.find(c => c.company === nv)
-  if (hit) { if (form.originalRegNo !== hit.registration_no) form.originalRegNo = hit.registration_no }
-  else if (form.originalRegNo) form.originalRegNo = ''
-})
+function resetOrigRows() {
+  origRows.value = [makeOrigRow()]
+}
+function addOrigRow() {
+  origRows.value.push(makeOrigRow())
+}
+function removeOrigRow(idx: number) {
+  if (origRows.value.length <= 1) return // 至少保留 1 行
+  origRows.value.splice(idx, 1)
+}
 
-// 产品类别下拉：标准 5 类 + 数据源带出的非标类别动态并入（保证回填值可显示、可保留）
+/** 行内双向联动（下拉选择或手动输入）：命中候选池自动带出对方；不命中清空对方（无匹配可自由录入） */
+function syncOrigRow(row: OrigRow, changed: 'regNo' | 'company') {
+  if (!origPool.value.length) return
+  if (changed === 'regNo') {
+    if (!row.regNo) return
+    const hit = origPool.value.find(c => c.registration_no === row.regNo && c.company === row.company)
+      || origPool.value.find(c => c.registration_no === row.regNo)
+    row.company = hit ? hit.company : ''
+  } else {
+    if (!row.company) return
+    const hit = origPool.value.find(c => c.company === row.company && c.registration_no === row.regNo)
+      || origPool.value.find(c => c.company === row.company)
+    row.regNo = hit ? hit.registration_no : ''
+  }
+}
+
+// 产品类别下拉：标准 5 类 + 数据源带出的非标类别动态并入
 const categoryOptions = computed(() => {
   const list = CATEGORIES.map(c => ({ value: c, label: c }))
   if (form.category && !CATEGORIES.includes(form.category)) list.push({ value: form.category, label: form.category })
@@ -94,16 +108,20 @@ const categoryOptions = computed(() => {
 
 const selectedSpec = computed(() => (specData.value?.rows || []).find((s: any) => Number(s.id) === Number(form.specId)))
 
-/** 清空「登记数据源回填」的全部字段（产品被清除/切换生产类型被过滤后调用；用户手动字段商标/规格保留） */
+/** 清空「登记数据源回填」字段并重置原药行（产品被清除/切换生产类型被过滤后调用） */
 function clearRegFields() {
   Object.assign(form, {
     name: '', registrationNo: '', registrationExpire: '', regCategory: 1, holderName: '',
-    dosage: '', toxicity: '低毒', content: '', category: '杀虫剂', originalRegNo: '', originalCompany: '',
+    dosage: '', toxicity: '低毒', content: '', category: '杀虫剂',
   })
-  Object.assign(orig, { mode: 'idle', candidates: [], hint: '', compound: false })
+  resetOrigRows()
+  origPool.value = []
+  origHint.value = ''
+  origCompound.value = false
+  origBusy.value = false
 }
 
-/** 选中登记产品 → 以数据源值覆盖刷新全部回填字段（用户此前手改内容会被覆盖，需求约束1） */
+/** 选中登记产品 → 数据源覆盖刷新登记字段 + 重置并按有效成分初始化原药行（需求2.6） */
 async function onRegSelected(row: any) {
   pickedReg.value = row
   Object.assign(form, {
@@ -115,78 +133,66 @@ async function onRegSelected(row: any) {
     dosage: row.dosage || '',
     toxicity: TOXICITY.includes(row.toxicity) ? row.toxicity : (row.toxicity || '低毒'),
     content: row.content || '',
-    // 产品类别：数据源农药类别原值回填（空值回退默认）
     category: row.category || '杀虫剂',
   })
-  await computeOriginal(row)
+  await initOrigRows(row)
 }
 
-/** 按选中产品剂型计算原药两字段（方案B：原药自身回填 / 制剂按首个有效成分匹配）；
- *  控件统一为「下拉选择+手动输入」组合框：原药/母药与制剂一致按有效成分拉候选（原药候选含自身），
- *  匹配 0/1/多家 与手输自由内容均支持，双向联动由上方 watch 完成 */
-async function computeOriginal(row: any) {
+/** 按登记产品初始化原药行：全有效成分候选池 → 首行回填（需求2.3/2.6） */
+async function initOrigRows(row: any) {
   const dosage = String(row.dosage || '')
   const isOriginal = /原药|母药/.test(dosage)
-  // 复配制剂检测：数据源成分数组长度 > 1（复配仅取第一个有效成分匹配，需提示核对）
   const ingredientAll = Array.isArray(row.ingredient_all) ? row.ingredient_all : []
-  const compound = !isOriginal && ingredientAll.length > 1
-  const main = String(row.ingredient_main || '').trim()
-
-  if (isOriginal && !main) {
-    // 原药/母药但数据源无成分（异常数据）：仅回填自身，无候选
-    form.originalRegNo = row.registration_no || ''
-    form.originalCompany = row.company || ''
-    Object.assign(orig, { mode: 'original', candidates: [], hint: '该产品为原药（母药），已回填其自身登记信息，可修改', compound: false })
-    return
-  }
-  Object.assign(orig, { mode: 'loading', candidates: [], hint: '正在匹配原药登记…', compound })
+  origCompound.value = !isOriginal && ingredientAll.length > 1 // 复配制剂（多有效成分）
+  resetOrigRows()
+  origPool.value = []
+  origHint.value = ''
+  origBusy.value = true
   try {
-    // 原药/制剂统一按有效成分名查询候选（原药产品其自身必在候选内）
-    const data = await $fetch<any>('/api/admin/regdata/originals', { query: { ingredient: main } })
-    const cands = data?.rows || []
+    // 产品级候选池：按登记证号返回全成分合并候选（原药/母药产品自身必在池内）
+    const data = await $fetch<any>('/api/admin/regdata/originals', { query: { regNo: row.registration_no } })
+    const pool = data?.rows || []
+    origPool.value = pool
     if (isOriginal) {
-      // ① 剂型=原药/母药：原药登记证号/企业回填为自身登记信息；
-      //    下拉候选=同有效成分原药（含自身），允许下拉重选或手动输入修改
-      form.originalRegNo = row.registration_no || ''
-      form.originalCompany = row.company || ''
-      Object.assign(orig, { mode: 'original', candidates: cands, hint: '原药（母药）登记：已回填其自身登记证号与企业，可通过下拉或手输修改', compound: false })
-      return
-    }
-    if (!main) {
-      // 制剂无有效成分数据：留空提示手动补充
-      form.originalRegNo = ''
-      form.originalCompany = ''
-      Object.assign(orig, { mode: 'manual', candidates: [], hint: '未匹配到对应原药数据，请手动补充', compound })
-    } else if (cands.length === 0) {
-      // 无匹配：留空提示手动补充（允许输入自定义内容）
-      form.originalRegNo = ''
-      form.originalCompany = ''
-      Object.assign(orig, { mode: 'manual', candidates: [], hint: '未匹配到对应原药数据，请手动补充', compound })
-    } else if (cands.length === 1) {
-      // 唯一匹配：自动回填（可编辑；下拉候选保留该条，亦可手输自定义）
-      form.originalRegNo = cands[0].registration_no
-      form.originalCompany = cands[0].company || ''
-      Object.assign(orig, { mode: 'auto', candidates: cands, hint: '已按有效成分「' + main + '」自动匹配唯一原药登记，可修改', compound })
+      // 剂型=原药/母药：首行回填自身登记信息（可下拉重选/手输修改）
+      origRows.value[0].regNo = row.registration_no || ''
+      origRows.value[0].company = row.company || ''
+      origHint.value = '原药（母药）登记：已回填其自身登记证号与企业，可下拉选择或手动输入修改'
+    } else if (pool.length === 0) {
+      origHint.value = '未匹配到对应原药数据，请手动补充'
+    } else if (pool.length === 1) {
+      // 唯一匹配：自动回填首行（可编辑）
+      origRows.value[0].regNo = pool[0].registration_no
+      origRows.value[0].company = pool[0].company || ''
+      origHint.value = '已按有效成分自动匹配唯一原药登记，可下拉选择或手动输入修改'
     } else {
-      // 多匹配：两字段必填；下拉候选供选择，也允许手动输入
-      form.originalRegNo = ''
-      form.originalCompany = ''
-      Object.assign(orig, { mode: 'select', candidates: cands, hint: '有效成分「' + main + '」匹配到 ' + cands.length + ' 家原药登记，可下拉选择或手动输入（保存必填）', compound })
+      // 多匹配：首行待选择（必填），复配可添加行补其它成分原药
+      origHint.value = '有效成分匹配到 ' + pool.length + ' 家原药登记，可下拉选择或手动输入（保存必填，多原药请点击添加行）'
     }
-  } catch (e: any) {
-    form.originalRegNo = ''
-    form.originalCompany = ''
-    Object.assign(orig, { mode: 'manual', candidates: [], hint: '原药匹配服务异常，请手动补充', compound })
+  } catch {
+    origHint.value = '原药匹配服务异常，请手动补充'
+  } finally {
+    origBusy.value = false
   }
 }
 
-/** 登记产品被清除：全部登记信息同步清空（商标/规格等手动字段保留） */
+/** 编辑态加载候选池（原药行下拉可用；不覆盖行值） */
+async function loadPoolForReg(registrationNo: string) {
+  if (!registrationNo) return
+  origBusy.value = true
+  try {
+    const data = await $fetch<any>('/api/admin/regdata/originals', { query: { regNo: registrationNo } })
+    origPool.value = data?.rows || []
+  } catch { origPool.value = [] } finally { origBusy.value = false }
+}
+
+/** 登记产品被清除 */
 function onRegCleared() {
   pickedReg.value = null
   clearRegFields()
 }
 
-/** 生产类型切换：产品下拉按新范围重新过滤；当前已选产品不在范围内则清空（需求1.1） */
+/** 生产类型切换：登记产品范围变化，当前已选产品不在新范围则清空（含原药行重置） */
 async function onProduceTypeChange(v: number) {
   if (!pickedReg.value) return
   try {
@@ -205,7 +211,7 @@ async function onProduceTypeChange(v: number) {
   } catch { /* 网络异常时保留原选择，避免误清 */ }
 }
 
-/** 总部管理员切换归属企业：本厂口径变化，若已选产品则清空（保守处理） */
+/** 总部切换归属企业：登记产品过滤口径变化，若已选产品则清空（保守处理） */
 function onEnterpriseChange() {
   if (pickedReg.value) {
     pickedReg.value = null
@@ -218,10 +224,14 @@ const openCreate = () => {
   Object.assign(form, {
     trademark: '', name: '', registrationNo: '', registrationExpire: '', regCategory: 1, holderName: '',
     produceType: 1, dosage: '', toxicity: '低毒', specId: null, content: '',
-    category: '杀虫剂', isRestricted: false, originalRegNo: '', originalCompany: '', status: 1,
+    category: '杀虫剂', isRestricted: false, status: 1,
   })
   pickedReg.value = null
-  Object.assign(orig, { mode: 'idle', candidates: [], hint: '', compound: false })
+  resetOrigRows()
+  origPool.value = []
+  origHint.value = ''
+  origCompound.value = false
+  origBusy.value = false
   enterpriseId.value = isPlatformAdmin.value ? null : (user.value?.enterprise_id || null)
   showModal.value = true
 }
@@ -235,10 +245,8 @@ const openEdit = (row: any) => {
     produceType: Number(row.produce_type || 1), dosage: row.dosage || '', toxicity: row.toxicity || '低毒',
     specId: row.spec_id, content: row.content || '',
     category: row.category || '杀虫剂', isRestricted: Number(row.is_restricted) === 1,
-    originalRegNo: row.original_reg_no || '', originalCompany: row.original_company || '',
     status: Number(row.status),
   })
-  // 编辑回显：登记产品摘要取自现有产品行（不自动覆盖用户数据）
   pickedReg.value = {
     registration_no: row.registration_no,
     product_name: row.name,
@@ -247,25 +255,42 @@ const openEdit = (row: any) => {
     content: row.content,
     expire_date: row.registration_expire,
   }
-  // 原药：已有值直接回显可编辑；重新选择登记产品后按数据源规则重新处理
-  Object.assign(orig, { mode: 'idle', candidates: [], hint: '重新选择登记产品后将按有效成分自动匹配原药', compound: false })
+  // 原药行回显（product_original 聚合数组；空则默认 1 行）
+  const saved = Array.isArray(row.originals) && row.originals.length ? row.originals : []
+  origRows.value = saved.length
+    ? saved.map((o: any) => ({ regNo: String(o.regNo || ''), company: String(o.company || '') }))
+    : [makeOrigRow()]
+  origHint.value = saved.length ? '已有原药记录回显，可修改；重新选择登记产品后将按有效成分重新初始化' : '该产品暂无原药记录，请补充（每行两字段必填）'
+  origCompound.value = false
+  // 编辑态行级候选池（按现有登记证号加载，不覆盖行值）
+  loadPoolForReg(row.registration_no)
   showModal.value = true
 }
 
 const save = async () => {
-  // 基础校验（登记证号全局唯一由服务端校验；此处为必填与格式校验）
   if (!form.registrationNo.trim()) { toast.add({ title: '请输入登记证号（可先选择登记产品自动带出）', color: 'warning' }); return }
   if (!form.name.trim()) { toast.add({ title: '请输入农药名称', color: 'warning' }); return }
   if (!form.specId) { toast.add({ title: '请选择规格', color: 'warning' }); return }
-  if (orig.mode === 'loading') { toast.add({ title: '原药匹配中，请稍候再保存', color: 'warning' }); return }
-  // 制剂匹配多条原药：原药登记证号与生产企业两字段保存必填（下拉选择或手动输入均可，不允许空提交）
-  if (orig.mode === 'select' && (!form.originalRegNo.trim() || !form.originalCompany.trim())) {
-    toast.add({ title: '该产品匹配到多家原药登记，原药登记证号与原药企业必填（可下拉选择或手动输入）', color: 'warning' })
-    return
+  if (origBusy.value) { toast.add({ title: '原药匹配中，请稍候再保存', color: 'warning' }); return }
+  // 原药行校验：至少 1 行，每行两字段必填（需求2.5）
+  if (!origRows.value.length) { toast.add({ title: '原药信息至少保留 1 行', color: 'warning' }); return }
+  for (let i = 0; i < origRows.value.length; i++) {
+    const r = origRows.value[i]
+    if (!r.regNo.trim() || !r.company.trim()) {
+      toast.add({ title: '第 ' + (i + 1) + ' 行原药：登记证号与原药企业均必填（可下拉选择或手动输入）', color: 'warning' })
+      return
+    }
   }
   saving.value = true
   try {
-    const body: any = { ...form }
+    const body: any = {
+      trademark: form.trademark, name: form.name, registrationNo: form.registrationNo,
+      registrationExpire: form.registrationExpire, regCategory: form.regCategory, holderName: form.holderName,
+      produceType: form.produceType, dosage: form.dosage, toxicity: form.toxicity,
+      specId: form.specId, content: form.content, category: form.category,
+      isRestricted: form.isRestricted, status: form.status,
+      originals: origRows.value.map(r => ({ regNo: r.regNo.trim(), company: r.company.trim() })),
+    }
     if (isPlatformAdmin.value) {
       if (!enterpriseId.value) { toast.add({ title: '请选择归属企业', color: 'warning' }); saving.value = false; return }
       body.enterpriseId = enterpriseId.value
@@ -307,7 +332,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
     <div class="flex items-center justify-between">
       <div>
         <h1 class="b-page-title">产品管理</h1>
-        <p class="b-page-desc">产品 SKU 化 · 规格来自主数据下拉选择 · 登记信息可从登记数据源自动带出后修改</p>
+        <p class="b-page-desc">产品 SKU 化 · 规格来自主数据下拉选择 · 登记信息可从登记数据源自动带出后修改 · 原药信息支持多行（复配多原药）</p>
       </div>
       <UButton color="neutral" variant="solid" icon="i-lucide-plus" @click="openCreate">新增产品</UButton>
     </div>
@@ -404,7 +429,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
       </div>
     </div>
 
-    <!-- 新增/编辑对话框（Nuxt UI v4：v-model:open + #content；内容多，加宽弹窗） -->
+    <!-- 新增/编辑对话框 -->
     <UModal v-model:open="showModal" :ui="{ content: 'max-w-3xl' }">
       <template #content>
         <div class="b-modal">
@@ -414,11 +439,11 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
             </div>
             <div>
               <h3 class="b-modal-title">{{ editingId ? '编辑产品' : '新增产品' }}</h3>
-              <p class="b-modal-sub">选择登记产品自动带出登记信息（可修改）· 登记证号全局唯一 · 规格取自主数据</p>
+              <p class="b-modal-sub">选择登记产品自动带出登记信息（可修改）· 登记证号全局唯一 · 原药信息多行（复配多原药）</p>
             </div>
           </div>
           <div class="b-modal-body">
-            <!-- 第 1 步：生产类型（决定登记产品过滤范围）+ 归属企业（总部） -->
+            <!-- 第 1 步：生产类型 + 归属企业（总部；完整厂家列表 + 可输入搜索，2026-09-04 需求 1） -->
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="b-label-lg">生产类型 <span class="b-required">*</span></label>
@@ -428,18 +453,17 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                   class="w-full"
                   @update:model-value="onProduceTypeChange"
                 />
-                <p class="b-help">持有人生产仅可选本厂产品；委托加工 / 委托分装可选全部登记产品</p>
+                <p class="b-help">持有人生产：登记产品仅显示归属企业本厂登记；委托加工 / 委托分装：显示全部登记产品</p>
               </div>
               <div v-if="isPlatformAdmin && !editingId">
                 <label class="b-label-lg">归属企业 <span class="b-required">*</span></label>
-                <USelect
+                <EnterprisePicker
                   v-model="enterpriseId"
-                  :items="(factoryData?.rows || []).map((e: any) => ({ value: Number(e.id), label: e.name }))"
-                  placeholder="选择归属企业"
-                  class="w-full"
+                  :items="(factoryData?.rows || []).map((e: any) => ({ id: Number(e.id), name: e.name }))"
+                  placeholder="输入关键字搜索厂家（展示全部厂家）"
                   @update:model-value="onEnterpriseChange"
                 />
-                <p class="b-help">持有人生产时按该企业名称过滤本厂登记产品</p>
+                <p class="b-help">选择归属企业后，登记产品搜索框按该企业过滤登记产品</p>
               </div>
             </div>
 
@@ -534,43 +558,60 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
               </div>
             </div>
 
-            <!-- 第 5 步：原药信息（按剂型与匹配结果动态切换） -->
+            <!-- 第 5 步：原药（母药）信息（多行，2026-09-04 需求 2） -->
             <div class="rounded border border-[var(--b-border)] p-3">
               <div class="mb-2 flex items-center justify-between">
                 <span class="text-[13px] font-medium text-[var(--b-text-title)]">原药（母药）信息</span>
-                <span v-if="orig.hint" class="text-xs text-[var(--b-text-muted)]">{{ orig.hint }}</span>
+                <span v-if="origHint" class="text-xs text-[var(--b-text-muted)]">{{ origHint }}</span>
               </div>
-              <!-- 复配制剂提示：仅基于第一个有效成分匹配 -->
-              <div v-if="orig.compound" class="mb-2 rounded bg-amber-50 px-2.5 py-1.5 text-xs text-amber-700">
-                本产品为复配制剂，仅基于第一个有效成分匹配原药，请仔细核对
+              <!-- 复配制剂提醒：核对每个有效成分对应的原药 -->
+              <div v-if="origCompound" class="mb-2 rounded bg-amber-50 px-2.5 py-1.5 text-xs text-amber-700">
+                本产品为复配制剂，请核对每个有效成分对应的原药信息
               </div>
-              <div v-if="orig.mode === 'idle' && !editingId" class="py-1 text-xs text-[var(--b-text-muted)]">
-                选择登记产品后，将按剂型自动匹配原药登记（原药产品自动回填自身；制剂按有效成分匹配）
-              </div>
-              <div v-else class="grid grid-cols-2 gap-3">
-                <div>
-                  <label class="b-label-lg">原药登记证号 <span v-if="orig.mode === 'select'" class="b-required">*</span></label>
-                  <RegOrigCombobox
-                    v-model="form.originalRegNo"
-                    :items="orig.candidates"
-                    value-of="reg"
-                    placeholder="下拉选择或手动输入"
-                  />
+              <!-- 原药行列表 -->
+              <div v-for="(row, idx) in origRows" :key="idx" class="mb-2 rounded border border-[var(--b-divider)] px-3 py-2">
+                <div class="mb-1 flex items-center justify-between">
+                  <span class="text-xs font-medium text-[var(--b-text-muted)]">原药记录 {{ idx + 1 }}</span>
+                  <UButton
+                    variant="link"
+                    color="neutral"
+                    size="xs"
+                    icon="i-lucide-trash-2"
+                    :disabled="origRows.length <= 1"
+                    @click="removeOrigRow(idx)"
+                  >
+                    删除
+                  </UButton>
                 </div>
-                <div>
-                  <label class="b-label-lg">原药生产企业名称 <span v-if="orig.mode === 'select'" class="b-required">*</span></label>
-                  <RegOrigCombobox
-                    v-model="form.originalCompany"
-                    :items="orig.candidates"
-                    value-of="company"
-                    placeholder="下拉选择或手动输入"
-                  />
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label class="b-label">原药登记证号 <span class="b-required">*</span></label>
+                    <RegOrigCombobox
+                      :model-value="row.regNo"
+                      :items="origPool"
+                      value-of="reg"
+                      placeholder="下拉选择或手动输入"
+                      @update:model-value="row.regNo = $event; syncOrigRow(row, 'regNo')"
+                    />
+                  </div>
+                  <div>
+                    <label class="b-label">原药生产企业名称 <span class="b-required">*</span></label>
+                    <RegOrigCombobox
+                      :model-value="row.company"
+                      :items="origPool"
+                      value-of="company"
+                      placeholder="下拉选择或手动输入"
+                      @update:model-value="row.company = $event; syncOrigRow(row, 'company')"
+                    />
+                  </div>
                 </div>
               </div>
-              <p class="mt-1 text-xs text-[var(--b-text-muted)]">
-                两字段支持下拉选择与手动输入并双向联动：选中/输入可匹配的原药登记时自动带出对方；无匹配内容可自由录入（制剂匹配多家时必填）
-              </p>
-              <p v-if="orig.mode === 'manual'" class="mt-1 text-xs text-amber-600">未匹配到对应原药数据，请手动补充原药登记证号与生产企业名称</p>
+              <div class="flex items-center justify-between">
+                <p class="text-xs text-[var(--b-text-muted)]">
+                  每行两字段支持下拉选择与手动输入并双向联动；复配多原药请点击「添加行」补充（至少保留 1 行）
+                </p>
+                <UButton variant="outline" color="neutral" size="xs" icon="i-lucide-plus" @click="addOrigRow">添加行</UButton>
+              </div>
             </div>
           </div>
           <div class="b-modal-foot">

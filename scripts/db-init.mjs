@@ -74,8 +74,6 @@ const DDL = [
     reg_category TINYINT NULL COMMENT '1=PD 2=WP',
     holder_name VARCHAR(255) NULL COMMENT '登记证持有人名称',
     produce_type TINYINT NULL COMMENT '1持有人生产 2委托加工 3委托分装',
-    original_company VARCHAR(255) NULL COMMENT '原药生产企业',
-    original_reg_no VARCHAR(32) NULL COMMENT '原药登记证号',
     dosage VARCHAR(50) NULL COMMENT '剂型',
     content VARCHAR(50) NULL COMMENT '总含量',
     spec_id BIGINT NULL COMMENT '规格ID（外键 product_spec）',
@@ -92,6 +90,16 @@ const DDL = [
     KEY idx_spec (spec_id),
     KEY idx_reg_expire (registration_expire)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  // 原药（母药）信息表（2026-09-04 多行化：复配产品可录入多条原药；原 product.original_* 单值列迁移后下线）
+  `CREATE TABLE IF NOT EXISTS product_original (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    product_id BIGINT NOT NULL COMMENT '产品ID',
+    ingredient VARCHAR(120) NULL COMMENT '对应有效成分名（提示溯源用，可空）',
+    reg_no VARCHAR(40) NOT NULL COMMENT '原药登记证号',
+    company VARCHAR(255) NOT NULL COMMENT '原药生产企业名称',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_product (product_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='产品原药（母药）信息（多行，1049 制剂展示用）'`,
   `CREATE TABLE IF NOT EXISTS batch (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     enterprise_id BIGINT NOT NULL,
@@ -336,6 +344,30 @@ async function migrate(conn) {
     await conn.query("ALTER TABLE trace_code ADD COLUMN qc_result TINYINT NULL COMMENT '质检结果0不合格1合格（单码覆盖冗余，扫码优先于批次）' AFTER expire_date");
     console.log('[db] 迁移：trace_code 补充列 qc_result（单码覆盖冗余）');
   }
+
+  // product.original_* → product_original 表（2026-09-04 原药多行化）：存量单值迁移后删列（幂等）
+  const [origCols] = await conn.query(
+    'SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME IN (?,?)',
+    [DB.database, 'product', 'original_reg_no', 'original_company']
+  );
+  if (origCols.length > 0) {
+    // 存量迁移：product 表原药单值非空 → product_original 行（幂等：不重复插入同 product 同 reg_no 同 company）
+    await conn.query(
+      `INSERT IGNORE INTO product_original (product_id, reg_no, company)
+       SELECT id, original_reg_no, original_company FROM product
+       WHERE original_reg_no IS NOT NULL AND original_reg_no <> '' AND original_company IS NOT NULL AND original_company <> ''`
+    );
+    const migrated = await conn.query('SELECT ROW_COUNT() AS c');
+    console.log('[db] 迁移：product.original_* 存量迁入 product_original（' + JSON.stringify(migrated[0]) + '）');
+    if (await hasColumn('product', 'original_company')) {
+      await conn.query('ALTER TABLE product DROP COLUMN original_company');
+      console.log('[db] 迁移：product 删除列 original_company（已迁入 product_original）');
+    }
+    if (await hasColumn('product', 'original_reg_no')) {
+      await conn.query('ALTER TABLE product DROP COLUMN original_reg_no');
+      console.log('[db] 迁移：product 删除列 original_reg_no（已迁入 product_original）');
+    }
+  }
 }
 
 // 历史码兜底归档（2026-09-04 码库聚合改造）：改造前导入的码无 upload_batch_id，
@@ -389,13 +421,21 @@ async function seed(conn) {
   let productId;
   if (prodRows.length === 0) {
     const [r] = await conn.query(
-      `INSERT INTO product (enterprise_id, trademark, name, registration_no, registration_expire, reg_category, holder_name, produce_type, original_company, original_reg_no, dosage, content, spec_id, shelf_life, category, toxicity)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [enterpriseId, '绿丰', '25%多·酮可湿性粉剂', 'PD20040767', '2031-08-23', 1, '山东绿丰生物科技有限公司', 1, '江苏原药化工有限公司', 'PD20080708', '可湿性粉剂', '25%', specId, '2年', '杀菌剂', '低毒']
+      `INSERT INTO product (enterprise_id, trademark, name, registration_no, registration_expire, reg_category, holder_name, produce_type, dosage, content, spec_id, shelf_life, category, toxicity)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [enterpriseId, '绿丰', '25%多·酮可湿性粉剂', 'PD20040767', '2031-08-23', 1, '山东绿丰生物科技有限公司', 1, '可湿性粉剂', '25%', specId, '2年', '杀菌剂', '低毒']
     );
     productId = r.insertId;
   } else {
     productId = prodRows[0].id;
+  }
+  // 演示产品原药信息行（多行表）
+  const [origRows] = await conn.query('SELECT id FROM product_original WHERE product_id = ? AND reg_no = ?', [productId, 'PD20080708']);
+  if (origRows.length === 0) {
+    await conn.query(
+      'INSERT INTO product_original (product_id, reg_no, company) VALUES (?,?,?)',
+      [productId, 'PD20080708', '江苏原药化工有限公司']
+    );
   }
 
   // 4) 演示批次
