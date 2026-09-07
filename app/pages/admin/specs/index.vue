@@ -73,14 +73,28 @@ const save = async () => {
   }
 }
 
-const toggleStatus = async (row: any) => {
-  const next = Number(row.status) === 1 ? 0 : 1
+// 删除确认对话框（2026-09-07：操作列停用/启用按钮移除，新增【删除】）
+// 置灰约束：被引用（ref_count）> 0 时按钮禁用——服务端 DELETE 同语义校验，双保险防绕过
+const delOpen = ref(false)
+const delTarget = ref<any>(null) // 待删除的规格行（弹窗回显名称/规格码）
+const deleting = ref(false)
+
+const askDelete = (row: any) => {
+  delTarget.value = row
+  delOpen.value = true
+}
+const confirmDelete = async () => {
+  if (!delTarget.value) return
+  deleting.value = true
   try {
-    await $fetch('/api/admin/specs/' + row.id, { method: 'PATCH', body: { status: next } })
-    toast.add({ title: next === 1 ? '规格已启用' : '规格已停用', color: 'success' })
+    await $fetch('/api/admin/specs/' + delTarget.value.id, { method: 'DELETE' })
+    toast.add({ title: '规格已删除', color: 'success' })
+    delOpen.value = false
     refresh()
   } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage || '操作失败', color: 'error' })
+    toast.add({ title: e?.data?.statusMessage || '删除失败', color: 'error' })
+  } finally {
+    deleting.value = false
   }
 }
 
@@ -165,9 +179,11 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
                 <div class="b-actions">
                   <UButton variant="link" color="neutral" size="xs" @click="openEdit(r)">编辑</UButton>
                   <span class="b-sep" />
-                  <UButton variant="link" color="neutral" size="xs" @click="toggleStatus(r)">
-                    {{ Number(r.status) === 1 ? '停用' : '启用' }}
-                  </UButton>
+                  <!-- 被引用 > 0：删除置灰并提示原因（disabled 按钮自身不触发 title，由外层 span 承载）；= 0 可正常点击 -->
+                  <span v-if="Number(r.ref_count) > 0" :title="'已被 ' + r.ref_count + ' 个产品引用，不可删除'">
+                    <UButton variant="link" color="neutral" size="xs" disabled>删除</UButton>
+                  </span>
+                  <UButton v-else variant="link" color="neutral" size="xs" @click="askDelete(r)">删除</UButton>
                 </div>
               </td>
             </tr>
@@ -237,6 +253,35 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showModal = false">取消</UButton>
             <UButton color="neutral" variant="solid" :loading="saving" @click="save">保存</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- 删除确认对话框（确认后物理删除规格，不可恢复；被引用规格按钮已置灰不会走到这里） -->
+    <UModal v-model:open="delOpen">
+      <template #content>
+        <div class="b-modal">
+          <div class="b-modal-head">
+            <div class="b-modal-icon">
+              <UIcon name="i-lucide-trash-2" class="h-4 w-4 text-red-600" />
+            </div>
+            <div>
+              <h3 class="b-modal-title">删除规格</h3>
+              <p class="b-modal-sub max-w-xl truncate" :title="delTarget?.spec_name">{{ delTarget?.spec_name }}</p>
+            </div>
+          </div>
+          <div class="b-modal-body">
+            <div class="b-note">
+              <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
+              <p class="b-note-text">
+                确认删除规格「{{ delTarget?.spec_name }}」（规格码 {{ delTarget?.spec_code }}）？删除后数据不可恢复，请谨慎操作。
+              </p>
+            </div>
+          </div>
+          <div class="b-modal-foot">
+            <UButton variant="outline" color="neutral" @click="delOpen = false">取消</UButton>
+            <UButton color="error" variant="solid" :loading="deleting" @click="confirmDelete">确认删除</UButton>
           </div>
         </div>
       </template>
