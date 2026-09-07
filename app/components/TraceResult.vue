@@ -87,44 +87,34 @@ const handleShare = async () => {
         <div class="mt-1 font-code text-sm font-medium text-default">{{ outcome.formattedCode }}</div>
       </div>
 
-      <!-- 产品基本信息（唯一业务信息卡片：基础字段 + 批次小节 + 原药（母药）小节 + 产品图片小节收拢于一体；
-           质检信息、查询记录模块已按要求整体移除） -->
+      <!-- 产品基本信息（唯一业务信息卡片：基础字段（含批次三字段行）+ 原药（母药）小节 + 产品图片小节收拢于一体；
+           质检信息、查询记录、「批次信息」标题模块已按要求整体移除） -->
       <div class="rounded-xl border border-border bg-elevated shadow-sm">
         <div class="flex items-center gap-2 border-b border-border/60 px-4 py-3 text-sm font-semibold">
           <UIcon name="i-lucide-package" class="h-4 w-4 text-primary" />
           产品基本信息
         </div>
         <div class="divide-y divide-border/60">
-          <!-- 基础信息 -->
+          <!-- 基础信息（批次三字段已并入：生产批次号/生产日期/有效期至，仅已绑定且有批次数据时展示；
+               无批次数据时直接留空，不再输出提示；「批次信息」小节已按需求整体删除） -->
           <div v-for="f in productFields" :key="f.label" class="flex justify-between gap-3 px-4 py-2.5 text-sm">
             <span class="shrink-0 text-muted">{{ f.label }}</span>
             <span class="text-right font-medium text-default">{{ f.value }}</span>
           </div>
-
-          <!-- 批次信息小节（生产批次号/生产日期/有效期至；质检相关字段已移除） -->
-          <div>
-            <div class="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-default">
-              <UIcon name="i-lucide-boxes" class="h-4 w-4 text-primary" />
-              批次信息
+          <template v-if="isBound && batch">
+            <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
+              <span class="shrink-0 text-muted">生产批次号</span>
+              <span class="text-right font-medium text-default">{{ batch.batchNo }}</span>
             </div>
-            <template v-if="isBound && batch">
-              <div class="divide-y divide-border/60">
-                <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
-                  <span class="shrink-0 text-muted">生产批次号</span>
-                  <span class="text-right font-medium text-default">{{ batch.batchNo }}</span>
-                </div>
-                <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
-                  <span class="shrink-0 text-muted">生产日期</span>
-                  <span class="text-right font-medium text-default">{{ batch.produceDate }}</span>
-                </div>
-                <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
-                  <span class="shrink-0 text-muted">有效期至</span>
-                  <span class="text-right font-medium text-default">{{ batch.expireDate }}</span>
-                </div>
-              </div>
-            </template>
-            <!-- 未绑定时无批次数据：此处直接留空（按需求移除橙色提示与警告图标，保留【批次信息】标题模块） -->
-          </div>
+            <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
+              <span class="shrink-0 text-muted">生产日期</span>
+              <span class="text-right font-medium text-default">{{ batch.produceDate }}</span>
+            </div>
+            <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
+              <span class="shrink-0 text-muted">有效期至</span>
+              <span class="text-right font-medium text-default">{{ batch.expireDate }}</span>
+            </div>
+          </template>
 
           <!-- 原药（母药）信息小节：单原药 1 组；复合多原药循环完整展示全部组分 -->
           <div v-if="hasOriginalInfo">
