@@ -123,10 +123,7 @@ const handleShare = async () => {
                 </div>
               </div>
             </template>
-            <div v-else class="flex items-start gap-2 px-4 pb-3 text-sm text-muted">
-              <UIcon name="i-lucide-circle-help" class="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-              <span>该码尚未绑定生产信息，请联系企业（生产厂家）</span>
-            </div>
+            <!-- 未绑定时无批次数据：此处直接留空（按需求移除橙色提示与警告图标，保留【批次信息】标题模块） -->
           </div>
 
           <!-- 原药（母药）信息小节：单原药 1 组；复合多原药循环完整展示全部组分 -->
