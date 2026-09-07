@@ -1,4 +1,14 @@
 ## 变更记录
+### 2026-09-07 | 规格列表操作列改造：移除停用/启用，新增删除（被引用 >0 置灰 + 确认弹窗 + 最小 DELETE 接口）
+- **工作内容**：用户五项要求——①操作列移除「停用/启用」按钮只留编辑；②编辑后新增【删除】；③被引用（ref_count）>0 时删除置灰禁点、=0 可点；④点击弹确认框、确认后执行删除；⑤其余列/分页/数据逻辑/样式原样、后端既有接口不动。澄清确认：规格模块后端原无 DELETE 端点（仅 PATCH），经用户拍板新增最小 DELETE 接口（前端置灰与服务端校验同语义防绕过）。
+  - **前端**（specs/index.vue）：删除 toggleStatus 函数与操作按钮；操作列 = 编辑 | 删除（b-sep 分隔不变）；被引用>0 分支以外层 span 包裹 disabled 按钮承载 title「已被 N 个产品引用，不可删除」（disabled 按钮自身不触发 title，AGENTS 既有踩坑）；删除确认 UModal 对齐码库删除弹窗骨架（trash-2 红图标 + shield-alert 警示 + 取消/确认删除 error solid）；成功 toast + refresh。状态列 tag 与编辑弹窗启用开关保留（停用语义入口收敛到编辑弹窗，产品建档下拉仍只取启用规格）。
+  - **后端**（新增 server/api/admin/specs/[id].delete.ts）：requireWritableUser + 企业归属校验（厂家仅本企业、platform_admin 全量）→ 404；被产品引用（product.spec_id）>0 → 400「已被 N 个产品引用，不可删除（请先调整产品规格）」；物理删除 + logOperation 审计（module 规格管理/action 删除规格）。规格码不经码表直连（码经产品引用规格），被引用=0 即无有效码依赖，无需 trace_code 额外扫描。既有 specs post/patch/get 零改动。
+- **修改文件**：app/pages/admin/specs/index.vue、server/api/admin/specs/[id].delete.ts（新增）
+- **测试情况**：tsc 0 错误；生产构建成功；API 冒烟 5 场景——被引用(id=1 ref=2)删除 400 拦截（响应体含原因文案）、无引用新增规格删除 200、重复删除 404、不存在 id 404、删除后列表与库核验零残留；CDP 真实浏览器 12/12 全过（操作列仅 [编辑,删除] 三行、001 删除按钮 disabled+title 原因、Z8 可点击、确认弹窗出现/含不可恢复警示/取消关闭、确认删除 toast「规格已删除」+ 行消失 + DB 零残留、控制台零错误）。提交 a1a81a3
+- **遗留问题/待办**：①规格停用入口现仅剩编辑弹窗开关（列表行内停用按钮已按用户要求移除）；②其余待办不变
+- **给下一个 Agent 的提示**：①规格删除端点 = server/api/admin/specs/[id].delete.ts（文件名法放 specs/ 目录，勿写成 [id]/delete.ts 目录结构——Nitro 会映射成 /:id/delete 404，AGENTS 已记录同坑）；②删除确认弹窗与码库删除弹窗骨架一致（b-note + shield-alert + error solid 确认按钮），新删除类交互照此对齐；③规格删除不做 trace_code 检查是有意设计（码经产品引用规格，无产品即无有效码），若未来产品支持删除需补链式校验；④验证脚本 scripts/_tmp-cdp-specs-del.mjs 可复用（API 预建无引用规格 → 页面删除闭环）
+
+---
 ### 2026-09-07 | 批次三字段行常驻基础信息表（修复未绑定码看不到字段行）
 - **工作内容**：用户反馈「生产批次号/生产日期/有效期至三个字段行没见到」——根因：上一轮 9d2e9f2 把三行包在 `v-if="isBound && batch"`（仅已绑定显示）内，而演示码全是未绑定态，页面自然看不到行。用户意图是这三个字段行作为基础信息表的**固定成员**保留（上轮原话“保留到基础信息表中”）。修正：三行改为无条件渲染，值取 `batch?.xxx || '-' `（无批次数据显示 '-' 占位，与其它基础字段 holderName 等 '-' 风格一致）；已绑定码显示批次真实值。同步删除无消费的 isBound computed（脚本残留）
 - **修改文件**：app/components/TraceResult.vue（-17/+14，纯模板+script 清理）
