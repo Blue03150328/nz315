@@ -6,7 +6,6 @@ const toast = useToast()
 
 const product = computed(() => props.outcome.product)
 const batch = computed(() => props.outcome.batch)
-const isBound = computed(() => props.outcome.status === 'bound')
 
 const copyCode = async () => {
   try {
@@ -95,26 +94,24 @@ const handleShare = async () => {
           产品基本信息
         </div>
         <div class="divide-y divide-border/60">
-          <!-- 基础信息（批次三字段已并入：生产批次号/生产日期/有效期至，仅已绑定且有批次数据时展示；
-               无批次数据时直接留空，不再输出提示；「批次信息」小节已按需求整体删除） -->
+          <!-- 基础信息（批次三字段行常驻：生产批次号/生产日期/有效期至；有批次数据展示真实值，
+               无批次数据显示 '-' 占位与其它基础字段一致；「批次信息」小节与橙色提示已按需求删除） -->
           <div v-for="f in productFields" :key="f.label" class="flex justify-between gap-3 px-4 py-2.5 text-sm">
             <span class="shrink-0 text-muted">{{ f.label }}</span>
             <span class="text-right font-medium text-default">{{ f.value }}</span>
           </div>
-          <template v-if="isBound && batch">
-            <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
-              <span class="shrink-0 text-muted">生产批次号</span>
-              <span class="text-right font-medium text-default">{{ batch.batchNo }}</span>
-            </div>
-            <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
-              <span class="shrink-0 text-muted">生产日期</span>
-              <span class="text-right font-medium text-default">{{ batch.produceDate }}</span>
-            </div>
-            <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
-              <span class="shrink-0 text-muted">有效期至</span>
-              <span class="text-right font-medium text-default">{{ batch.expireDate }}</span>
-            </div>
-          </template>
+          <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
+            <span class="shrink-0 text-muted">生产批次号</span>
+            <span class="text-right font-medium text-default">{{ batch?.batchNo || '-' }}</span>
+          </div>
+          <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
+            <span class="shrink-0 text-muted">生产日期</span>
+            <span class="text-right font-medium text-default">{{ batch?.produceDate || '-' }}</span>
+          </div>
+          <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
+            <span class="shrink-0 text-muted">有效期至</span>
+            <span class="text-right font-medium text-default">{{ batch?.expireDate || '-' }}</span>
+          </div>
 
           <!-- 原药（母药）信息小节：单原药 1 组；复合多原药循环完整展示全部组分 -->
           <div v-if="hasOriginalInfo">
