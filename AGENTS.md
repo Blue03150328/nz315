@@ -66,6 +66,7 @@
 ### ✅ 项目进度（截至 2026-09-04）
 
 **已实现（V1.0 核心）**：
+- **扫码页完整展示复合（多原药）原药组分**（2026-09-07，提交 8b64064）：TraceResult 原药区块改读 product.originals 数组（此前引用已删单值字段致原药区块自 V1.0 从未显示）——单原药保持原两行样式；多条循环分组「原药组分 N」各自完整展示证号+企业（不合并）；标题「共 N 个原药组分」。演示：25%多·酮补真实第二原药行（三唑酮）作复合样本。验证：CDP 7/7（复合 2 组/单行回归/样本恢复）+ SSR 200。**踩坑：vue 模板引用已删字段纯 tsc 查不出（模板类型检查不在项目 tsc 范围），组件改字段先 grep 模板消费**
 - **归属企业候选=登记数据源全部厂家**（2026-09-07，提交 4fffd75）：用户澄清候选应为 pesticide_reg 全部生产厂家（DISTINCT 3,637 家）而非系统 enterprise 表。新 API regdata/factories（远程搜索分页）；regdata 候选支持 company 参数（持有人生产按厂家名精确过滤，与数据源同源）；EnterprisePicker 重写远程搜索（modelValue=厂家名）；products POST 总部 body.company → 服务端归一化解析已入驻系统企业，未入驻 400 提示（enterprise_id NOT NULL 护栏）。厂家账号保留 enterpriseId 老路径。验证：API 8/8 + CDP UI 5/5 + lvfeng 回归 + SSR 200
 - **修复归属企业下拉不展开厂家列表**（2026-09-07，提交 f1b74f6）：用户反馈持有人生产下企业下拉未全展示。双修复：①EnterprisePicker/RegOrigCombobox 面板展开改根容器 @click 驱动（UInput @focus 透传链不可靠，实测点击聚焦不开面板）；②products factoryData 加「打开新增弹窗时列表空则客户端 refresh」双保险（条件 immediate 在缓存/keepalive 路径下可能未加载）。验证：CDP 两种生产类型下点击企业框均全量展开 + 过滤 + 选中回显
 - **产品弹窗：归属企业可搜索全量选择器 + 原药多行化**（2026-09-04，提交 4a67502）：①EnterprisePicker 替代企业 USelect——三种生产类型下均展示完整厂家列表（去掉持有人生产限制）+ 输入关键字实时过滤点击选择；②原药（母药）信息多行（product_original 表，product.original_* 列迁移后删）：行列表+添加/删除行（至少 1 行、单行禁删），每行双字段 RegOrigCombobox（候选=登记产品全有效成分池 findOriginalPool，复配合并去重）+同行双向联动；切换登记产品清空全部行并按新成分初始化首行；标题提示「有效成分匹配到 N 家…保存必填，多原药请点击添加行」、复配黄条「请核对每个有效成分对应的原药信息」；保存至少 1 行且每行两字段必填（服务端同口径）；products 三 API 多行化（事务/聚合 JSON_ARRAYAGG）、originals API ?regNo= 池模式、trace.get 返回 originals 数组。验证：tsc 0 + 构建 10.7MB + 迁移实测 + API 冒烟 + CDP v6 20/20 + SSR 22 页 200

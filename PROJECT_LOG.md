@@ -1,4 +1,12 @@
 ## 变更记录
+### 2026-09-07 | 扫码结果页完整展示复合（多原药）产品的全部原药组分（多行循环渲染）
+- **工作内容**：用户需求——复合农药扫码页须把录入的全部原药登记证号与生产厂家完整展示（不能只展示一条），单原药保持原逻辑。排查发现：产品原药多行化（product_original + trace API product.originals 数组）已就绪，但 **TraceResult 组件仍渲染已删除的单值字段（originalRegNo/originalCompany）——hasOriginalInfo 恒 false，扫码页原药区块自 V1.0 起实际从未显示**。修复：组件改读 originals——单条保持原两行样式；多条循环分组「原药组分 N」每组完整两行（证号+企业），组间分隔不合并；标题右侧「共 N 个原药组分」。演示数据：25%多·酮（复配）补真实第二原药行（三唑酮 PD20040044 黄龙生物科技（辽宁））作复合扫码演示样本
+- **修改文件**：app/components/TraceResult.vue（原药区块多行化）；演示数据 product_original 补行（不入库提交）
+- **测试情况**：tsc 0；构建；CDP 7/7——复合 2 组分（计数标题/组分1 PD20080708 江苏原药化工/组分2 PD20040044 黄龙生物科技各自完整/无多余组分/分组 DOM）；临时删行单原药回归（原样式 1 组、无计数与组分标签）；演示样本恢复；SSR trace+全后台 200。提交 8b64064
+- **遗留问题/待办**：其余待办不变
+- **给下一个 Agent 的提示**：①扫码页原药数据源 = trace API product.originals 数组（product_original 表按录入序）；TraceProduct 类型只有 originals（单值字段已删，勿回写）；②改造扫码类组件后除 SSR 外务必 CDP 真机渲染验证（本类「组件引用已删字段静默 '-'」问题纯 tsc 查不出——vue 模板类型检查不在项目 tsc 范围）
+
+---
 ### 2026-09-07 | 归属企业候选改为登记数据源全部厂家（3,637 家远程搜索 + 按厂家名过滤登记产品）
 - **工作内容**：用户澄清「归属企业下拉应展示存入数据库【农药登记全量数据_完整详情】中所有厂家」——候选源从系统 enterprise 表（演示仅 2 家）改为 pesticide_reg 全量生产厂家（DISTINCT company 3,637 家）：①新 API /api/admin/regdata/factories（去重厂家分页+关键字模糊，后台账号可用）；②regdata 候选 API 支持 company 参数——持有人生产直接 company=厂家名精确过滤（与数据源同源零归一化损耗），厂家账号无 company 保留 enterpriseId→企业名称归一化老路径；③EnterprisePicker 重写为远程搜索组件（modelValue=厂家名；输入防抖请求/默认首批/选中回显/清除）；④RegProductPicker 增加 company prop；⑤products POST 总部 body.company → 服务端按企业名称归一化相等解析为已入驻系统企业；**厂家未入驻（无系统企业账号）400 提示**（product.enterprise_id NOT NULL 完整性护栏，不做假归属，不降级）
 - **修改文件**：server/api/admin/regdata/factories.get.ts（新增）、server/api/admin/regdata.get.ts（company 参数）、server/api/admin/products.post.ts（归属解析+入驻护栏）、app/components/EnterprisePicker.vue（重写远程）、app/components/RegProductPicker.vue（company prop）、app/pages/admin/products/index.vue（接线/文案）
