@@ -6,7 +6,8 @@ import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 
 const props = defineProps<{
   produceType: number          // 生产类型（1持有人生产/2委托加工/3委托分装），决定服务端过滤
-  enterpriseId: number | null  // 归属企业（总部管理员代选企业；厂家固定本企业）
+  enterpriseId: number | null  // 归属企业（厂家账号固定本企业；总部不传）
+  company?: string | null     // 归属厂家名（总部按登记数据源厂家精确过滤；服务端 company 优先于 enterpriseId）
   disabled?: boolean           // 编辑回显阶段锁定搜索（切换产品需显式操作）
 }>()
 const selected = defineModel<any>('selected', { default: null })
@@ -23,8 +24,8 @@ const inputEl = ref<any>(null)
 let timer: any = null
 
 async function fetchResults() {
-  if (!props.enterpriseId && props.produceType === 1) {
-    // 持有人生产必须知道归属企业才能过滤本厂
+  if (!props.company && !props.enterpriseId && props.produceType === 1) {
+    // 持有人生产必须知道归属厂家（总部）/企业（厂家账号）才能过滤
     results.value = []; total.value = 0; emptyReason.value = 'noEnterprise'; return
   }
   loading.value = true; errMsg.value = ''; emptyReason.value = ''
@@ -33,6 +34,7 @@ async function fetchResults() {
       query: {
         keyword: keyword.value.trim() || undefined,
         produceType: props.produceType,
+        company: props.company || undefined,
         enterpriseId: props.enterpriseId || undefined,
         page: 1, pageSize: 30,
       },
@@ -92,6 +94,7 @@ function cancelSearch() {
 // 生产类型/企业变化：搜索结果需按新过滤重新加载；若面板开启则刷新
 watch(() => props.produceType, () => { if (searching.value) { results.value = []; fetchResults() } })
 watch(() => props.enterpriseId, () => { if (searching.value) { results.value = []; fetchResults() } })
+watch(() => props.company, () => { if (searching.value) { results.value = []; fetchResults() } })
 
 // 弹窗打开且未选产品：自动加载默认候选（持有人生产=本厂登记产品直出列表；委托加工=最新登记）
 onMounted(() => {

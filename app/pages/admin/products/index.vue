@@ -36,23 +36,18 @@ const { data, pending, refresh, error } = await useFetch<any>('/api/admin/produc
 
 const totalPages = computed(() => Math.max(1, Math.ceil((data.value?.total || 0) / pageSize)))
 
-// 厂家列表（完整展示，不做生产类型过滤——2026-09-04 需求 1）
-// SSR 预取（immediate）+ 打开新增弹窗时客户端实时刷新双保险（2026-09-07 修复：条件 immediate 在部分
-// 会话/缓存路径下未加载导致归属企业下拉无候选，用户反馈「持有人生产时下拉框未展示完整厂家列表」）
-const { data: factoryData, refresh: refreshFactories } = await useFetch<any>('/api/admin/factories', {
-  key: 'admin-factories-options',
-  query: { page: 1, pageSize: 100 },
-  immediate: !!isPlatformAdmin.value,
-  server: !!isPlatformAdmin.value,
-})
+// ============ 归属厂家（2026-09-07 用户需求：候选 = 登记数据源全部厂家，EnterprisePicker 远程搜索） ============
+// 总部管理员新建时选择「归属厂家」（数据源 company 原文），决定持有人生产时登记产品候选范围；
+// 厂家账号无选择器（归属=自己企业，走 enterpriseId 路径）
 
 // ============ 新增/编辑弹窗 ============
 const showModal = ref(false)
 const editingId = ref<number | null>(null)
 const saving = ref(false)
 
-// 归属企业：厂家账号固定本企业；总部管理员新建时选择（决定登记产品的本厂过滤口径）
+// 归属：厂家账号固定本企业（enterpriseId）；总部管理员新建时选择数据源厂家名（pickedCompany，决定登记产品过滤）
 const enterpriseId = ref<number | null>(isPlatformAdmin.value ? null : (user.value?.enterprise_id || null))
+const pickedCompany = ref<string | null>(null)
 
 const form = reactive({
   trademark: '', name: '', registrationNo: '', registrationExpire: '',
@@ -203,7 +198,8 @@ async function onProduceTypeChange(v: number) {
       query: {
         exact: pickedReg.value.registration_no,
         produceType: v,
-        enterpriseId: enterpriseId.value || undefined,
+        company: isPlatformAdmin.value ? (pickedCompany.value || undefined) : undefined,
+        enterpriseId: isPlatformAdmin.value ? undefined : (enterpriseId.value || undefined),
       },
     })
     if (!chk?.ok) {
@@ -214,8 +210,8 @@ async function onProduceTypeChange(v: number) {
   } catch { /* 网络异常时保留原选择，避免误清 */ }
 }
 
-/** 总部切换归属企业：登记产品过滤口径变化，若已选产品则清空（保守处理） */
-function onEnterpriseChange() {
+/** 总部切换归属厂家：登记产品候选范围变化，若已选产品则清空（保守处理） */
+function onCompanyChange() {
   if (pickedReg.value) {
     pickedReg.value = null
     clearRegFields()
@@ -236,10 +232,7 @@ const openCreate = async () => {
   origCompound.value = false
   origBusy.value = false
   enterpriseId.value = isPlatformAdmin.value ? null : (user.value?.enterprise_id || null)
-  // 总部新建：确保厂家列表已加载（客户端实时刷新一次，防 SSR/缓存时序下为空）
-  if (isPlatformAdmin.value && !(factoryData.value?.rows || []).length) {
-    try { await refreshFactories() } catch { /* 列表加载失败不影响开弹窗（可再搜索） */ }
-  }
+  pickedCompany.value = null
   showModal.value = true
 }
 
@@ -299,8 +292,9 @@ const save = async () => {
       originals: origRows.value.map(r => ({ regNo: r.regNo.trim(), company: r.company.trim() })),
     }
     if (isPlatformAdmin.value) {
-      if (!enterpriseId.value) { toast.add({ title: '请选择归属企业', color: 'warning' }); saving.value = false; return }
-      body.enterpriseId = enterpriseId.value
+      // 归属厂家（数据源厂家名）→ 服务端解析为已入驻的系统企业（归一化名称相等）
+      if (!pickedCompany.value) { toast.add({ title: '请选择归属厂家（登记数据源厂家）', color: 'warning' }); saving.value = false; return }
+      body.company = pickedCompany.value
     }
     if (editingId.value) {
       await $fetch('/api/admin/products/' + editingId.value, { method: 'PATCH', body })
@@ -463,14 +457,13 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                 <p class="b-help">持有人生产：登记产品仅显示归属企业本厂登记；委托加工 / 委托分装：显示全部登记产品</p>
               </div>
               <div v-if="isPlatformAdmin && !editingId">
-                <label class="b-label-lg">归属企业 <span class="b-required">*</span></label>
+                <label class="b-label-lg">归属企业（登记数据源厂家）<span class="b-required">*</span></label>
                 <EnterprisePicker
-                  v-model="enterpriseId"
-                  :items="(factoryData?.rows || []).map((e: any) => ({ id: Number(e.id), name: e.name }))"
-                  placeholder="输入关键字搜索厂家（展示全部厂家）"
-                  @update:model-value="onEnterpriseChange"
+                  v-model="pickedCompany"
+                  placeholder="输入厂家名搜索（登记数据源全部 3,637 家厂家）"
+                  @update:model-value="onCompanyChange"
                 />
-                <p class="b-help">选择归属企业后，登记产品搜索框按该企业过滤登记产品</p>
+                <p class="b-help">选择归属厂家后，持有人生产时登记产品仅显示该厂家的登记产品（委托加工/委托分装显示全部）</p>
               </div>
             </div>
 
@@ -481,6 +474,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                 v-model:selected="pickedReg"
                 :produce-type="form.produceType"
                 :enterprise-id="enterpriseId"
+                :company="isPlatformAdmin ? pickedCompany : null"
                 @select="onRegSelected"
                 @clear="onRegCleared"
               />

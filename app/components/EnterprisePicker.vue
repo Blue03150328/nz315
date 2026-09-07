@@ -1,68 +1,84 @@
 <script setup lang="ts">
-// 归属企业选择器（2026-09-04 需求：无论生产类型都展示完整厂家列表 + 可输入搜索）
-// 本地过滤（厂家数量有限）：输入关键字实时过滤企业名，点击候选选中；无候选时可继续输入（提示无匹配）
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+// 归属企业选择器（2026-09-07 用户需求）：候选 = 登记数据源（pesticide_reg）中的全部生产厂家
+// （3,637 家去重，不再使用系统 enterprise 表）；远程搜索：输入关键字防抖请求 /regdata/factories，
+// 点击展开默认加载首批 + 可输入过滤；选中值 = 厂家名（与登记数据源 company 同源，过滤无损耗）
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 
 const props = withDefaults(defineProps<{
-  modelValue: number | null
-  items: { id: number; name: string }[]  // 完整厂家列表（不再按生产类型过滤）
+  modelValue: string | null          // 已选厂家名
   placeholder?: string
-}>(), { placeholder: '输入关键字搜索厂家' })
-const emit = defineEmits<{ (e: 'update:modelValue', v: number | null): void }>()
+}>(), { placeholder: '输入厂家名搜索（登记数据源全部厂家）' })
+const emit = defineEmits<{ (e: 'update:modelValue', v: string | null): void }>()
 
 const keyword = ref('')
 const open = ref(false)
+const loading = ref(false)
+const items = ref<string[]>([])       // 服务端返回的候选（已按关键字过滤）
+const total = ref(0)
 const rootEl = ref<any>(null)
+let timer: any = null
 
-const selectedName = computed(() => props.items.find(it => Number(it.id) === Number(props.modelValue))?.name || '')
-
-// 输入过滤候选（空关键字展示全部）
-const filteredItems = computed(() => {
-  const kw = keyword.value.trim()
-  if (!kw) return props.items
-  return props.items.filter(it => it.name.includes(kw))
-})
+async function fetchFactories(kw: string, silent = false) {
+  if (!silent) loading.value = true
+  try {
+    const data = await $fetch<any>('/api/admin/regdata/factories', {
+      query: { keyword: kw || undefined, page: 1, pageSize: kw ? 100 : 100 },
+    })
+    items.value = data?.rows || []
+    total.value = data?.total || 0
+  } catch {
+    items.value = []
+    total.value = 0
+  } finally {
+    loading.value = false
+  }
+}
 
 function onInput(v: string) {
   keyword.value = v
   open.value = true
+  clearTimeout(timer)
+  timer = setTimeout(() => { fetchFactories(v.trim()) }, 300)
 }
-function pick(it: { id: number; name: string }) {
+function pick(name: string) {
   keyword.value = ''
-  emit('update:modelValue', Number(it.id))
+  emit('update:modelValue', name)
   open.value = false
 }
 function clearVal() {
   keyword.value = ''
   emit('update:modelValue', null)
   open.value = true
+  fetchFactories('')
 }
 function toggle() {
-  if (!props.items.length) return
   open.value = !open.value
-  if (open.value && !selectedName.value) keyword.value = ''
+  if (open.value && !items.value.length) {
+    keyword.value = ''
+    fetchFactories('')
+  }
 }
 function onDocClick(e: MouseEvent) {
   if (rootEl.value && !rootEl.value.contains(e.target)) open.value = false
 }
 onMounted(() => document.addEventListener('click', onDocClick))
-onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
+onBeforeUnmount(() => { clearTimeout(timer); document.removeEventListener('click', onDocClick) })
 </script>
 
 <template>
-  <!-- 根容器点击展开面板：UInput 的 @focus 经组件透传链不可靠（2026-09-07 实测点击聚焦不开面板），改由 click 驱动 -->
-  <div ref="rootEl" class="relative" @click="items.length && (open = true)">
+  <!-- 根容器点击展开候选面板（UInput @focus 透传不可靠，2026-09-07 改 click 驱动） -->
+  <div ref="rootEl" class="relative" @click="open = true">
     <div class="flex w-full items-center">
       <UInput
-        :model-value="keyword || selectedName"
+        :model-value="keyword || modelValue || ''"
         :placeholder="placeholder"
         class="w-full"
+        :loading="loading"
         @update:model-value="onInput"
-        @focus="items.length && (open = true)"
       >
         <template #trailing>
           <button
-            v-if="selectedName && !keyword"
+            v-if="modelValue && !keyword"
             type="button"
             tabindex="-1"
             class="flex h-6 w-6 items-center justify-center text-[var(--b-text-muted)] hover:text-[var(--b-text-title)]"
@@ -84,24 +100,29 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         </template>
       </UInput>
     </div>
-    <!-- 候选面板（@click.stop：选择候选后阻止冒泡到根容器，避免面板被重新展开） -->
+    <!-- 候选面板（@click.stop：防选中后冒泡重新展开） -->
     <div
-      v-if="open && items.length"
+      v-if="open && !loading"
       class="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded border border-[var(--b-border)] bg-white py-1 shadow-lg"
       @click.stop
     >
       <button
-        v-for="it in filteredItems"
-        :key="it.id"
+        v-for="name in items"
+        :key="name"
         type="button"
         class="block w-full px-3 py-1.5 text-left text-xs leading-relaxed text-[var(--b-text-regular)] transition-colors hover:bg-[var(--b-fill)]/80"
-        :class="{ 'bg-[var(--b-fill)]/60 font-medium': Number(it.id) === Number(modelValue) }"
+        :class="{ 'bg-[var(--b-fill)]/60 font-medium': name === modelValue }"
         @mousedown.prevent
-        @click="pick(it)"
+        @click="pick(name)"
       >
-        {{ it.name }}
+        {{ name }}
       </button>
-      <div v-if="!filteredItems.length" class="px-3 py-1.5 text-xs text-[var(--b-text-muted)]">无匹配厂家，请调整关键字</div>
+      <div v-if="!items.length" class="px-3 py-1.5 text-xs text-[var(--b-text-muted)]">
+        {{ keyword ? '无匹配厂家，请调整关键字' : '暂无厂家数据' }}
+      </div>
+      <div v-if="items.length && total > items.length" class="px-3 py-1.5 text-center text-xs text-[var(--b-text-muted)]">
+        共 {{ total }} 家厂家，输入关键字可精确搜索
+      </div>
     </div>
   </div>
 </template>

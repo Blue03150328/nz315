@@ -3,6 +3,18 @@
 // 至少 1 行且每行两字段必填；写入 product + product_original（事务）
 import { getPool, query } from '../../utils/db'
 import { requireWritableUser } from '../../utils/auth'
+import { normalizeOrgName } from '../../utils/regdata'
+
+/** 厂家名（登记数据源 company）→ 系统企业 id：企业名称归一化相等匹配；未入驻返回 null */
+async function resolveEnterpriseByCompany(companyName: string): Promise<number | null> {
+  const norm = normalizeOrgName(companyName)
+  if (!norm) return null
+  const rows = await query<any[]>('SELECT id, name FROM enterprise WHERE status = 1')
+  for (const ent of rows) {
+    if (normalizeOrgName(String(ent.name || '')) === norm) return Number(ent.id)
+  }
+  return null
+}
 
 export default defineEventHandler(async (event) => {
   const user = await requireWritableUser(event)
@@ -29,9 +41,21 @@ export default defineEventHandler(async (event) => {
 
   let fid: number | null = user.enterprise_id
   if (user.role === 'platform_admin') {
-    fid = Number(body.enterpriseId)
-    if (!Number.isInteger(fid) || (fid as number) <= 0) {
-      throw createError({ statusCode: 400, statusMessage: '请指定有效的企业ID' })
+    // 2026-09-07：归属厂家 = 登记数据源厂家名（company 参数）→ 解析为已入驻系统企业（归一化名称相等）
+    const companyName = String(body.company || '').trim()
+    const entIdByCompany = companyName ? await resolveEnterpriseByCompany(companyName) : null
+    if (entIdByCompany) {
+      fid = entIdByCompany
+    } else {
+      fid = Number(body.enterpriseId)
+      if (!Number.isInteger(fid) || (fid as number) <= 0) {
+        throw createError({
+          statusCode: 400,
+          statusMessage: companyName
+            ? '厂家「' + companyName.slice(0, 40) + '」尚未入驻平台（无系统企业账号），无法归属建档；请先在系统设置创建该企业，或选择已入驻厂家'
+            : '请指定有效的企业ID',
+        })
+      }
     }
   }
 

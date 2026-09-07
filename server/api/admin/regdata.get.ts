@@ -28,16 +28,22 @@ export default defineEventHandler(async (event) => {
   const conds: string[] = ['(expire_date IS NULL OR expire_date >= CURDATE())']
   const params: any[] = []
 
-  // 「本厂产品」过滤：持有人生产必须归属本企业（按企业名称与数据源生产厂家归一化相等判定）
-  if (produceType === 1) {
+  // 「本厂产品」过滤：持有人生产仅显示所选厂家（归属）的登记产品。
+  // 2026-09-07：归属企业候选改为登记数据源全部厂家（company 参数，直接精确匹配，天然同源无归一化损耗）；
+  // 厂家账号（无 company 参数）保留原 enterpriseId→企业名称归一化匹配路径
+  const companyParam = String(q.company || '').trim().slice(0, 255)
+  if (produceType === 1 && companyParam) {
+    conds.push('company = ?')
+    params.push(companyParam)
+  } else if (produceType === 1) {
     let entName = ''
     if (enterpriseId) {
       const [ent] = await query<any[]>('SELECT name FROM enterprise WHERE id = ?', [enterpriseId])
       entName = ent?.name ? String(ent.name) : ''
     }
     if (!entName) {
-      // 无归属企业（总部未选企业等）：直接返回空，提示选择企业
-      return { total: 0, page: 1, pageSize: 0, rows: [], emptyReason: 'noEnterprise', hint: '请先选择归属企业（总部管理员）或确认本企业已设置企业名称' }
+      // 无归属厂家/企业：返回空并提示
+      return { total: 0, page: 1, pageSize: 0, rows: [], emptyReason: 'noEnterprise', hint: '请先选择归属厂家（总部管理员）或确认本企业名称与登记证持有人一致' }
     }
     const norm = normalizeOrgName(entName)
     conds.push('(company IS NOT NULL AND ' + COMPANY_NORM_SQL + ' = ?)')
@@ -82,7 +88,7 @@ export default defineEventHandler(async (event) => {
     total,
     page, pageSize,
     // 持有人生产过滤下无本厂登记产品（且无关键词时）→ 引导检查企业名称
-    emptyReason: produceType === 1 && total === 0 && !keyword ? 'noOwn' : undefined,
+    emptyReason: produceType === 1 && total === 0 && !keyword && !companyParam ? 'noOwn' : undefined,
     // 附登记类别代码与厂家名（回填用），便于前端零计算
     rows: rows.map((r: any) => ({
       registration_no: r.registration_no,
