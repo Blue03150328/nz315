@@ -109,7 +109,7 @@
 
 **待办（按 PRD 版本规划）**：
 - **真机验证 /scan 扫码**：Android Chrome（原生 BarcodeDetector 路径）与 iOS Safari 17+ 各扫一张真实印刷码；确认 HTTPS 下权限弹窗与后置摄像头调用正常
-- **等待用户提供微信凭据**：AppID/AppSecret（另需在公众平台配置网页授权域名 www.nz315.cn）；到位后需真机验证授权回调
+- **微信凭据已配置**（2026-09-07）：WECHAT_APP_ID/WECHAT_APP_SECRET 已写入 .env（不入库）并重建生效，authorize 端点 302 验证通过（appid/scope=snsapi_userinfo/state 正确）；**剩两步**：①用户在微信公众平台配置网页授权域名 www.nz315.cn（公众号设置→功能设置）；②生产 SITE_URL 指向正式域名后真机验证授权回调（微信内打开 authorize URL → code → callback 落库）
 - **上线前**：高德 JS API key 须在控制台配置**域名白名单**（本地未受限但线上必配）；Web服务 key 需确保生产环境额度充足（POI 检索每请求 2 次调用，有 1km 网格缓存）
 - 自动备份调度与异地备份（OSS）、微信推送（需公众号对接）、异常类型 2/3/5/6/7/8 预警触发接入（依赖 D2 登记证库/IP 归属地）
 - 码生成离线 EXE 版（参考工具 E:\wokeplace\二维码生成离线软件 已有 electron 工程，Web 引擎已对齐可移植打包）

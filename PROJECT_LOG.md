@@ -1,4 +1,11 @@
 ## 变更记录
+### 2026-09-07 | 微信网页授权凭据配置到位（.env，不入库）
+- **工作内容**：用户提供微信公众号 AppID/AppSecret（服务号，网页授权用）→ 追加到 .env（WECHAT_APP_ID/WECHAT_APP_SECRET，仅存本机，gitignore 已保护）；runtimeConfig 构建时内嵌，已重新生产构建 + 重启 3100。
+- **测试情况**：GET /api/consumer/wechat/authorize → 302 Location=https://open.weixin.qq.com/connect/oauth2/authorize?appid=wx1a6093c716310340&redirect_uri=https%3A%2F%2F127.0.0.1%3A3100%2Fapi%2Fconsumer%2Fwechat%2Fcallback&scope=snsapi_userinfo&state=%2Fprofile#wechat_redirect —— appid/scope/state 全部正确（配置前该端点 503「微信登录尚未配置」）；callback 端点需真实 code 才能全链路验证（不伪造，遵循「未配置凭据禁止假登录」同源原则）。
+- **遗留问题/待办**：①**用户操作**：微信公众平台「网页授权域名」配置为 www.nz315.cn（本地 127.0.0.1 回调无法被微信服务器访问）；②生产环境 SITE_URL 改 https://www.nz315.cn 后重建（redirect_uri 取自 SITE_URL，见 authorize.get.ts）；③真机验证授权回调（微信内打开 → 授权 → 落库 consumer → /profile 展示）；④其余待办不变
+- **给下一个 Agent 的提示**：凭据不在代码/文档/提交中；验证授权端点用 redirect:'manual' 的 fetch 检查 302 Location 即可，勿真调微信接口（需要真实用户 code）；consumer 会话 cookie nz315_consumer 与后台 nz315_user 不可互换
+
+---
 ### 2026-09-04 | 产品弹窗：归属企业可搜索全量选择器 + 原药（母药）信息多行化（复配多原药，product_original 表）
 - **工作内容**：第四轮需求两项：
   ① **归属企业选择框**：去掉按生产类型对企业列表的限制（三种生产类型下均展示完整厂家列表）；组件从 USelect 改为**可输入搜索选择器**（EnterprisePicker：输入关键字实时过滤候选厂家、点击选择，本地过滤）；归属企业帮助文案移除「持有人生产时按该企业名称过滤本厂登记产品」并改为「登记产品搜索框按该企业过滤」（登记产品过滤联动不变，切换企业仍清空已选产品）
