@@ -1,4 +1,12 @@
 ## 变更记录
+### 2026-09-07 | 归属企业候选改为登记数据源全部厂家（3,637 家远程搜索 + 按厂家名过滤登记产品）
+- **工作内容**：用户澄清「归属企业下拉应展示存入数据库【农药登记全量数据_完整详情】中所有厂家」——候选源从系统 enterprise 表（演示仅 2 家）改为 pesticide_reg 全量生产厂家（DISTINCT company 3,637 家）：①新 API /api/admin/regdata/factories（去重厂家分页+关键字模糊，后台账号可用）；②regdata 候选 API 支持 company 参数——持有人生产直接 company=厂家名精确过滤（与数据源同源零归一化损耗），厂家账号无 company 保留 enterpriseId→企业名称归一化老路径；③EnterprisePicker 重写为远程搜索组件（modelValue=厂家名；输入防抖请求/默认首批/选中回显/清除）；④RegProductPicker 增加 company prop；⑤products POST 总部 body.company → 服务端按企业名称归一化相等解析为已入驻系统企业；**厂家未入驻（无系统企业账号）400 提示**（product.enterprise_id NOT NULL 完整性护栏，不做假归属，不降级）
+- **修改文件**：server/api/admin/regdata/factories.get.ts（新增）、server/api/admin/regdata.get.ts（company 参数）、server/api/admin/products.post.ts（归属解析+入驻护栏）、app/components/EnterprisePicker.vue（重写远程）、app/components/RegProductPicker.vue（company prop）、app/pages/admin/products/index.vue（接线/文案）
+- **测试情况**：tsc 0；构建；API 8/8——厂家总数 3637、关键字搜索（绿丰系多厂）、company 过滤仅该厂家（氟虫腈 3 条）、exact 厂家范围核对、POST company=已入驻厂家（山东绿丰农药→id1）成功、未入驻厂家（江苏托球）400 提示入驻；CDP UI 5/5——归属字段新文案、远程搜索候选含数据源全部绿丰系厂家、选中回显、持有人生产登记产品按厂家过滤（PD20110204 山东绿丰农药）、保存成功；厂家账号（lvfeng）本厂产品 38 条 enterpriseId 老路径回归正常 + SSR 全站 200；测试数据已清理。提交 4fffd75
+- **遗留问题/待办**：①总部只能为「已入驻平台（有系统企业账号）且企业名与登记证持有人一致」的厂家建档——系统企业名称应与登记证持有人全称一致（演示 id1=山东绿丰农药有限公司 已对齐，lvfeng 演示登录账号即该企业）；②登记产品「持有人生产」过滤语义：厂家账号=本企业名匹配数据源；总部=所选数据源厂家名；委托加工/分装=全部厂家；③其余待办不变
+- **给下一个 Agent 的提示**：①归属企业=数据源厂家（company），勿回退系统 enterprise 表作候选；②公司候选接口 /api/admin/regdata/factories（全量去重，含历史过期登记证厂家，与用户口径一致）；③保存归属由服务端 resolveEnterpriseByCompany（normalizeOrgName 相等）解析，未入驻 400——需为厂家建档时先在系统设置创建企业并把企业名称设为登记证持有人全称；④厂家账号路径（无 company）走 regdata enterpriseId 老逻辑，勿破坏
+
+---
 ### 2026-09-07 | 修复归属企业下拉在持有人生产下不展示厂家列表（面板展开 + 数据加载双修复）
 - **工作内容**：用户反馈「选择生产类型=持有人生产时归属企业下拉框未全部展示完整厂家列表」。排查结论与修复：①**面板展开路径不可靠**——EnterprisePicker/RegOrigCombobox 原依赖 UInput @focus 透传开面板，实测点击输入框聚焦后面板不开（Nuxt UI 事件透传链问题）；两组件根容器改 @click 展开面板（点击组件任意区域即展开，与输入事件双保险），候选面板容器加 @click.stop 防选中后冒泡重新展开；②**数据加载健壮化**——products 页 factoryData 原为条件 immediate（!!isPlatformAdmin.value）依赖 SSR/会话时序，在缓存/keepalive/特定产物路径下可能未加载导致 items 为空；改为「SSR 预取 + 打开新增弹窗时若列表为空客户端实时 refreshFactories()」双保险。验证：CDP——持有人生产点击企业输入框展开完整厂家列表（2 家）、关键字实时过滤、点击选中回显、切委托加工仍完整展示；原药组合框同款修复后点击聚焦即出候选。
 - **修改文件**：app/components/EnterprisePicker.vue、app/components/RegOrigCombobox.vue（root @click 展开 + 面板 @click.stop）、app/pages/admin/products/index.vue（factoryData 双保险加载）
