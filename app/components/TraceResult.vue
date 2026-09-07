@@ -32,8 +32,10 @@ const productFields = computed(() => {
   ]
 })
 
-// 原药信息（制剂产品 1049 第二条扫码必显）
-const hasOriginalInfo = computed(() => !!(product.value?.originalRegNo || product.value?.originalCompany))
+// 原药（母药）信息（制剂产品 1049 第二条扫码必显）——多行 originals（复合/复配产品全部原药组分）
+// 2026-09-07 需求：扫码结果页须把录入的全部原药行完整展示（多行循环渲染，不合并覆盖）
+const originals = computed(() => product.value?.originals || [])
+const hasOriginalInfo = computed(() => originals.value.length > 0)
 
 const shareText = computed(() =>
   '我查询了「' + (product.value?.name || '') + '」的农药追溯码，查询结果正常',
@@ -106,20 +108,39 @@ const handleFeedback = () => {
         </div>
       </div>
 
-      <!-- 原药信息（制剂产品扫码必显） -->
+      <!-- 原药（母药）信息（制剂产品 1049 第二条扫码必显）：
+           单原药产品展示 1 组；复合（多原药）产品按录入行循环完整展示全部组分，不合并覆盖 -->
       <div v-if="hasOriginalInfo" class="rounded-xl border border-border bg-elevated shadow-sm">
-        <div class="flex items-center gap-2 border-b border-border/60 px-4 py-3 text-sm font-semibold">
-          <UIcon name="i-lucide-flask-conical" class="h-4 w-4 text-primary" />
-          原药（母药）信息
+        <div class="flex items-center justify-between border-b border-border/60 px-4 py-3">
+          <div class="flex items-center gap-2 text-sm font-semibold">
+            <UIcon name="i-lucide-flask-conical" class="h-4 w-4 text-primary" />
+            原药（母药）信息
+          </div>
+          <span v-if="originals.length > 1" class="text-xs text-muted">共 {{ originals.length }} 个原药组分</span>
         </div>
-        <div class="divide-y divide-border/60">
+        <!-- 单原药：保持原样式单组展示 -->
+        <div v-if="originals.length === 1" class="divide-y divide-border/60">
           <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
             <span class="shrink-0 text-muted">原药登记证号</span>
-            <span class="text-right font-medium text-default">{{ product?.originalRegNo || '-' }}</span>
+            <span class="text-right font-medium text-default">{{ originals[0].regNo || '-' }}</span>
           </div>
           <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
             <span class="shrink-0 text-muted">原药生产企业</span>
-            <span class="text-right font-medium text-default">{{ product?.originalCompany || '-' }}</span>
+            <span class="text-right font-medium text-default">{{ originals[0].company || '-' }}</span>
+          </div>
+        </div>
+        <!-- 复合（多原药）：按录入顺序分行/分组完整展示每条原药 -->
+        <div v-else class="divide-y divide-border/60">
+          <div v-for="(o, idx) in originals" :key="idx" class="px-4 py-2.5">
+            <div class="mb-1.5 text-xs font-medium text-muted">原药组分 {{ idx + 1 }}</div>
+            <div class="flex justify-between gap-3 py-0.5 text-sm">
+              <span class="shrink-0 text-muted">原药登记证号</span>
+              <span class="text-right font-medium text-default">{{ o.regNo || '-' }}</span>
+            </div>
+            <div class="flex justify-between gap-3 py-0.5 text-sm">
+              <span class="shrink-0 text-muted">原药生产企业</span>
+              <span class="text-right font-medium text-default">{{ o.company || '-' }}</span>
+            </div>
           </div>
         </div>
       </div>
