@@ -50,7 +50,8 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 </script>
 
 <template>
-  <div ref="rootEl" class="relative">
+  <!-- 根容器点击展开面板：UInput 的 @focus 经组件透传链不可靠（2026-09-07 实测点击聚焦不开面板），改由 click 驱动 -->
+  <div ref="rootEl" class="relative" @click="items.length && (open = true)">
     <div class="flex w-full items-center">
       <UInput
         :model-value="keyword || selectedName"
@@ -83,10 +84,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         </template>
       </UInput>
     </div>
-    <!-- 候选面板 -->
+    <!-- 候选面板（@click.stop：选择候选后阻止冒泡到根容器，避免面板被重新展开） -->
     <div
       v-if="open && items.length"
       class="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded border border-[var(--b-border)] bg-white py-1 shadow-lg"
+      @click.stop
     >
       <button
         v-for="it in filteredItems"

@@ -43,7 +43,8 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
 </script>
 
 <template>
-  <div ref="rootEl" class="relative">
+  <!-- 根容器点击展开面板：UInput @focus 透传链不可靠（2026-09-07 实测点击聚焦不开面板），改 click 驱动 + 输入事件双保险 -->
+  <div ref="rootEl" class="relative" @click="items.length && (open = true)">
     <div class="flex w-full items-center">
       <UInput
         ref="inputEl"
@@ -61,10 +62,11 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         </template>
       </UInput>
     </div>
-    <!-- 候选下拉面板 -->
+    <!-- 候选下拉面板（@click.stop：防选中候选后冒泡到根容器重新展开） -->
     <div
       v-if="open && items.length"
       class="absolute left-0 right-0 top-full z-30 mt-1 max-h-56 overflow-y-auto rounded border border-[var(--b-border)] bg-white py-1 shadow-lg"
+      @click.stop
     >
       <button
         v-for="it in filteredItems"

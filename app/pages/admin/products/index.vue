@@ -37,10 +37,13 @@ const { data, pending, refresh, error } = await useFetch<any>('/api/admin/produc
 const totalPages = computed(() => Math.max(1, Math.ceil((data.value?.total || 0) / pageSize)))
 
 // 厂家列表（完整展示，不做生产类型过滤——2026-09-04 需求 1）
-const { data: factoryData } = await useFetch<any>('/api/admin/factories', {
+// SSR 预取（immediate）+ 打开新增弹窗时客户端实时刷新双保险（2026-09-07 修复：条件 immediate 在部分
+// 会话/缓存路径下未加载导致归属企业下拉无候选，用户反馈「持有人生产时下拉框未展示完整厂家列表」）
+const { data: factoryData, refresh: refreshFactories } = await useFetch<any>('/api/admin/factories', {
   key: 'admin-factories-options',
   query: { page: 1, pageSize: 100 },
   immediate: !!isPlatformAdmin.value,
+  server: !!isPlatformAdmin.value,
 })
 
 // ============ 新增/编辑弹窗 ============
@@ -219,7 +222,7 @@ function onEnterpriseChange() {
   }
 }
 
-const openCreate = () => {
+const openCreate = async () => {
   editingId.value = null
   Object.assign(form, {
     trademark: '', name: '', registrationNo: '', registrationExpire: '', regCategory: 1, holderName: '',
@@ -233,6 +236,10 @@ const openCreate = () => {
   origCompound.value = false
   origBusy.value = false
   enterpriseId.value = isPlatformAdmin.value ? null : (user.value?.enterprise_id || null)
+  // 总部新建：确保厂家列表已加载（客户端实时刷新一次，防 SSR/缓存时序下为空）
+  if (isPlatformAdmin.value && !(factoryData.value?.rows || []).length) {
+    try { await refreshFactories() } catch { /* 列表加载失败不影响开弹窗（可再搜索） */ }
+  }
   showModal.value = true
 }
 
