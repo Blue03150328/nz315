@@ -24,6 +24,59 @@ const { data, pending, refresh, error } = await useFetch<any>('/api/admin/specs'
   })),
 })
 
+// ===== 批量导入（2026-09-07：右上角按钮 + 弹窗；模板 public/templates/spec-import-template.xlsx）=====
+const { isPlatformAdmin } = useUser()
+const showImportModal = ref(false)
+const importing = ref(false)
+const importFile = ref<File | null>(null)
+const importFileInput = ref<HTMLInputElement | null>(null)
+const importEid = ref<number | null>(null) // 平台管理员指定导入归属企业
+const impResult = ref<null | { success: number; failed: number; errors: { row: number; value: string; reason: string }[] }>(null)
+const importFileName = computed(() => importFile.value?.name || '')
+// 企业下拉（平台管理员场景；企业角色隐藏，走自身 enterprise_id）
+const { data: factoryOptions, refresh: refreshFactories } = await useFetch<any>('/api/admin/factories', {
+  key: 'admin-factories-specs-import',
+  query: { page: 1, pageSize: 100 },
+  immediate: false,
+})
+const openImport = () => {
+  showImportModal.value = true
+  impResult.value = null
+  importFile.value = null
+  if (importFileInput.value) importFileInput.value.value = ''
+  // 打开时企业列表为空则客户端刷新（keepalive/条件 immediate 缓存路径双保险，仿 products 页先例）
+  if (isPlatformAdmin.value && !(factoryOptions.value?.rows?.length)) refreshFactories()
+}
+const onImportFile = (e: Event) => {
+  const input = e.target as HTMLInputElement
+  importFile.value = input.files?.[0] || null
+  impResult.value = null // 换文件后旧结果作废
+}
+const doImport = async () => {
+  if (!importFile.value) { toast.add({ title: '请先选择要导入的 Excel 文件', color: 'warning' }); return }
+  if (isPlatformAdmin.value && !importEid.value) { toast.add({ title: '请选择导入规格归属的企业', color: 'warning' }); return }
+  importing.value = true
+  impResult.value = null
+  try {
+    const fd = new FormData()
+    fd.append('file', importFile.value)
+    if (isPlatformAdmin.value) fd.append('enterpriseId', String(importEid.value))
+    const r: any = await $fetch('/api/admin/specs/import', { method: 'POST', body: fd })
+    impResult.value = r
+    if (Number(r.success) > 0) {
+      toast.add({ title: '成功导入 ' + r.success + ' 条规格', color: 'success' })
+      refresh()
+    }
+    if (Number(r.failed) > 0) {
+      toast.add({ title: '有 ' + r.failed + ' 条未导入，请查看失败明细', color: 'warning' })
+    }
+  } catch (err: any) {
+    toast.add({ title: err?.data?.statusMessage || '导入失败', color: 'error' })
+  } finally {
+    importing.value = false
+  }
+}
+
 const totalPages = computed(() => Math.max(1, Math.ceil((data.value?.total || 0) / pageSize)))
 
 // 新增/编辑对话框
@@ -110,7 +163,10 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
         <h1 class="b-page-title">产品规格管理</h1>
         <p class="b-page-desc">企业规格主数据 · 规格码对应 32 位追溯码第 9-11 位</p>
       </div>
-      <UButton color="neutral" variant="solid" icon="i-lucide-plus" @click="openCreate">新增规格</UButton>
+      <div class="flex items-center gap-2">
+        <UButton color="neutral" variant="solid" icon="i-lucide-plus" @click="openCreate">新增规格</UButton>
+        <UButton color="neutral" variant="outline" icon="i-lucide-file-up" @click="openImport">批量导入</UButton>
+      </div>
     </div>
 
     <!-- 筛选查询区 -->
@@ -282,6 +338,87 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="delOpen = false">取消</UButton>
             <UButton color="error" variant="solid" :loading="deleting" @click="confirmDelete">确认删除</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- 批量导入弹窗：模板下载 → 选企业（平台）→ 选文件 → 导入结果（成功/失败明细） -->
+    <UModal v-model:open="showImportModal" :ui="{ content: 'sm:max-w-2xl' }">
+      <template #content>
+        <div class="b-modal">
+          <div class="b-modal-head">
+            <div class="b-modal-icon">
+              <UIcon name="i-lucide-file-up" class="h-4 w-4 text-[var(--b-text-regular)]" />
+            </div>
+            <div>
+              <h3 class="b-modal-title">批量导入规格</h3>
+              <p class="b-modal-sub">按模板格式填写后上传 Excel（.xlsx / .xls），一次最多 5000 条</p>
+            </div>
+          </div>
+          <div class="b-modal-body">
+            <div class="b-note">
+              <UIcon name="i-lucide-circle-help" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+              <p class="b-note-text">
+                模板仅一列「规格」，每行格式：净含量数值 + 中文含量单位（毫升/升/克/千克）+ / + 包装单位（瓶/袋/桶/盒/罐/支/箱），如「200毫升/瓶」。无法识别的行不计入导入，会在结果中列出失败原因。
+              </p>
+            </div>
+            <!-- ① 模板下载 -->
+            <div class="flex items-center justify-between rounded border border-[var(--b-border)] bg-[var(--b-fill)] px-3 py-2">
+              <span class="text-sm text-[var(--b-text-regular)]">规格导入模板.xlsx（表头「规格」+ 示例数据）</span>
+              <UButton tag="a" href="/templates/spec-import-template.xlsx" download="农药产品规格模板.xlsx" variant="outline" color="neutral" size="sm" icon="i-lucide-download">下载模板</UButton>
+            </div>
+            <!-- ② 归属企业（仅平台管理员；企业账号导入本企业） -->
+            <div v-if="isPlatformAdmin">
+              <label class="b-label-lg">归属企业 <span class="b-required">*</span></label>
+              <USelect
+                v-model="importEid"
+                :items="(factoryOptions?.rows || []).map((f: any) => ({ value: Number(f.id), label: f.name }))"
+                placeholder="选择导入规格归属的企业"
+                class="w-full"
+                :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
+              />
+            </div>
+            <!-- ③ 文件选择 -->
+            <div>
+              <label class="b-label-lg">Excel 文件 <span class="b-required">*</span></label>
+              <div class="flex items-center gap-3">
+                <input ref="importFileInput" type="file" accept=".xlsx,.xls" class="hidden" @change="onImportFile" />
+                <UButton variant="outline" color="neutral" icon="i-lucide-folder-open" @click="importFileInput?.click()">选择文件</UButton>
+                <span class="text-sm" :class="importFileName ? 'text-[var(--b-text-regular)]' : 'text-[var(--b-text-muted)]'">
+                  {{ importFileName || '未选择文件（仅支持 .xlsx / .xls）' }}
+                </span>
+              </div>
+            </div>
+            <!-- ④ 导入结果 -->
+            <div v-if="impResult">
+              <label class="b-label-lg">导入结果</label>
+              <div class="rounded border border-[var(--b-border)] p-3">
+                <div class="mb-2 flex items-center gap-4 text-sm">
+                  <span class="font-medium text-[var(--b-text-title)]">共处理 {{ impResult.success + impResult.failed }} 条</span>
+                  <span class="text-green-600">成功 {{ impResult.success }} 条</span>
+                  <span :class="impResult.failed ? 'text-red-600' : 'text-[var(--b-text-muted)]'">失败 {{ impResult.failed }} 条</span>
+                </div>
+                <div v-if="impResult.errors?.length" class="max-h-56 overflow-y-auto">
+                  <table class="b-table">
+                    <thead>
+                      <tr><th class="w-16">Excel 行</th><th>规格内容</th><th>失败原因</th></tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(er, idx) in impResult.errors" :key="idx">
+                        <td class="font-code">{{ er.row }}</td>
+                        <td class="max-w-52 truncate" :title="er.value">{{ er.value || '（空）' }}</td>
+                        <td class="text-red-600">{{ er.reason }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="b-modal-foot">
+            <UButton variant="outline" color="neutral" @click="showImportModal = false">关闭</UButton>
+            <UButton color="neutral" variant="solid" :loading="importing" :disabled="!importFile" @click="doImport">开始导入</UButton>
           </div>
         </div>
       </template>
