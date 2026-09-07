@@ -1,4 +1,12 @@
 ## 变更记录
+### 2026-09-07 | 修复归属企业下拉在持有人生产下不展示厂家列表（面板展开 + 数据加载双修复）
+- **工作内容**：用户反馈「选择生产类型=持有人生产时归属企业下拉框未全部展示完整厂家列表」。排查结论与修复：①**面板展开路径不可靠**——EnterprisePicker/RegOrigCombobox 原依赖 UInput @focus 透传开面板，实测点击输入框聚焦后面板不开（Nuxt UI 事件透传链问题）；两组件根容器改 @click 展开面板（点击组件任意区域即展开，与输入事件双保险），候选面板容器加 @click.stop 防选中后冒泡重新展开；②**数据加载健壮化**——products 页 factoryData 原为条件 immediate（!!isPlatformAdmin.value）依赖 SSR/会话时序，在缓存/keepalive/特定产物路径下可能未加载导致 items 为空；改为「SSR 预取 + 打开新增弹窗时若列表为空客户端实时 refreshFactories()」双保险。验证：CDP——持有人生产点击企业输入框展开完整厂家列表（2 家）、关键字实时过滤、点击选中回显、切委托加工仍完整展示；原药组合框同款修复后点击聚焦即出候选。
+- **修改文件**：app/components/EnterprisePicker.vue、app/components/RegOrigCombobox.vue（root @click 展开 + 面板 @click.stop）、app/pages/admin/products/index.vue（factoryData 双保险加载）
+- **测试情况**：tsc 0；生产构建；CDP 复验 4 项核心全过（两种生产类型下点击企业框均全量 2 家 + 过滤 + 选中回显）。提交 f1b74f6
+- **遗留问题/待办**：验证期间一度出现空候选假象——根因是测试脚本用 input.closest('.relative') 命中了 UInput 内部容器（非组件根），面板查询应全局/精确锚定组件根；其余待办不变
+- **给下一个 Agent 的提示**：①自绘组合框（EnterprisePicker/RegOrigCombobox）展开面板勿依赖 UInput @focus（透传不可靠），用根容器 @click；②DOM 自动化定位自绘组件容器时勿用 closest('.relative')（UInput 内部同名类干扰），锚定组件根或全局查询+文本过滤；③归属企业候选=factories API 全量（platform_admin），厂家账号无企业选择器
+
+---
 ### 2026-09-07 | 微信网页授权凭据配置到位（.env，不入库）
 - **工作内容**：用户提供微信公众号 AppID/AppSecret（服务号，网页授权用）→ 追加到 .env（WECHAT_APP_ID/WECHAT_APP_SECRET，仅存本机，gitignore 已保护）；runtimeConfig 构建时内嵌，已重新生产构建 + 重启 3100。
 - **测试情况**：GET /api/consumer/wechat/authorize → 302 Location=https://open.weixin.qq.com/connect/oauth2/authorize?appid=wx1a6093c716310340&redirect_uri=https%3A%2F%2F127.0.0.1%3A3100%2Fapi%2Fconsumer%2Fwechat%2Fcallback&scope=snsapi_userinfo&state=%2Fprofile#wechat_redirect —— appid/scope/state 全部正确（配置前该端点 503「微信登录尚未配置」）；callback 端点需真实 code 才能全链路验证（不伪造，遵循「未配置凭据禁止假登录」同源原则）。
