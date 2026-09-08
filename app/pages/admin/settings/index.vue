@@ -18,6 +18,17 @@ const entSaving = ref(false)
 const { data: entData, refresh: refreshEnt } = await useFetch<any>('/api/admin/settings/enterprise', {
   key: 'settings-enterprise',
 })
+
+// —— 总部视角：入驻企业列表（enterprise 表全部租户；factories API 即企业列表源）——
+const { data: entAdminData, refresh: refreshEntAdmin } = await useFetch<any>('/api/admin/factories', {
+  key: 'settings-ent-admin-list',
+  query: { page: 1, pageSize: 100 },
+  immediate: isPlatformAdmin,
+})
+const showEntModal = ref(false)
+const entEditId = ref<number | null>(null)
+const entEditName = ref('')
+const entStatus = ref(1) // 编辑弹窗内的企业启用/禁用状态（仅总部可改）
 watch(entData, (d) => {
   if (d) {
     Object.assign(entForm, {
@@ -39,6 +50,40 @@ const saveEnterprise = async () => {
     })
     toast.add({ title: '企业信息已保存', color: 'success' })
     refreshEnt()
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage || '保存失败', color: 'error' })
+  } finally {
+    entSaving.value = false
+  }
+}
+
+// —— 总部：打开某企业编辑弹窗（行字段为 snake_case，映射进表单 camelCase）——
+const openEntEdit = (row: any) => {
+  entEditId.value = Number(row.id)
+  entEditName.value = row.name || ''
+  Object.assign(entForm, {
+    name: row.name || '', creditCode: row.credit_code || '', unitCode: row.unit_code || '',
+    contact: row.contact || '', phone: row.phone || '', legalPerson: row.legal_person || '',
+    website: row.website || '', address: row.address || '', description: row.description || '',
+    licenseNo: row.license_no || '',
+    qualificationExpire: row.qualification_expire ? String(row.qualification_expire).slice(0, 10) : '',
+  })
+  entStatus.value = Number(row.status) === 1 ? 1 : 0
+  showEntModal.value = true
+}
+
+// —— 总部：保存企业编辑（PATCH 已支持总部改任意企业，含 status）——
+const saveEntEdit = async () => {
+  if (!entForm.name.trim()) { toast.add({ title: '请输入企业名称', color: 'warning' }); return }
+  entSaving.value = true
+  try {
+    await $fetch('/api/admin/settings/enterprise/' + entEditId.value, {
+      method: 'PATCH',
+      body: { ...entForm, status: Number(entStatus.value) === 1 ? 1 : 0 },
+    })
+    toast.add({ title: '企业信息已保存', color: 'success' })
+    showEntModal.value = false
+    refreshEntAdmin()
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || '保存失败', color: 'error' })
   } finally {
@@ -144,8 +189,14 @@ const logTotalPages = computed(() => Math.max(1, Math.ceil((logData.value?.total
 // 用户/日志清空筛选并刷新；数据备份面板无表单内容（Keep-Alive 缓存页互不影响）
 const resetPanel = async () => {
   if (tab.value === 'enterprise') {
-    await refreshEnt() // watch(entData) 回填已保存值，丢弃草稿
-    toast.add({ title: '企业信息已恢复为已保存值', color: 'primary' })
+    if (isPlatformAdmin.value) {
+      // 总部视角为企业列表：重置=刷新列表（无表单草稿）
+      refreshEntAdmin()
+      toast.add({ title: '已刷新企业列表', color: 'primary' })
+    } else {
+      await refreshEnt() // watch(entData) 回填已保存值，丢弃草稿
+      toast.add({ title: '企业信息已恢复为已保存值', color: 'primary' })
+    }
   } else if (tab.value === 'users') {
     Object.assign(ufilters, { keyword: '', role: undefined, status: undefined })
     upage.value = 1
@@ -217,62 +268,194 @@ const deleteBackup = async (b: any) => {
       { label: '数据备份', icon: 'i-lucide-database-backup', value: 'backup' },
     ]" />
 
-    <!-- 企业信息 -->
-    <div v-if="tab === 'enterprise'" class="b-card">
-      <div class="b-card-head">
-        <span class="b-card-title">企业基本信息</span>
-        <span class="b-card-extra">1049 号公告主体信息，扫码页展示的企业资料以此为准</span>
-      </div>
-      <div class="b-form-grid md:grid-cols-2">
-        <div>
-          <label class="b-label">企业名称 <span class="b-required">*</span></label>
-          <UInput v-model="entForm.name" placeholder="企业全称" />
+    <!-- 企业信息（总部=入驻企业列表维护；厂家/码管理员=编辑本企业资料） -->
+    <div v-if="tab === 'enterprise'" class="space-y-4">
+      <!-- 总部视角：使用本系统的企业（租户）列表 -->
+      <template v-if="isPlatformAdmin">
+        <div class="b-card b-card-clip">
+          <div class="b-card-head">
+            <span class="b-card-title">入驻企业列表</span>
+            <span class="b-card-extra">使用本系统的企业（租户）共 {{ entAdminData?.total || 0 }} 家 · 扫码页展示的企业资料以此为准</span>
+          </div>
+          <div class="b-scroll-x">
+            <table class="b-table">
+              <thead>
+                <tr>
+                  <th>企业名称</th>
+                  <th>统一社会信用代码</th>
+                  <th>联系人</th>
+                  <th>联系电话</th>
+                  <th>状态</th>
+                  <th>账号数</th>
+                  <th>入驻时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="e in entAdminData?.rows || []" :key="e.id">
+                  <td class="b-strong font-medium">{{ e.name }}</td>
+                  <td class="font-code text-xs">{{ e.credit_code || '-' }}</td>
+                  <td>{{ e.contact || '-' }}</td>
+                  <td>{{ e.phone || '-' }}</td>
+                  <td>
+                    <span class="b-tag" :class="Number(e.status) === 1 ? 'b-tag-success' : 'b-tag-danger'">
+                      {{ Number(e.status) === 1 ? '启用' : '禁用' }}
+                    </span>
+                  </td>
+                  <td>{{ e.user_count || 0 }}</td>
+                  <td class="whitespace-nowrap text-xs text-[var(--b-text-muted)]">{{ e.created_at ? String(e.created_at).slice(0, 10) : '-' }}</td>
+                  <td>
+                    <UButton variant="link" color="neutral" size="xs" icon="i-lucide-pencil" @click="openEntEdit(e)">编辑</UButton>
+                  </td>
+                </tr>
+                <tr v-if="!entAdminData?.rows?.length">
+                  <td colspan="8" class="b-empty">
+                    <div class="b-empty-inner">
+                      <UIcon name="i-lucide-building-2" class="b-empty-icon h-8 w-8" />
+                      <span class="text-sm">暂无入驻企业</span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </div>
-        <div>
-          <label class="b-label">统一社会信用代码</label>
-          <UInput v-model="entForm.creditCode" placeholder="18 位信用代码" />
+
+        <!-- 编辑企业弹窗（Nuxt UI v4：v-model:open + #content 插槽） -->
+        <UModal v-model:open="showEntModal">
+          <template #content>
+            <div class="b-modal">
+              <div class="b-modal-head">
+                <div class="b-modal-icon">
+                  <UIcon name="i-lucide-building-2" class="h-4 w-4 text-[var(--b-text-regular)]" />
+                </div>
+                <div>
+                  <h3 class="b-modal-title">编辑企业信息（{{ entEditName }}）</h3>
+                  <p class="b-modal-sub">1049 号公告主体信息，扫码页展示的企业资料以此为准</p>
+                </div>
+              </div>
+              <div class="b-modal-body">
+                <div class="b-form-grid md:grid-cols-2">
+                  <div>
+                    <label class="b-label">企业名称 <span class="b-required">*</span></label>
+                    <UInput v-model="entForm.name" placeholder="企业全称" />
+                  </div>
+                  <div>
+                    <label class="b-label">统一社会信用代码</label>
+                    <UInput v-model="entForm.creditCode" placeholder="18 位信用代码" />
+                  </div>
+                  <div>
+                    <label class="b-label">单元识别码</label>
+                    <UInput v-model="entForm.unitCode" placeholder="1049号公告口径（登记类别+登记证后6位+生产类型）" />
+                  </div>
+                  <div>
+                    <label class="b-label">联系人</label>
+                    <UInput v-model="entForm.contact" placeholder="联系人姓名" />
+                  </div>
+                  <div>
+                    <label class="b-label">联系电话</label>
+                    <UInput v-model="entForm.phone" placeholder="联系电话" />
+                  </div>
+                  <div>
+                    <label class="b-label">法定代表人</label>
+                    <UInput v-model="entForm.legalPerson" placeholder="法人姓名" />
+                  </div>
+                  <div>
+                    <label class="b-label">企业官网</label>
+                    <UInput v-model="entForm.website" placeholder="https://..." />
+                  </div>
+                  <div>
+                    <label class="b-label">农药生产许可证号</label>
+                    <UInput v-model="entForm.licenseNo" placeholder="生产许可证号" />
+                  </div>
+                  <div>
+                    <label class="b-label">资质到期日</label>
+                    <UInput v-model="entForm.qualificationExpire" type="date" />
+                    <p class="b-help">到期前 30/60/90 天提醒</p>
+                  </div>
+                  <div>
+                    <label class="b-label">状态</label>
+                    <USelect v-model="entStatus" :items="[{ value: 1, label: '启用' }, { value: 0, label: '禁用' }]" class="w-full" />
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="b-label">注册地址</label>
+                    <UInput v-model="entForm.address" placeholder="企业注册地址" />
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="b-label">企业简介</label>
+                    <UTextarea v-model="entForm.description" :rows="3" placeholder="企业简介" />
+                  </div>
+                </div>
+              </div>
+              <div class="b-modal-foot">
+                <span class="b-card-extra">带 <span class="b-required">*</span> 的为必填项，保存后立即生效</span>
+                <div class="flex items-center gap-2">
+                  <UButton variant="outline" color="neutral" @click="showEntModal = false">取消</UButton>
+                  <UButton color="neutral" variant="solid" icon="i-lucide-save" :loading="entSaving" @click="saveEntEdit">保存企业信息</UButton>
+                </div>
+              </div>
+            </div>
+          </template>
+        </UModal>
+      </template>
+
+      <!-- 厂家/码管理员视角：编辑本企业资料 -->
+      <div v-else class="b-card">
+        <div class="b-card-head">
+          <span class="b-card-title">企业基本信息</span>
+          <span class="b-card-extra">1049 号公告主体信息，扫码页展示的企业资料以此为准</span>
         </div>
-        <div>
-          <label class="b-label">单元识别码</label>
-          <UInput v-model="entForm.unitCode" placeholder="1049号公告口径（登记类别+登记证后6位+生产类型）" />
+        <div class="b-form-grid md:grid-cols-2">
+          <div>
+            <label class="b-label">企业名称 <span class="b-required">*</span></label>
+            <UInput v-model="entForm.name" placeholder="企业全称" />
+          </div>
+          <div>
+            <label class="b-label">统一社会信用代码</label>
+            <UInput v-model="entForm.creditCode" placeholder="18 位信用代码" />
+          </div>
+          <div>
+            <label class="b-label">单元识别码</label>
+            <UInput v-model="entForm.unitCode" placeholder="1049号公告口径（登记类别+登记证后6位+生产类型）" />
+          </div>
+          <div>
+            <label class="b-label">联系人</label>
+            <UInput v-model="entForm.contact" placeholder="联系人姓名" />
+          </div>
+          <div>
+            <label class="b-label">联系电话</label>
+            <UInput v-model="entForm.phone" placeholder="联系电话" />
+          </div>
+          <div>
+            <label class="b-label">法定代表人</label>
+            <UInput v-model="entForm.legalPerson" placeholder="法人姓名" />
+          </div>
+          <div>
+            <label class="b-label">企业官网</label>
+            <UInput v-model="entForm.website" placeholder="https://..." />
+          </div>
+          <div>
+            <label class="b-label">农药生产许可证号</label>
+            <UInput v-model="entForm.licenseNo" placeholder="生产许可证号" />
+          </div>
+          <div>
+            <label class="b-label">资质到期日</label>
+            <UInput v-model="entForm.qualificationExpire" type="date" />
+            <p class="b-help">到期前 30/60/90 天提醒</p>
+          </div>
+          <div class="md:col-span-2">
+            <label class="b-label">注册地址</label>
+            <UInput v-model="entForm.address" placeholder="企业注册地址" />
+          </div>
+          <div class="md:col-span-2">
+            <label class="b-label">企业简介</label>
+            <UTextarea v-model="entForm.description" :rows="3" placeholder="企业简介" />
+          </div>
         </div>
-        <div>
-          <label class="b-label">联系人</label>
-          <UInput v-model="entForm.contact" placeholder="联系人姓名" />
+        <div class="b-card-foot">
+          <span class="b-card-extra">带 <span class="b-required">*</span> 的为必填项，保存后立即生效</span>
+          <UButton color="neutral" variant="solid" icon="i-lucide-save" :loading="entSaving" @click="saveEnterprise">保存企业信息</UButton>
         </div>
-        <div>
-          <label class="b-label">联系电话</label>
-          <UInput v-model="entForm.phone" placeholder="联系电话" />
-        </div>
-        <div>
-          <label class="b-label">法定代表人</label>
-          <UInput v-model="entForm.legalPerson" placeholder="法人姓名" />
-        </div>
-        <div>
-          <label class="b-label">企业官网</label>
-          <UInput v-model="entForm.website" placeholder="https://..." />
-        </div>
-        <div>
-          <label class="b-label">农药生产许可证号</label>
-          <UInput v-model="entForm.licenseNo" placeholder="生产许可证号" />
-        </div>
-        <div>
-          <label class="b-label">资质到期日</label>
-          <UInput v-model="entForm.qualificationExpire" type="date" />
-          <p class="b-help">到期前 30/60/90 天提醒</p>
-        </div>
-        <div class="md:col-span-2">
-          <label class="b-label">注册地址</label>
-          <UInput v-model="entForm.address" placeholder="企业注册地址" />
-        </div>
-        <div class="md:col-span-2">
-          <label class="b-label">企业简介</label>
-          <UTextarea v-model="entForm.description" :rows="3" placeholder="企业简介" />
-        </div>
-      </div>
-      <div class="b-card-foot">
-        <span class="b-card-extra">带 <span class="b-required">*</span> 的为必填项，保存后立即生效</span>
-        <UButton color="neutral" variant="solid" icon="i-lucide-save" :loading="entSaving" @click="saveEnterprise">保存企业信息</UButton>
       </div>
     </div>
 
