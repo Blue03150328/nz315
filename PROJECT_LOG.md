@@ -1,6 +1,16 @@
 ## 变更记录
 
+### 2026-09-07 | 新增产品弹窗移除 5 段辅助说明小字（仅删说明文字，控件零动）
+- **工作内容**：用户需求——产品管理「新增产品」弹窗只保留表单输入控件/label 标题/红色 * 必填标记，删除 5 段辅助说明小字：①弹窗标题（新增产品）下 b-modal-sub『选择登记产品自动带出登记信息（可修改）· 登记证号全局唯一 · 原药信息多行（复配多原药）』；②生产类型 USelect 下 b-help『持有人生产：登记产品仅显示归属企业本厂登记…』；③归属企业 EnterprisePicker 下 b-help『选择归属厂家后，持有人生产时登记产品仅显示该厂家的登记产品…』（①②③在 products/index.vue 弹窗内）；④RegProductPicker 搜索框下提示『按登记证号精确匹配登记数据源，选中后自动回填登记信息（只读）』；⑤RegProductPicker noEnterprise 空态提示『持有人生产需要归属企业才能过滤本厂产品，请先选择「归属企业」（总部管理员）』。输入框/下拉框/label/必填 * /标题【新增产品】全部保留；其余空态（noOwn/无结果/错误/选中规格净含量）不在清单不动；后端零改动（regdata.get.ts emptyReason/hint 契约保留，组件仍赋值 emptyReason 只是无专属 UI）
+- **修改文件**：app/pages/admin/products/index.vue（-3 行）；app/components/RegProductPicker.vue（-6 行）
+- **测试情况**：tsc 0；构建 12.1MB；CDP 13/13（admin 登录 → 产品页 → 新增弹窗：标题在/5 段文案全无/label 生产类型·归属企业·登记产品·农药名称·登记证号在/必填 * 9 个/输入框+下拉 16 个）+ SSR products 200；截图 .tmp-shot/prod-modal.png
+- **遗留问题/待办**：其余待办不变
+- **给下一个 Agent 的提示**：产品弹窗说明层已精简；RegProductPicker 内 emptyReason='noEnterprise' 分支仍保留赋值（删的只是提示 UI）；若后续要把某段说明加回，位置与文案见 git show 712ee15
+
+---
+
 ### 2026-09-07 | 修复批量导入模板下载 404（a 直链被 SPA 客户端路由拦截 → Blob 程序化下载）
+
 - **问题**：用户反馈「点击下载后返回 404」。CDP 真实点击复现：弹窗下载链接 <a href=/templates/spec-import-template.xlsx download>（UButton tag=a）点击后被 **Nuxt 客户端路由拦截为站内导航**——URL 变为 /templates/... 但无对应页面路由 → 渲染 Nuxt 404 错误页，全程**零网络请求**（Network 事件为空铁证）；服务器直连模板 200 正常（.output/public 产物完好、MIME 正确），非服务端问题。
 - **修复**：下载改程序化 Blob——$fetch 模板 responseType blob → URL.createObjectURL → 临时 a[download=农药产品规格模板.xlsx].click() → 清理释放；失败中文 toast。页面不离开、不触发路由导航。
 - **修改文件**：app/pages/admin/specs/index.vue（downloadTemplate 函数 + 下载按钮由 tag=a 改 @click）
