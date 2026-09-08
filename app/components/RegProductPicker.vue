@@ -146,15 +146,9 @@ const rowSub = (r: any) => [r.company, r.dosage, r.content, r.toxicity].filter(B
         />
         <UButton v-if="selected" variant="link" color="neutral" size="sm" @click="cancelSearch">返回</UButton>
       </div>
-      <p class="mt-1 text-xs text-[var(--b-text-muted)]">
-        按登记证号精确匹配登记数据源，选中后自动回填登记信息（只读）
-      </p>
 
       <!-- 结果列表 -->
       <div v-if="errMsg" class="mt-2 rounded border border-[var(--b-border)] bg-[var(--b-fill)]/60 px-3 py-2 text-sm text-red-600">{{ errMsg }}</div>
-      <div v-else-if="emptyReason === 'noEnterprise'" class="mt-2 rounded border border-[var(--b-border)] bg-[var(--b-fill)]/60 px-3 py-2 text-sm text-[var(--b-text-regular)]">
-        持有人生产需要归属企业才能过滤本厂产品，请先选择「归属企业」（总部管理员）
-      </div>
       <div v-else-if="emptyReason === 'noOwn'" class="mt-2 rounded border border-[var(--b-border)] bg-[var(--b-fill)]/60 px-3 py-2 text-sm text-[var(--b-text-regular)]">
         未找到与本企业名称一致的登记记录——请确认「企业信息」中的企业名称与登记证持有人名称一致，或改用「委托加工」生产类型选择其他厂家产品
       </div>

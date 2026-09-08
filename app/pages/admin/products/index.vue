@@ -440,7 +440,6 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
             </div>
             <div>
               <h3 class="b-modal-title">{{ editingId ? '编辑产品' : '新增产品' }}</h3>
-              <p class="b-modal-sub">选择登记产品自动带出登记信息（可修改）· 登记证号全局唯一 · 原药信息多行（复配多原药）</p>
             </div>
           </div>
           <div class="b-modal-body">
@@ -454,7 +453,6 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                   class="w-full"
                   @update:model-value="onProduceTypeChange"
                 />
-                <p class="b-help">持有人生产：登记产品仅显示归属企业本厂登记；委托加工 / 委托分装：显示全部登记产品</p>
               </div>
               <div v-if="isPlatformAdmin && !editingId">
                 <label class="b-label-lg">归属企业（登记数据源厂家）<span class="b-required">*</span></label>
@@ -463,7 +461,6 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                   placeholder="输入厂家名搜索（登记数据源全部 3,637 家厂家）"
                   @update:model-value="onCompanyChange"
                 />
-                <p class="b-help">选择归属厂家后，持有人生产时登记产品仅显示该厂家的登记产品（委托加工/委托分装显示全部）</p>
               </div>
             </div>
 
