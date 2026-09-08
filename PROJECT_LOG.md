@@ -1,5 +1,15 @@
 ## 变更记录
 
+### 2026-09-07 | 修复批量导入模板下载 404（a 直链被 SPA 客户端路由拦截 → Blob 程序化下载）
+- **问题**：用户反馈「点击下载后返回 404」。CDP 真实点击复现：弹窗下载链接 <a href=/templates/spec-import-template.xlsx download>（UButton tag=a）点击后被 **Nuxt 客户端路由拦截为站内导航**——URL 变为 /templates/... 但无对应页面路由 → 渲染 Nuxt 404 错误页，全程**零网络请求**（Network 事件为空铁证）；服务器直连模板 200 正常（.output/public 产物完好、MIME 正确），非服务端问题。
+- **修复**：下载改程序化 Blob——$fetch 模板 responseType blob → URL.createObjectURL → 临时 a[download=农药产品规格模板.xlsx].click() → 清理释放；失败中文 toast。页面不离开、不触发路由导航。
+- **修改文件**：app/pages/admin/specs/index.vue（downloadTemplate 函数 + 下载按钮由 tag=a 改 @click）
+- **测试情况**：tsc 0；构建成功；CDP 复测 6/6——点击后 URL 停留 /admin/specs 无 404、downloadWillBegin（blob URL + suggested 文件名正确）与 downloadProgress completed 触发、文件落盘 20525 字节与源一致。提交 f244970
+- **遗留问题/待办**：①本机 3100 服务器已重启至含修复的构建（用户可直接复测）；②其余待办不变
+- **给下一个 Agent 的提示**：**Nuxt SPA 内任何 <a href download> 直链点击都会被客户端路由拦截导航成 404（无网络请求）**——文件下载一律用 fetch→Blob→临时 a 的 downloadTemplate 模式（specs/index.vue 有现成实现可抄）；验证脚本 scripts/_tmp-cdp-tpl-dl2.mjs（Edge CDP 监听 Page.downloadWillBegin + 落盘校验）可复用
+
+---
+
 ### 2026-09-07 | 删除通知配置功能（系统设置 Tab 整体下线 + 通知开关/阈值/日报配置全清）
 - **工作内容**：按用户指示完整删除「通知配置」相关功能（前后端全清），系统设置仅保留企业信息/用户权限/操作日志/数据备份四 Tab。删除前经澄清确认：①**消息中心模块保留**（站内信 sendMessage/message 表/风险预警与导入完成站内信逻辑不动）；②**数据概览「码库存预警」卡一并删除**（该卡唯一消费通知配置里的 stockThreshold 阈值）。
   - **前端**：settings/index.vue 删除「通知配置」Tab 项、desc 文案中「通知配置」、notifyForm/notifySaving/notifyData/refreshNotify/watch/notifySwitches/saveNotify 全部脚本、resetPanel 的 notify 分支、整个「消息通知配置」面板块（开关/码库存阈值/日报时间/保存按钮）；数据概览 index.vue 删除「码库存预警」整卡与 stockAlerts/stockThreshold/pct 计算（产品分布卡 lg:col-span-2 独占整行）；
