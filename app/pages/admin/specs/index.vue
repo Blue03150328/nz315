@@ -76,6 +76,24 @@ const doImport = async () => {
     importing.value = false
   }
 }
+/** 模板下载：走 fetch → Blob → 临时 a 标签下载。
+ *  不用 <a href download> 直链——实测点击会被 SPA 客户端路由拦截导航到无路由路径显示 404（无网络请求） */
+const downloadTemplate = async () => {
+  try {
+    const blob: any = await $fetch('/templates/spec-import-template.xlsx', { responseType: 'blob' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = '农药产品规格模板.xlsx'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    toast.add({ title: '模板下载已开始', color: 'success' })
+  } catch {
+    toast.add({ title: '模板下载失败，请重试', color: 'error' })
+  }
+}
 
 const totalPages = computed(() => Math.max(1, Math.ceil((data.value?.total || 0) / pageSize)))
 
@@ -366,7 +384,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
             <!-- ① 模板下载 -->
             <div class="flex items-center justify-between rounded border border-[var(--b-border)] bg-[var(--b-fill)] px-3 py-2">
               <span class="text-sm text-[var(--b-text-regular)]">规格导入模板.xlsx（表头「规格」+ 示例数据）</span>
-              <UButton tag="a" href="/templates/spec-import-template.xlsx" download="农药产品规格模板.xlsx" variant="outline" color="neutral" size="sm" icon="i-lucide-download">下载模板</UButton>
+              <UButton variant="outline" color="neutral" size="sm" icon="i-lucide-download" @click="downloadTemplate">下载模板</UButton>
             </div>
             <!-- ② 归属企业（仅平台管理员；企业账号导入本企业） -->
             <div v-if="isPlatformAdmin">
