@@ -1,4 +1,17 @@
 ## 变更记录
+
+### 2026-09-07 | 删除通知配置功能（系统设置 Tab 整体下线 + 通知开关/阈值/日报配置全清）
+- **工作内容**：按用户指示完整删除「通知配置」相关功能（前后端全清），系统设置仅保留企业信息/用户权限/操作日志/数据备份四 Tab。删除前经澄清确认：①**消息中心模块保留**（站内信 sendMessage/message 表/风险预警与导入完成站内信逻辑不动）；②**数据概览「码库存预警」卡一并删除**（该卡唯一消费通知配置里的 stockThreshold 阈值）。
+  - **前端**：settings/index.vue 删除「通知配置」Tab 项、desc 文案中「通知配置」、notifyForm/notifySaving/notifyData/refreshNotify/watch/notifySwitches/saveNotify 全部脚本、resetPanel 的 notify 分支、整个「消息通知配置」面板块（开关/码库存阈值/日报时间/保存按钮）；数据概览 index.vue 删除「码库存预警」整卡与 stockAlerts/stockThreshold/pct 计算（产品分布卡 lg:col-span-2 独占整行）；
+  - **后端**：删除 `server/api/admin/settings/notify.get.ts` 与 `notify.put.ts`（GET/PUT 均 404）；stats.get.ts 删除 stockThreshold 查询与 stockRows/stockAlerts 整段、返回字段（lowStock/voidAbnormal 判定一并下线）；
+  - **数据库**：`system_setting` 表整体下线（唯一消费者即 notify 配置与 stats 阈值）——db-init DDL 删除（14 张表）、存量库 DROP TABLE 已执行；
+  - **全项目复查**：app/server/scripts 零残留（唯一命中为数据概览注释自述删除）；README/AGENTS 同步（表数 15→14）。
+  - 说明：5 个通知开关（notifyCodeStock/notifyUpload/notifyRisk/notifyAccount/notifyDaily）与日报时间原本即无任何消费逻辑（死配置），删除零业务影响；历史操作日志中「修改通知配置」action 为历史数据保留不动。
+- **修改文件**：删除 `server/api/admin/settings/notify.get.ts`、`notify.put.ts`；修改 `app/pages/admin/settings/index.vue`、`app/pages/admin/index.vue`、`server/api/admin/stats.get.ts`、`scripts/db-init.mjs`、`README.md`、`AGENTS.md`
+- **测试情况**：tsc 0 错误；生产构建成功（12.1MB）；存量库 DROP system_setting + db-init 重跑（14 张表创建、幂等无报错）；SSR 冒烟——settings 页含企业信息/用户权限/操作日志/数据备份、**无任何「通知配置/notify」字面**；数据概览无「码库存预警/低库存」、产品分布/状态分布保留；`/api/admin/settings/notify` GET **404**；保留模块 API 全 200（settings/enterprise、users、logs、backup、stats、messages、alerts、codes、statistics、trace）；**CDP 真实鼠标点击 5/5**（四个 Tab 逐个点击 aria-selected 正确跟随、面板关键词命中、控制台零 JS 异常——注意合成 click/pointer 事件不被 reka-ui Tabs 接受，须 Input.dispatchMouseEvent）
+- **遗留问题/待办**：①「码库存预警」卡随通知配置删除后，数据概览只剩 5 张统计卡 + 状态/异常/产品分布（PRD 5.5.8 差距项记录随功能下线，如后续需要库存预警须另立阈值入口）；②其余待办不变（真机验证 /scan、微信网页授权域名配置、高德白名单、D1-D4 等）。
+- **给下一个 Agent 的提示**：①通知配置已全量下线：不要新增 system_setting 表引用（该表已从 DDL 与存量库删除，14 张表）；②消息中心（message 表/sendMessage）仍保留且与通知配置无关，勿误删；③reka-ui（含 UTabs）不接受合成 click/pointer 事件，CDP 点击必须用 Input.dispatchMouseEvent 按坐标派发。
+
 ### 2026-09-07 | 规格批量导入（Excel）：右上角按钮 + 弹窗（模板下载/选企业/选文件/结果明细）
 - **工作内容**：用户需求——规格列表页【新增规格】旁加【批量导入】按钮（样式统一）；弹窗：①模板下载入口（模板位置：桌面「农药产品规格模板.xlsx」）②选本地 Excel 上传③结果展示成功/失败条数与失败错误提示；筛选/列表/分页不动。**模板清理**：桌面模板仅一列「规格」116 行，其中 36 行（50瓶/盒、60瓶、40套、10毫升/包 等）无法映射系统「净含量+含量单位+包装单位」——按用户指示「将无法解析的删除，先保证模板格式一定正确」：从模板删除 36 行（原文件先备份到系统临时目录），标准行 80 条为导入基准（格式：净含量数值+中文含量单位(毫升/升/克/千克)+斜杠+包装单位(瓶/袋/桶/盒/罐/支/箱)，如 200毫升/瓶）；桌面原文件被 Excel 占用（EBUSY），标准版写为同目录「农药产品规格模板-标准版.xlsx」供用户关闭后自行替换；项目内置同构模板 public/templates/spec-import-template.xlsx（下载源，入库 20KB）。
   - **后端**（新增 server/api/admin/specs/import.post.ts）：multipart 上传（file + enterpriseId 字段）→ 归属企业（平台管理员必传、企业角色自身）→ xlsx 解析（取首个工作表；xlsx 库随产物打包，.output 10.5→12.7MB）→ 表头行（规格/规格名称）跳过 → 逐行正则解析 → 文件内 Set + 库内 IN 查重 → 事务内入库；**规格码在事务外取基线 MAX 后内存递增**（规避 InnoDB REPEATABLE READ 事务快照读看不到自插行、逐行查 MAX 会全撞同一码）；返回 { success, failed, errors:[{row,value,reason}] }；logOperation 审计（统计+失败前 10 条）；上限 5000 行/10MB、仅 .xlsx/.xls、坏文件 400。规格码分配抽共享 server/utils/spec-code.ts（nextSpecCode 与 specs.post.ts 共用）；cjs-modules.d.ts 补 xlsx 类型声明。
