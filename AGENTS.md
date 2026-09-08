@@ -63,9 +63,11 @@
 - 码校验：`server/utils/code-validator.ts`（32位结构 + 产品/规格匹配 + 查重）
 - 主题：`app/assets/css/main.css`（UI4 变量体系，主色沉稳深绿 hsl(142 32% 30%)，圆角 --ui-radius 0.375rem，中后台克制基调）
 
-### ✅ 项目进度（截至 2026-09-07）
+### ✅ 项目进度（截至 2026-09-08）
 
 **已实现（V1.0 核心）**：
+- **系统设置企业信息 Tab 按角色分流：总部=入驻企业列表+行内编辑弹窗；厂家=编辑本企业资料**（2026-09-08，提交 9df421f）：管理员打开 企业信息 看到并编辑的是企业 1 资料（GET /settings/enterprise 总部回退 `enterprise_id || 1` 的历史取巧）。现按角色分流（纯前端，后端零动）：总部渲染「入驻企业列表」（数据源 /api/admin/factories=enterprise 表列表+user_count，8 列：名称/信用代码/联系人/电话/状态/账号数/入驻时间/操作），行【编辑】弹窗=既有 11 字段全量回填+状态 启用/禁用 下拉，保存 PATCH /settings/enterprise/:id（本就允许总部改任意企业含 status）；厂家/码管理员保持原单企业表单。验证：tsc 0 + 构建 12.1MB + CDP 34/34（改企业1电话+状态禁用保存→行实时更新→落库核验→API 还原后 DB 复核；lvfeng 表单回填；用户 Tab 新增用户企业下拉回归；零 JS 异常）；脚本 scripts/_tmp-cdp-ent-tab.mjs 可复用（自还原）。
+
 - **新增产品弹窗移除 5 段辅助说明小字**（2026-09-07，提交 712ee15）：用户要求弹窗只留控件/label/红*/标题。删 3 段（products/index.vue：b-modal-sub + 两处 b-help）+ 2 段（RegProductPicker.vue：搜索框下提示 + noEnterprise 空态提示）；emptyReason='noEnterprise' 赋值保留仅去 UI。验证：tsc 0 + 构建 12.1MB + CDP 13/13 + SSR 200。**注意：该弹窗其余空态提示（noOwn/无结果/选中规格净含量）不在清单仍保留**
 - **修复规格导入模板下载 404**（2026-09-07，提交 f244970）：用户反馈「点下载模板返回 404」——CDP 复现根因：a 直链下载被 Nuxt 客户端路由拦截为站内导航（URL 变 /templates/... 无路由 → 404 页，零网络请求；服务器直连 200 正常）。修复：Blob 程序化下载（fetch blob → objectURL → 临时 a.download.click），页面不跳转。验证：tsc 0 + 构建 + CDP 6/6（URL 停留无 404/下载事件/文件名/20525 字节落盘）
 - **删除通知配置功能（系统设置剩四 Tab）**（2026-09-07）：按用户指示整体下线「通知配置」——settings Tab/面板/开关/库存阈值/日报时间、notify.get/notify.put API、system_setting 表（DDL+存量库均删，14 张表）、数据概览「码库存预警」卡（其阈值唯一来源即通知配置）一并清除；**消息中心保留**（站内信与通知配置无关）；stats.get.ts 去 stockThreshold 逻辑。验证：tsc 0 + 构建 12.1MB + db-init 14 表 + SSR（4 Tab 在位/notify 404/无库存卡）+ CDP 真实点击 5/5。**CDP 点击 Tab 必须 Input.dispatchMouseEvent（合成事件 reka 不接受）**
@@ -188,3 +190,5 @@
 | **生产服务器进程脱离 DSH job 常驻** | 后台 job（pwsh 包装）显示 completed 但 node 子进程继续监听端口（曾见 16:42 旧构建进程遗留占 3100，导致冒烟打到旧代码）；收尾用 Get-NetTCPConnection/netstat 找 PID + taskkill（沙箱内被拦，需全权） |
 | **PowerShell 控制台中文乱码 ≠ DB 乱码** | Invoke-RestMethod 返回 JSON 中文在 GBK 控制台显示为 Ã¥... 型乱码；DB 实际存储正常（HEX 核验 UTF-8）。判断写入是否正常用 node 脚本直查库，勿信 pwsh 显示 |
 | **Nuxt SPA 内 <a download> 直链点击被客户端路由拦截成 404**（2026-09-07 实测） | 点击后 URL 变目标路径但零网络请求（Network 事件为空铁证）→ Nuxt 404 页。文件下载一律用 downloadTemplate 模式：fetch(blob) → URL.createObjectURL → 临时 a[download].click() → revoke（specs/index.vue 现成实现）；CDP 下载验证监听 Page.downloadWillBegin + Browser.setDownloadBehavior 落盘 |
+| **workspace-write 沙箱内访问 127.0.0.1 超时/被重置、netstat 不见监听**（2026-09-08 实测） | 沙箱进程的 HTTP 探测（Invoke-WebRequest/fetch）对 127.0.0.1 表现为超时或 ECONNRESET，Get-NetTCPConnection/netstat 也看不到宿主机监听（误导「端口干净」）；但宿主机视角连接其实建立（TIME_WAIT 可见）。**服务器连通性验证一律在 danger-full-access 模式执行**（会话切全权后正常）；判断端口占用以「实际 bind 是否 EADDRINUSE」与全权 netstat 为准 |
+| **CDP 脚本页面内函数序列化（String(fn)+Runtime.evaluate）禁止引用 Node 上下文闭包**（2026-09-08 实测） | expr/q 只序列化函数体本身，引用的外层辅助函数（Node 侧定义）在页面作用域不存在 → ReferenceError（EXC），表现为断言全 FAIL 而页面无真实错误。需页面执行的函数必须**自包含**（document/window 全量内联），参数经 JSON 序列化传入；脚本 scripts/_tmp-cdp-ent-tab.mjs 即自包含写法范例 |

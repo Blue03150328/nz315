@@ -1,5 +1,16 @@
 ## 变更记录
 
+### 2026-09-08 | 系统设置企业信息 Tab 按角色分流——总部=入驻企业列表+行内编辑弹窗；厂家保持编辑本企业资料
+- **问题**：管理员（platform_admin，enterprise_id=NULL）打开 系统设置→企业信息 看到并可直接编辑的是「山东绿丰农药有限公司」（enterprise_id=1）的资料——根因 GET /settings/enterprise 对总部无 id 时回退 `user.enterprise_id || 1`（历史取巧），管理员误把某家租户当「自己」编辑。用户原话：该页应展示/编辑「使用我这套系统的企业（租户）」信息。
+- **方案**（确认弹窗无应答，按推荐默认落地）：前端按角色分流，后端零改动（复用 `/api/admin/factories`=enterprise 表企业列表（platform_admin 专用，含 user_count 子查询）与既有 `PATCH /settings/enterprise/:id`（本就允许总部改任意企业含 status））。
+  - **总部视角**（app/pages/admin/settings/index.vue）：渲染「入驻企业列表」卡（列：企业名称/统一社会信用代码/联系人/联系电话/状态 tag/账号数/入驻时间/操作），行【编辑】开弹窗（标题含企业名，表单=既有 11 字段全量回填 + 状态 USelect 启用/禁用），保存 PATCH 对应 id + 关弹窗 + refresh 列表；新 useFetch key `settings-ent-admin-list`（immediate: isPlatformAdmin，厂家不发请求）；行字段 snake_case→表单 camelCase 映射在 openEntEdit。
+  - **厂家/码管理员视角**：原「企业基本信息」单企业编辑表单原样保留（含 resetPanel 回填语义）；重置按钮总部态改为刷新列表。
+- **修改文件**：app/pages/admin/settings/index.vue（+237/-54）
+- **测试情况**：tsc 0；生产构建 12.1MB；API 冒烟（factories 2 家含 user_count、lvfeng 单查=绿丰农药、admin PATCH 企业2 200）；CDP Edge headless 34/34——总部列表渲染 2 行/列头/行数据（电话 0531-88888888/王经理/启用/账号 4）、行编辑弹窗标题与全字段回填、状态下拉展开选「禁用」（中心坐标 Input.dispatchMouseEvent，reka 不吃合成事件）、改电话 13900001111+保存 toast+列表行实时更新（电话新值/状态禁用）、接口落库核验、API 还原企业1（0531-88888888/启用）后 DB 复核一致；lvfeng 本企业表单回填正确（input value=山东绿丰农药有限公司）；用户权限 Tab 新增用户-所属企业下拉展开含两家企业（回归）；全程零 JS 异常；截图 .tmp-shot/settings-ent-edit.png、settings-ent-lvfeng.png。提交 9df421f
+- **遗留问题/待办**：①企业信息 Tab 无【新增企业】入口（入驻开通流程未做，如需另立）；②enterprise.status 禁用目前仅展示性（登录校验走 user.status，禁用企业不联动冻结其账号——如需要另设计）；③其余待办不变（数据基线偏差与 agro_store 残留表待用户拍板，见自检报告）
+- **给下一个 Agent 的提示**：①总部列表数据源=/api/admin/factories（命名历史遗留，实际是 enterprise 表列表+user_count，勿误当 pesticide_reg 厂家接口）；②GET /settings/enterprise 总部回退 id=1 的老逻辑仍在后端（厂家分支依赖它，总部 UI 已不再消费，勿删以免厂家视角 404）；③CDP 验证脚本 scripts/_tmp-cdp-ent-tab.mjs 可复用（改企业1电话/状态后自还原）；④页面内执行函数序列化（expr）时禁止引用 Node 上下文闭包，全部自包含
+
+---
 ### 2026-09-07 | 新增产品弹窗移除 5 段辅助说明小字（仅删说明文字，控件零动）
 - **工作内容**：用户需求——产品管理「新增产品」弹窗只保留表单输入控件/label 标题/红色 * 必填标记，删除 5 段辅助说明小字：①弹窗标题（新增产品）下 b-modal-sub『选择登记产品自动带出登记信息（可修改）· 登记证号全局唯一 · 原药信息多行（复配多原药）』；②生产类型 USelect 下 b-help『持有人生产：登记产品仅显示归属企业本厂登记…』；③归属企业 EnterprisePicker 下 b-help『选择归属厂家后，持有人生产时登记产品仅显示该厂家的登记产品…』（①②③在 products/index.vue 弹窗内）；④RegProductPicker 搜索框下提示『按登记证号精确匹配登记数据源，选中后自动回填登记信息（只读）』；⑤RegProductPicker noEnterprise 空态提示『持有人生产需要归属企业才能过滤本厂产品，请先选择「归属企业」（总部管理员）』。输入框/下拉框/label/必填 * /标题【新增产品】全部保留；其余空态（noOwn/无结果/错误/选中规格净含量）不在清单不动；后端零改动（regdata.get.ts emptyReason/hint 契约保留，组件仍赋值 emptyReason 只是无专属 UI）
 - **修改文件**：app/pages/admin/products/index.vue（-3 行）；app/components/RegProductPicker.vue（-6 行）
