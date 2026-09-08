@@ -140,61 +140,7 @@ const { data: logData, pending: logPending, refresh: refreshLogs } = await useFe
 })
 const logTotalPages = computed(() => Math.max(1, Math.ceil((logData.value?.total || 0) / pageSize)))
 
-// ============ 通知配置（PRD 5.12.5） ============
-const notifyForm = reactive({
-  stockThreshold: '10000', dailyReportTime: '08:00',
-  notifyCodeStock: true, notifyUpload: true, notifyRisk: true, notifyAccount: true, notifyDaily: false,
-})
-const notifySaving = ref(false)
-
-const { data: notifyData, refresh: refreshNotify } = await useFetch<any>('/api/admin/settings/notify', {
-  key: 'settings-notify',
-})
-watch(notifyData, (d) => {
-  if (d) {
-    notifyForm.stockThreshold = d.stockThreshold || '10000'
-    notifyForm.dailyReportTime = d.dailyReportTime || '08:00'
-    notifyForm.notifyCodeStock = d.notifyCodeStock !== 'off'
-    notifyForm.notifyUpload = d.notifyUpload !== 'off'
-    notifyForm.notifyRisk = d.notifyRisk !== 'off'
-    notifyForm.notifyAccount = d.notifyAccount !== 'off'
-    notifyForm.notifyDaily = d.notifyDaily === 'on'
-  }
-}, { immediate: true })
-
-const notifySwitches = [
-  { key: 'notifyCodeStock', label: '码库存预警', desc: '可用码低于阈值时提醒' },
-  { key: 'notifyUpload', label: '上传完成', desc: '生产采集导入完成通知' },
-  { key: 'notifyRisk', label: '风险预警', desc: '8 类异常触发时提醒' },
-  { key: 'notifyAccount', label: '账号安全', desc: '登录异常/密码修改/权限变更' },
-  { key: 'notifyDaily', label: '每日数据日报', desc: '每日扫码统计汇总' },
-]
-
-const saveNotify = async () => {
-  notifySaving.value = true
-  try {
-    await $fetch('/api/admin/settings/notify', {
-      method: 'PUT',
-      body: {
-        stockThreshold: notifyForm.stockThreshold,
-        dailyReportTime: notifyForm.dailyReportTime,
-        notifyCodeStock: notifyForm.notifyCodeStock ? 'on' : 'off',
-        notifyUpload: notifyForm.notifyUpload ? 'on' : 'off',
-        notifyRisk: notifyForm.notifyRisk ? 'on' : 'off',
-        notifyAccount: notifyForm.notifyAccount ? 'on' : 'off',
-        notifyDaily: notifyForm.notifyDaily ? 'on' : 'off',
-      },
-    })
-    toast.add({ title: '通知配置已保存', color: 'success' })
-    refreshNotify()
-  } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage || '保存失败', color: 'error' })
-  } finally {
-    notifySaving.value = false
-  }
-}
-
-// 页内【重置】：重置当前激活面板——企业信息/通知配置回填「已保存值」（放弃未保存草稿），
+// 页内【重置】：重置当前激活面板——企业信息回填「已保存值」（放弃未保存草稿），
 // 用户/日志清空筛选并刷新；数据备份面板无表单内容（Keep-Alive 缓存页互不影响）
 const resetPanel = async () => {
   if (tab.value === 'enterprise') {
@@ -210,9 +156,6 @@ const resetPanel = async () => {
     lpage.value = 1
     refreshLogs()
     toast.add({ title: '已重置，操作日志恢复初始筛选', color: 'primary' })
-  } else if (tab.value === 'notify') {
-    await refreshNotify() // watch(notifyData) 回填已保存配置
-    toast.add({ title: '通知配置已恢复为已保存值', color: 'primary' })
   } else {
     toast.add({ title: '当前面板无表单内容可重置', color: 'primary' })
   }
@@ -261,7 +204,7 @@ const deleteBackup = async (b: any) => {
     <div class="flex items-center justify-between">
       <div>
         <h1 class="b-page-title">系统设置</h1>
-        <p class="b-page-desc">企业信息 · 用户权限 · 操作日志 · 通知配置 · 数据备份（日志保留至少 3 年，不可删除）</p>
+        <p class="b-page-desc">企业信息 · 用户权限 · 操作日志 · 数据备份（日志保留至少 3 年，不可删除）</p>
       </div>
       <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" title="重置当前面板的表单/筛选为初始状态" @click="resetPanel">重置</UButton>
     </div>
@@ -271,7 +214,6 @@ const deleteBackup = async (b: any) => {
       { label: '企业信息', icon: 'i-lucide-building-2', value: 'enterprise' },
       { label: '用户权限', icon: 'i-lucide-users', value: 'users' },
       { label: '操作日志', icon: 'i-lucide-scroll-text', value: 'logs' },
-      { label: '通知配置', icon: 'i-lucide-bell', value: 'notify' },
       { label: '数据备份', icon: 'i-lucide-database-backup', value: 'backup' },
     ]" />
 
@@ -587,39 +529,6 @@ const deleteBackup = async (b: any) => {
       </div>
     </div>
   
-    <!-- 通知配置（PRD 5.12.5） -->
-    <div v-if="tab === 'notify'" class="b-card">
-      <div class="b-card-head">
-        <span class="b-card-title">消息通知配置</span>
-        <span class="b-card-extra">站内信通知开关与预警阈值（微信推送待公众号对接后开放）</span>
-      </div>
-      <div class="b-form-grid md:grid-cols-2">
-        <div>
-          <label class="b-label">码库存预警阈值</label>
-          <UInput v-model="notifyForm.stockThreshold" type="number" placeholder="默认 10000 条" />
-          <p class="b-help">某产品"已生成"可用码低于该值时触发库存预警</p>
-        </div>
-        <div>
-          <label class="b-label">每日数据日报发送时间</label>
-          <UInput v-model="notifyForm.dailyReportTime" type="time" placeholder="08:00" />
-        </div>
-      </div>
-      <!-- 通知开关：浅边框行卡，右侧开关 -->
-      <div class="grid gap-3 px-4 pb-4 md:grid-cols-2">
-        <div v-for="n in notifySwitches" :key="n.key" class="flex items-center justify-between rounded border border-[var(--b-border)] px-3 py-2.5">
-          <div>
-            <div class="text-sm font-medium text-[var(--b-text-strong)]">{{ n.label }}</div>
-            <div class="text-xs text-[var(--b-text-muted)]">{{ n.desc }}</div>
-          </div>
-          <USwitch v-model="notifyForm[n.key]" />
-        </div>
-      </div>
-      <div class="b-card-foot">
-        <span class="b-card-extra">开关变更保存后即时生效，历史消息不受影响</span>
-        <UButton color="neutral" variant="solid" icon="i-lucide-save" :loading="notifySaving" @click="saveNotify">保存配置</UButton>
-      </div>
-    </div>
-
     <!-- 数据备份（PRD 5.12.6） -->
     <div v-if="tab === 'backup'" class="space-y-4">
       <div v-if="!isPlatformAdmin" class="b-card b-card-body">

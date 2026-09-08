@@ -30,7 +30,7 @@ const DB = {
   database: env.DB_NAME || 'nz315',
 };
 
-// PRD 第七章 DDL（9 张核心表）+ message / system_setting（共 11 张）
+// 建表 DDL 全集（核心业务表 + message 消息 + consumer 消费者 + product_original/upload_batch/pesticide_reg 扩展表；表数 = DDL.length 自动统计）
 const DDL = [
   `CREATE TABLE IF NOT EXISTS enterprise (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -234,14 +234,6 @@ const DDL = [
     UNIQUE KEY uq_openid (openid),
     KEY idx_unionid (unionid)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='消费者（微信公众号网页授权）'`,
-  // 系统配置键值（PRD 5.12.5/5.12.7：库存预警阈值、通知配置等）——同样此前遗漏
-  `CREATE TABLE IF NOT EXISTS system_setting (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    enterprise_id BIGINT NULL,
-    k VARCHAR(50) NOT NULL COMMENT '配置键',
-    v TEXT NULL COMMENT '配置值（JSON 或标量）',
-    UNIQUE KEY uq_ent_key (enterprise_id, k)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统配置'`,
   // 农药登记数据源字典表（2026农药登记证大全2.xlsx 导入：产品弹窗选择产品自动回填，登记证号唯一主键匹配；只读不参与业务写）
   `CREATE TABLE IF NOT EXISTS pesticide_reg (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,

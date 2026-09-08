@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 数据概览仪表盘（PRD 5.2：统计卡片/状态分布/产品分布/30 天趋势；5.5.8：码库存预警；快捷入口板块已按用户要求下线）
+// 数据概览仪表盘（PRD 5.2：统计卡片/状态分布/产品分布/30 天趋势；快捷入口板块已按用户要求下线；码库存预警已随通知配置删除）
 // Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '数据概览' })
@@ -83,10 +83,6 @@ const trendXTicks = computed(() => trend.value.map((t: any, i: number) => ({
 // y 轴刻度：0 与最大值
 const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.value, y: PAD.t }])
 
-// 码库存预警（PRD 5.5.8）：可用码低于阈值标红；作废占比超 10% 告警
-const stockAlerts = computed(() => stats.value?.stockAlerts || [])
-const stockThreshold = computed(() => Number(stats.value?.stockThreshold ?? 10000))
-const pct = (n: number) => Math.round(n * 100) + '%'
 </script>
 
 <template>
@@ -201,8 +197,8 @@ const pct = (n: number) => Math.round(n * 100) + '%'
         </div>
       </div>
 
-      <!-- 产品分布 -->
-      <div class="b-card">
+      <!-- 产品分布（码库存预警卡已删，独占整行） -->
+      <div class="b-card lg:col-span-2">
         <div class="b-card-head">
           <span class="b-card-title">产品追溯码分布</span>
           <span class="b-card-extra">Top 10</span>
@@ -226,43 +222,6 @@ const pct = (n: number) => Math.round(n * 100) + '%'
         </div>
       </div>
 
-      <!-- 码库存预警（PRD 5.5.8） -->
-      <div class="b-card b-card-clip">
-        <div class="b-card-head">
-          <span class="b-card-title">码库存预警</span>
-          <span class="b-card-extra">可用码阈值 {{ stockThreshold }} · 作废占比 &gt; 10%</span>
-        </div>
-        <div v-if="!stockAlerts.length" class="b-empty">
-          <div class="b-empty-inner">
-            <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
-            <span class="text-sm">库存正常，暂无预警</span>
-          </div>
-        </div>
-        <div v-else class="b-scroll-x">
-          <table class="b-table">
-            <thead>
-              <tr>
-                <th>产品</th>
-                <th>可用码 / 总量</th>
-                <th class="text-right">预警项</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="a in stockAlerts" :key="a.name">
-                <td class="b-strong font-medium">{{ a.name }}</td>
-                <td>{{ a.generated }} / {{ a.total }}</td>
-                <td class="text-right">
-                  <span v-if="a.lowStock" class="b-tag b-tag-danger">低库存</span>
-                  <span v-if="a.voidAbnormal" class="b-tag b-tag-warning ml-1.5">作废占比 {{ pct(a.voidRatio) }}</span>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div class="b-card-foot">
-          <span class="b-card-extra">可用码（已生成）低于阈值时提醒及时补码；作废占比超 10% 时提示排查印刷/采集环节问题</span>
-        </div>
-      </div>
     </div>
   </div>
 </template>
