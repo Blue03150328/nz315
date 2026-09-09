@@ -66,6 +66,7 @@
 ### ✅ 项目进度（截至 2026-09-08）
 
 **已实现（V1.0 核心）**：
+- **企业基本信息精简为 8 字段 + 7 项必填（前后端同口径）**（2026-09-08，提交 bae1067）：按用户要求删 企业官网/注册地址/企业简介 三项输入（厂家单企业表单与总部编辑弹窗两处同步）——后端 GET /settings/enterprise、factories 列表（改显式列清单，原 SELECT e.*）不再返回，PATCH UPDATE 不再写回（**DB 列保留**，存量值不受影响）；必填（带*）：企业名称/统一社会信用代码/联系人/联系电话/法定代表人/农药生产许可证号/资质到期日——前端 ENT_REQUIRED+checkEntRequired 拦截（toast 请填写：XXX），后端 [id].patch.ts requiredFields 同口径 400；单元识别码保留可空；保存按钮等其余逻辑不变。存量企业补齐必填（企业1 补信用代码；企业2 全补=db-init 种子同值），db-init 种子 INSERT 扩列。验证：tsc 0 + 构建 12.1MB + API 8 项（含缺项逐一 400 文案精确、三列零返回零回写）+ CDP 19/19（7 星号名单/空值拦截不提交/恢复保存成功/零 JS 异常）；脚本 scripts/_tmp-cdp-ent-req.mjs 可复用。**改必填口径须同步前端 ENT_REQUIRED 与后端 requiredFields；PATCH 为全列覆盖式 UPDATE，未来加可空字段需防误清 NULL**。
 - **系统设置企业信息 Tab 按角色分流：总部=入驻企业列表+行内编辑弹窗；厂家=编辑本企业资料**（2026-09-08，提交 9df421f）：管理员打开 企业信息 看到并编辑的是企业 1 资料（GET /settings/enterprise 总部回退 `enterprise_id || 1` 的历史取巧）。现按角色分流（纯前端，后端零动）：总部渲染「入驻企业列表」（数据源 /api/admin/factories=enterprise 表列表+user_count，8 列：名称/信用代码/联系人/电话/状态/账号数/入驻时间/操作），行【编辑】弹窗=既有 11 字段全量回填+状态 启用/禁用 下拉，保存 PATCH /settings/enterprise/:id（本就允许总部改任意企业含 status）；厂家/码管理员保持原单企业表单。验证：tsc 0 + 构建 12.1MB + CDP 34/34（改企业1电话+状态禁用保存→行实时更新→落库核验→API 还原后 DB 复核；lvfeng 表单回填；用户 Tab 新增用户企业下拉回归；零 JS 异常）；脚本 scripts/_tmp-cdp-ent-tab.mjs 可复用（自还原）。
 
 - **新增产品弹窗移除 5 段辅助说明小字**（2026-09-07，提交 712ee15）：用户要求弹窗只留控件/label/红*/标题。删 3 段（products/index.vue：b-modal-sub + 两处 b-help）+ 2 段（RegProductPicker.vue：搜索框下提示 + noEnterprise 空态提示）；emptyReason='noEnterprise' 赋值保留仅去 UI。验证：tsc 0 + 构建 12.1MB + CDP 13/13 + SSR 200。**注意：该弹窗其余空态提示（noOwn/无结果/选中规格净含量）不在清单仍保留**

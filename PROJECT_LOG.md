@@ -1,5 +1,14 @@
 ## 变更记录
 
+### 2026-09-08 | 企业基本信息板块精简：删 官网/注册地址/简介 三项 + 落实 7 项必填（前后端同口径校验）
+- **需求**：系统设置→企业信息（厂家单企业表单 + 总部入驻企业编辑弹窗两处）：①删输入项 企业官网/注册地址/企业简介（含后端对应代码）；②必填（带*）＝企业名称/统一社会信用代码/联系人/联系电话/法定代表人/农药生产许可证号/资质到期日，保存时前端+后端非空校验（为空禁提交并提示）；③单元识别码保留可空；④保存按钮保留，其余逻辑不变。
+- **实现**：前端 settings/index.vue——entForm/watch 回填/openEntEdit 映射删三键；两处表单模板删三块输入并给 6 个 label 加红 *（企业名称原有）；新增 checkEntRequired（ENT_REQUIRED 常量，7 项 trim 判空）供 saveEnterprise/saveEntEdit 共用，缺失 toast「请填写：XXX」拦截。后端——enterprise.get.ts 与 factories.get.ts（列表显式列清单，此前 SELECT e.*）不再返回三列；[id].patch.ts：7 项必填校验（400「请填写：XXX」防绕过，厂家与总部同口径）+ UPDATE SET 去掉 website/address/description 三列（**DB 列保留**——存量值不受影响、前端不再提交故不会误清空）；**注意：PATCH 是全列覆盖式 UPDATE，删列≠删值——删列后这些列不再被写**。db-init 企业2 种子 INSERT 扩列（legal_person/license_no/qualification_expire）供新环境；存量库直改补齐：企业1 credit_code=91370100MA3C1KXQ3R，企业2 全部必填（=种子同值 李建国/农药生许(鲁)0061/2029-06-30）。
+- **修改文件**：app/pages/admin/settings/index.vue（-3 输入块×2 表单 + 星号 + 校验函数）、server/api/admin/settings/enterprise.get.ts、server/api/admin/settings/enterprise/[id].patch.ts、server/api/admin/factories.get.ts、scripts/db-init.mjs
+- **测试情况**：tsc 0；构建 12.1MB；重启 3100；API 8 项——GET/factories 行 keys 均不含三列、7 缺项逐一 PATCH 400 且 statusMessage 精确（请填写：统一社会信用代码/联系人/联系电话/法定代表人/农药生产许可证号/资质到期日/企业名称）、完整保存 200、带三字段 body 保存 200 且 DB 复核三列保持 NULL；CDP Edge headless 19/19——厂家表单无三字段标签与输入框（placeholder 校验）、必填 label 恰 7 个名单精确、单元识别码保留无星、空信用代码点保存 toast 拦截且无成功提示、恢复后保存成功；总部列表行信用代码新值显示、编辑弹窗同口径（必填 7/无三字段/含状态）、清空电话保存拦截且弹窗不关、恢复保存成功弹窗关闭；零 JS 异常；截图 .tmp-shot/settings-ent-req-lvfeng.png / settings-ent-req-admin.png。提交 bae1067
+- **遗留问题/待办**：①DB 的 enterprise.website/address/description 列保留但不再维护（历史值不清）；②「扫码页展示的企业资料以此为准」文案仍在表单头（企业资料=必填 7 项+单元识别码）；③演示数据基线偏差与 agro_store 残留表仍待用户拍板
+- **给下一个 Agent 的提示**：①企业资料现 8 字段：必填 7（名称/信用代码/联系人/电话/法人/许可证号/资质到期日）+ 可空 单元识别码；改必填口径须同步 settings 页 ENT_REQUIRED 与 [id].patch.ts requiredFields 两处；②PATCH 全列覆盖 UPDATE——未来若新增企业字段且非必填，前端不提交会置 NULL，需显式处理；③新增/编辑企业弹窗仍无【新增企业】入口；④CDP 脚本 scripts/_tmp-cdp-ent-req.mjs 可复用
+
+---
 ### 2026-09-08 | 系统设置企业信息 Tab 按角色分流——总部=入驻企业列表+行内编辑弹窗；厂家保持编辑本企业资料
 - **问题**：管理员（platform_admin，enterprise_id=NULL）打开 系统设置→企业信息 看到并可直接编辑的是「山东绿丰农药有限公司」（enterprise_id=1）的资料——根因 GET /settings/enterprise 对总部无 id 时回退 `user.enterprise_id || 1`（历史取巧），管理员误把某家租户当「自己」编辑。用户原话：该页应展示/编辑「使用我这套系统的企业（租户）」信息。
 - **方案**（确认弹窗无应答，按推荐默认落地）：前端按角色分流，后端零改动（复用 `/api/admin/factories`=enterprise 表企业列表（platform_admin 专用，含 user_count 子查询）与既有 `PATCH /settings/enterprise/:id`（本就允许总部改任意企业含 status））。
