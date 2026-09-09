@@ -122,6 +122,24 @@ const { data: userData, pending: userPending, refresh: refreshUsers } = await us
 })
 const userTotalPages = computed(() => Math.max(1, Math.ceil((userData.value?.total || 0) / pageSize)))
 
+// —— 厂家分组视图：展开/折叠状态（一行=厂家；点击行展开用户明细；页切换/刷新后保持展开）——
+const expandedEnts = ref<Set<number>>(new Set())
+const toggleEnt = (id: number) => {
+  const s = new Set(expandedEnts.value)
+  if (s.has(id)) s.delete(id); else s.add(id)
+  expandedEnts.value = s
+}
+const isEntExpanded = (id: number) => expandedEnts.value.has(id)
+const hasUserFilter = computed(() =>
+  !!(String(ufilters.keyword || '').trim() || ufilters.role || (ufilters.status !== undefined && ufilters.status !== '')))
+// 需求点 4：筛选时在所有厂家及下属用户中检索——命中厂家自动展开（后端 filtered 标记；无条件/翻页不自动展开）
+watch(userData, (d) => {
+  if (d?.filtered) {
+    const ids = (d.rows || []).map((r: any) => Number(r.id)).filter((i: number) => Number.isInteger(i))
+    if (ids.length) expandedEnts.value = new Set(ids)
+  }
+})
+
 const { data: entList } = await useFetch<any>('/api/admin/factories', {
   key: 'settings-factories',
   query: { page: 1, pageSize: 100 },
@@ -214,6 +232,7 @@ const resetPanel = async () => {
   } else if (tab.value === 'users') {
     Object.assign(ufilters, { keyword: '', role: undefined, status: undefined })
     upage.value = 1
+    expandedEnts.value = new Set() // 重置回全折叠
     refreshUsers()
     toast.add({ title: '已重置，用户列表恢复初始筛选', color: 'primary' })
   } else if (tab.value === 'logs') {
@@ -471,7 +490,11 @@ const deleteBackup = async (b: any) => {
           </div>
         </div>
         <div class="b-card-foot">
-          <span class="b-card-extra">共 <span class="font-medium b-strong">{{ userData?.total || 0 }}</span> 个账号</span>
+          <span class="b-card-extra">
+            共 <span class="font-medium b-strong">{{ userData?.total || 0 }}</span> 个厂家 ·
+            <span class="font-medium b-strong">{{ userData?.totalUsers || 0 }}</span> 个账号
+            <span v-if="hasUserFilter" class="b-tag b-tag-info ml-2">已筛选</span>
+          </span>
           <div class="flex items-center gap-2">
             <UButton color="neutral" variant="solid" :loading="userPending" @click="upage = 1; refreshUsers()">查询</UButton>
             <UButton color="neutral" variant="outline" icon="i-lucide-user-plus" @click="openCreateUser">新增用户</UButton>
@@ -479,61 +502,105 @@ const deleteBackup = async (b: any) => {
         </div>
       </div>
 
-      <!-- 用户列表 -->
+      <!-- 用户列表（厂家分组：一行=一个厂家，点击行展开/折叠该厂家用户明细；外层分页=厂家分页） -->
       <div class="b-card b-card-clip">
         <div class="b-card-head">
           <span class="b-card-title">用户列表</span>
-          <span class="b-card-extra">每页 {{ pageSize }} 条 · 共 {{ userData?.total || 0 }} 条</span>
+          <span class="b-card-extra">按厂家分组 · 点击厂家行展开/折叠该厂家用户明细</span>
         </div>
         <div class="b-scroll-x">
           <table class="b-table">
             <thead>
               <tr>
-                <th>登录名</th>
-                <th>姓名</th>
-                <th>手机号</th>
-                <th>角色</th>
-                <th>所属企业</th>
-                <th>最后登录</th>
-                <th>状态</th>
-                <th class="text-right">操作</th>
+                <th>厂家名称</th>
+                <th>用户总数</th>
+                <th class="text-right">明细</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="r in userData?.rows || []" :key="r.id">
-                <td class="b-strong font-medium">{{ r.username }}</td>
-                <td>{{ r.name || '-' }}</td>
-                <td>{{ r.phone || '-' }}</td>
-                <td>
-                  <span class="b-tag" :class="r.role === 'platform_admin' ? 'b-tag-danger' : r.role === 'enterprise_admin' ? 'b-tag-success' : 'b-tag-info'">
-                    {{ r.roleLabel }}
-                  </span>
-                </td>
-                <td>{{ r.enterprise_name || '-' }}</td>
-                <td>{{ r.last_login_at ? String(r.last_login_at).slice(0, 19) : '-' }}</td>
-                <td>
-                  <span class="b-tag" :class="Number(r.status) === 1 ? 'b-tag-success' : 'b-tag-danger'">
-                    {{ Number(r.status) === 1 ? '启用' : '禁用' }}
-                  </span>
-                </td>
-                <td>
-                  <div v-if="r.role !== 'platform_admin'" class="b-actions">
-                    <UButton variant="link" color="neutral" size="xs" @click="resetPw(r)">重置密码</UButton>
-                    <span class="b-sep" />
-                    <UButton variant="link" color="neutral" size="xs" @click="toggleUserStatus(r)">
-                      {{ Number(r.status) === 1 ? '禁用' : '启用' }}
+              <template v-for="g in userData?.rows || []" :key="g.id">
+                <!-- 厂家行：点击展开/折叠 -->
+                <tr class="cursor-pointer select-none" @click="toggleEnt(g.id)">
+                  <td>
+                    <div class="flex items-center gap-2">
+                      <UIcon :name="isEntExpanded(g.id) ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+                      <span class="b-strong font-medium">{{ g.name }}</span>
+                      <span v-if="g.id === 0" class="b-tag b-tag-danger">平台</span>
+                      <span v-if="hasUserFilter" class="b-tag b-tag-info">命中 {{ g.users.length }} 人</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="font-medium">{{ g.user_count }}</span>
+                    <span class="text-xs text-[var(--b-text-muted)]">个账号</span>
+                  </td>
+                  <td class="text-right">
+                    <UButton variant="link" color="neutral" size="xs" @click.stop="toggleEnt(g.id)">
+                      {{ isEntExpanded(g.id) ? '收起' : '展开' }}
                     </UButton>
-                  </div>
-                  <div v-else class="b-actions">
-                    <span class="text-xs text-[var(--b-text-muted)]">总部账号</span>
-                  </div>
-                </td>
-              </tr>
+                  </td>
+                </tr>
+                <!-- 展开行：该厂家用户明细（不单独分页） -->
+                <tr v-if="isEntExpanded(g.id)">
+                  <td colspan="3" class="p-0">
+                    <table class="b-table">
+                      <thead>
+                        <tr>
+                          <th>登录名</th>
+                          <th>姓名</th>
+                          <th>手机号</th>
+                          <th>角色</th>
+                          <th>最后登录</th>
+                          <th>状态</th>
+                          <th class="text-right">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="r in g.users" :key="r.id">
+                          <td class="b-strong font-medium">{{ r.username }}</td>
+                          <td>{{ r.name || '-' }}</td>
+                          <td>{{ r.phone || '-' }}</td>
+                          <td>
+                            <span class="b-tag" :class="r.role === 'platform_admin' ? 'b-tag-danger' : r.role === 'enterprise_admin' ? 'b-tag-success' : 'b-tag-info'">
+                              {{ r.roleLabel }}
+                            </span>
+                          </td>
+                          <td>{{ r.last_login_at ? String(r.last_login_at).slice(0, 19) : '-' }}</td>
+                          <td>
+                            <span class="b-tag" :class="Number(r.status) === 1 ? 'b-tag-success' : 'b-tag-danger'">
+                              {{ Number(r.status) === 1 ? '启用' : '禁用' }}
+                            </span>
+                          </td>
+                          <td>
+                            <div v-if="r.role !== 'platform_admin'" class="b-actions">
+                              <UButton variant="link" color="neutral" size="xs" @click="resetPw(r)">重置密码</UButton>
+                              <span class="b-sep" />
+                              <UButton variant="link" color="neutral" size="xs" @click="toggleUserStatus(r)">
+                                {{ Number(r.status) === 1 ? '禁用' : '启用' }}
+                              </UButton>
+                            </div>
+                            <div v-else class="b-actions">
+                              <span class="text-xs text-[var(--b-text-muted)]">总部账号</span>
+                            </div>
+                          </td>
+                        </tr>
+                        <tr v-if="!g.users.length">
+                          <td colspan="7" class="b-empty">
+                            <div class="b-empty-inner">
+                              <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
+                              <span class="text-sm">{{ hasUserFilter ? '该厂家无命中用户' : '该厂家暂无账号，可点击「新增用户」创建' }}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </td>
+                </tr>
+              </template>
               <tr v-if="!userPending && !userData?.rows?.length">
-                <td colspan="8" class="b-empty">
+                <td colspan="3" class="b-empty">
                   <div class="b-empty-inner">
                     <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
-                    <span class="text-sm">暂无用户，点击「新增用户」创建账号</span>
+                    <span class="text-sm">暂无匹配的厂家或用户，请调整筛选条件后重试</span>
                   </div>
                 </td>
               </tr>
@@ -541,7 +608,7 @@ const deleteBackup = async (b: any) => {
           </table>
         </div>
         <div v-if="userData?.total" class="b-pager">
-          <span class="b-card-extra">共 {{ userData?.total || 0 }} 条 · 第 {{ userData.page }} / {{ userTotalPages }} 页</span>
+          <span class="b-card-extra">共 {{ userData?.total || 0 }} 个厂家 · 第 {{ userData.page }} / {{ userTotalPages }} 页</span>
           <div class="flex items-center gap-2">
             <UButton variant="outline" color="neutral" size="sm" :disabled="upage <= 1" @click="upage--; refreshUsers()">上一页</UButton>
             <UButton variant="outline" color="neutral" size="sm" :disabled="upage >= userTotalPages" @click="upage++; refreshUsers()">下一页</UButton>
