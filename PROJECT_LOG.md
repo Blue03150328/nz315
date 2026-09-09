@@ -1,5 +1,15 @@
 ## 变更记录
 
+### 2026-09-09 | 用户权限列表改为按厂家分组（一行=厂家 + 展开明细；筛选自动展开命中厂家；后端分组结构）
+- **需求**：①列表按企业（厂家）分组，一行=一个厂家；②厂家行=厂家名称+用户总数；③点击行展开/折叠该厂家用户明细（登录名/姓名/手机号/角色/状态/操作按钮，即原平铺行信息）；④筛选查询区保留（登录名/姓名/手机号、角色、状态），跨全部厂家与下属用户检索，命中厂家自动展开；⑤【新增用户】保留且可选归属厂家；⑥重置密码/启用禁用逻辑不变；⑦外层分页=厂家分页、明细不单独分页、样式统一；⑧前后端同步改造。
+- **后端**（server/api/admin/users.get.ts 重写）：返回 { total(厂家组数), totalUsers, filtered, page, pageSize, rows:[{ id(企业id), name, user_count(全量口径), users(带 roleLabel) }] }——权限不变（platform_admin 全量、可 ?enterpriseId= 限定单企业；enterprise_admin/code_admin 仅本企业一组）；**平台总部虚拟组 id=0**（enterprise_id IS NULL 的总部账号，如 admin，仅 platform_admin 视图出现、排最后）；无条件=enterprise 表全量（含 0 用户企业）；筛选态=命中用户所在企业去重、组内仅命中用户（keyword 内存过滤兼容原 LIKE ci 语义）；企业名/全量用户数一次查询映射；组内明细不分页。规模假设注释：初期用户量级小内存分组足够，量大改 SQL GROUP BY。
+- **前端**（settings/index.vue 用户权限面板）：外层 b-table 改 3 列（厂家名称/用户总数/明细），厂家行整行可点（chevron 旋转）+ 右侧 展开/收起 按钮（@click.stop）；展开行 td(colspan=3, p-0) 内嵌 b-table 子表 7 列明细（平台账号行仍显示『总部账号』禁操作）；expandedEnts Set 管理展开（翻页/刷新/操作后保留）；watch(userData) 于 filtered 响应自动展开命中组（无条件不干扰手动展开）；重置按钮清筛选+清展开；筛选卡统计文案『共 N 个厂家 · M 个账号』+『已筛选』『命中 N 人』徽标。
+- **修改文件**：app/pages/admin/settings/index.vue（+151/-64 用户面板）、server/api/admin/users.get.ts（重写 +111）
+- **测试情况**：tsc 0；构建 12.1MB；API 7 场景——无条件 3 组（企业1×4/企业2×0/平台总部×1 admin）、keyword=王 命中企业1(lvfeng) filtered、role=code_admin 命中 3 人、status=0 命中禁用 op2、厂家 lvfeng 仅本企业 4 人、enterpriseId=2 仅企业2；CDP 23/23——3 厂家组渲染/行=名称+用户总数/默认折叠/展开显示 4 用户明细（角色状态操作齐全）/折叠展开往返/平台组 admin 只读无操作钮/筛选 codeop 命中自动展开仅 codeop+『命中 1 人』徽标/清空查询还原 3 组/op2 启用-禁用往返（toast+刷新后展开保留）/新增用户弹窗含两企业归属/厂家视角仅本企业组/零 JS 异常；DB 复核 op2 还原禁用。提交 5cdcf0c
+- **遗留问题/待办**：①code_admin 也可访问用户列表（本企业只读语义注释但代码无 role 拦截、操作端点同样未禁 code_admin——既有权限边界未在本轮收紧，如需可另立任务）；②演示库含残留账号 op2（禁用）/lvop（测试改名）；③数据基线偏差与 agro_store 残留表仍待用户拍板
+- **给下一个 Agent 的提示**：①用户列表接口契约已变：rows 从用户平铺 → 厂家分组（id=0 为平台虚拟组），任何消费 /api/admin/users 的地方需按新契约；②keyword 在内存过滤（原 SQL LIKE）——若未来用户量大（>数万）改回 SQL 侧过滤+分组分页；③CDP 计数厂家行按 innerText 含『个账号』特征过滤（展开子表用户行同为 tbody 直行，勿按 !querySelector(table) 判断）；④脚本 scripts/_tmp-users-api-grp.mjs（API）/ _tmp-cdp-users-grp.mjs（CDP，自还原 op2）可复用
+
+---
 ### 2026-09-08 | 企业基本信息板块精简：删 官网/注册地址/简介 三项 + 落实 7 项必填（前后端同口径校验）
 - **需求**：系统设置→企业信息（厂家单企业表单 + 总部入驻企业编辑弹窗两处）：①删输入项 企业官网/注册地址/企业简介（含后端对应代码）；②必填（带*）＝企业名称/统一社会信用代码/联系人/联系电话/法定代表人/农药生产许可证号/资质到期日，保存时前端+后端非空校验（为空禁提交并提示）；③单元识别码保留可空；④保存按钮保留，其余逻辑不变。
 - **实现**：前端 settings/index.vue——entForm/watch 回填/openEntEdit 映射删三键；两处表单模板删三块输入并给 6 个 label 加红 *（企业名称原有）；新增 checkEntRequired（ENT_REQUIRED 常量，7 项 trim 判空）供 saveEnterprise/saveEntEdit 共用，缺失 toast「请填写：XXX」拦截。后端——enterprise.get.ts 与 factories.get.ts（列表显式列清单，此前 SELECT e.*）不再返回三列；[id].patch.ts：7 项必填校验（400「请填写：XXX」防绕过，厂家与总部同口径）+ UPDATE SET 去掉 website/address/description 三列（**DB 列保留**——存量值不受影响、前端不再提交故不会误清空）；**注意：PATCH 是全列覆盖式 UPDATE，删列≠删值——删列后这些列不再被写**。db-init 企业2 种子 INSERT 扩列（legal_person/license_no/qualification_expire）供新环境；存量库直改补齐：企业1 credit_code=91370100MA3C1KXQ3R，企业2 全部必填（=种子同值 李建国/农药生许(鲁)0061/2029-06-30）。
