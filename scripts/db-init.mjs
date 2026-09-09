@@ -46,6 +46,7 @@ const DDL = [
     description TEXT NULL COMMENT '企业简介',
     license_no VARCHAR(100) NULL COMMENT '农药生产许可证号',
     qualification_expire DATE NULL COMMENT '资质到期日（提前30/60/90天提醒）',
+    renew_expire DATE NULL COMMENT '续费到期日（2026-09-09：NULL 或早于今天=到期未续费，该厂家全部账号禁止登录）',
     status TINYINT NOT NULL DEFAULT 1 COMMENT '0禁用 1启用',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_credit_code (credit_code)
@@ -320,6 +321,12 @@ async function migrate(conn) {
     console.log('[db] 迁移：trace_code 补充索引 idx_upload_batch');
   }
 
+  // enterprise.renew_expire：厂家续费到期日（2026-09-09 新增）——NULL 或早于今天=到期未续费，禁止该厂家全部账号登录
+  if (!(await hasColumn('enterprise', 'renew_expire'))) {
+    await conn.query("ALTER TABLE enterprise ADD COLUMN renew_expire DATE NULL COMMENT '续费到期日（NULL 或早于今天=到期未续费，禁止登录）' AFTER qualification_expire");
+    console.log('[db] 迁移：enterprise 补充列 renew_expire（续费到期日）');
+  }
+
   // product_spec.dosage_forms：适用剂型字段已下线（2026-09-03 用户决策：规格不限定剂型），历史库清理（幂等）
   if (await hasColumn('product_spec', 'dosage_forms')) {
     await conn.query('ALTER TABLE product_spec DROP COLUMN dosage_forms');
@@ -388,8 +395,9 @@ async function seed(conn) {
   if (entRows.length === 0) {
     const [r] = await conn.query(
       // 2026-09-08：企业资料精简后必填 名称/信用代码/联系人/电话/法人/许可证号/资质到期日（单元识别码可空），种子同步完整字段
-      'INSERT INTO enterprise (name, credit_code, unit_code, contact, phone, legal_person, license_no, qualification_expire) VALUES (?,?,?,?,?,?,?,?)',
-      ['山东绿丰生物科技有限公司', '91370100MA3XXXXX0X', '1PD200407671', '王经理', '0531-88888888', '李建国', '农药生许(鲁)0061', '2029-06-30']
+      // 2026-09-09：renew_expire 续费到期日——种子企业为「到期未续费」演示（2026-08-01 已过期；有效期内演示在存量库企业1）
+      'INSERT INTO enterprise (name, credit_code, unit_code, contact, phone, legal_person, license_no, qualification_expire, renew_expire) VALUES (?,?,?,?,?,?,?,?,?)',
+      ['山东绿丰生物科技有限公司', '91370100MA3XXXXX0X', '1PD200407671', '王经理', '0531-88888888', '李建国', '农药生许(鲁)0061', '2029-06-30', '2026-08-01']
     );
     enterpriseId = r.insertId;
   } else {

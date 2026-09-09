@@ -101,6 +101,17 @@ export async function requireBackendUser(event: any): Promise<AuthUser> {
   if (!user) {
     throw createError({ statusCode: 401, statusMessage: '未登录' })
   }
+  // 企业启停校验（2026-09-09）：厂家账号每次业务请求校验所属企业——被禁用或续费到期（renew_expire 早于今天/NULL）
+  // 一律 403，保证「到期后不可使用系统功能」对已登录会话同样生效（7 天会话可能横跨到期点）
+  if (user.enterprise_id) {
+    const [ent] = await query<any[]>('SELECT status, renew_expire, CURDATE() AS today FROM enterprise WHERE id = ? LIMIT 1', [user.enterprise_id])
+    if (!ent || Number(ent.status) !== 1) {
+      throw createError({ statusCode: 403, statusMessage: '企业已被平台停用，账号暂不可使用，请联系平台' })
+    }
+    if (!ent.renew_expire || String(ent.renew_expire).slice(0, 10) < String(ent.today)) {
+      throw createError({ statusCode: 403, statusMessage: '厂家服务已到期未续费，账号暂不可使用，请联系平台续费' })
+    }
+  }
   return user
 }
 

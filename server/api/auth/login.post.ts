@@ -66,6 +66,16 @@ export default defineEventHandler(async (event) => {
   }
 
   clearFailures(key)
+  // 企业启停校验（2026-09-09）：厂家账号登录时校验所属企业——被禁用或续费到期（renew_expire 早于今天/NULL）一律拦截
+  if (u.enterprise_id) {
+    const [ent] = await query<any[]>('SELECT status, renew_expire, CURDATE() AS today FROM enterprise WHERE id = ? LIMIT 1', [u.enterprise_id])
+    if (!ent || Number(ent.status) !== 1) {
+      throw createError({ statusCode: 403, statusMessage: '企业已被平台停用，账号暂不可登录，请联系平台' })
+    }
+    if (!ent.renew_expire || String(ent.renew_expire).slice(0, 10) < String(ent.today)) {
+      throw createError({ statusCode: 403, statusMessage: '厂家服务已到期未续费，账号暂不可登录使用，请联系平台续费' })
+    }
+  }
   setAuthCookie(event, u.id)
   // 记录最后登录时间与 IP（PRD 5.1 登录日志）
   const ip = clientIp(event)

@@ -170,6 +170,58 @@ const saveUser = async () => {
   }
 }
 
+// —— 厂家续费设置弹窗（总部专用：线下缴费后登记到期日；清空=到期未续费）——
+const showRenewModal = ref(false)
+const renewSaving = ref(false)
+const renewForm = reactive({ id: null as number | null, name: '', expire: '' })
+const openRenewModal = (g: any) => {
+  renewForm.id = Number(g.id)
+  renewForm.name = g.name || ''
+  renewForm.expire = g.renew_expire || ''
+  showRenewModal.value = true
+}
+const saveRenew = async () => {
+  renewSaving.value = true
+  try {
+    await $fetch('/api/admin/enterprises/' + renewForm.id + '/renew', { method: 'PATCH', body: { renewExpire: renewForm.expire } })
+    toast.add({ title: renewForm.expire ? '续费到期日已更新' : '已清空（到期未续费）', color: 'success' })
+    showRenewModal.value = false
+    refreshUsers()
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage || '保存失败', color: 'error' })
+  } finally {
+    renewSaving.value = false
+  }
+}
+
+// —— 删除厂家确认弹窗（总部专用：级联清除该厂全部账号；有业务数据引用时按钮置灰）——
+const showDelEntModal = ref(false)
+const delEntSaving = ref(false)
+const delEnt = reactive({ id: null as number | null, name: '', userCount: 0 })
+const openDelEntModal = (g: any) => {
+  delEnt.id = Number(g.id)
+  delEnt.name = g.name || ''
+  delEnt.userCount = Number(g.user_count) || 0
+  showDelEntModal.value = true
+}
+const confirmDelEnt = async () => {
+  delEntSaving.value = true
+  try {
+    await $fetch('/api/admin/enterprises/' + delEnt.id, { method: 'DELETE' })
+    toast.add({ title: '厂家已删除', color: 'success' })
+    showDelEntModal.value = false
+    // 清理展开态并回退空页
+    const s = new Set(expandedEnts.value); s.delete(Number(delEnt.id)); expandedEnts.value = s
+    const beforeTotal = userData.value?.total || 0
+    if (upage.value > 1 && beforeTotal - 1 <= (upage.value - 1) * pageSize) upage.value -= 1
+    refreshUsers()
+  } catch (e: any) {
+    toast.add({ title: e?.data?.statusMessage || '删除失败', color: 'error' })
+  } finally {
+    delEntSaving.value = false
+  }
+}
+
 const toggleUserStatus = async (row: any) => {
   try {
     await $fetch('/api/admin/users/' + row.id, { method: 'PATCH', body: { name: row.name || '', phone: row.phone || '', status: Number(row.status) === 1 ? 0 : 1 } })
@@ -514,7 +566,8 @@ const deleteBackup = async (b: any) => {
               <tr>
                 <th>厂家名称</th>
                 <th>用户总数</th>
-                <th class="text-right">明细</th>
+                <th>续费状态</th>
+                <th class="text-right">操作</th>
               </tr>
             </thead>
             <tbody>
@@ -533,10 +586,28 @@ const deleteBackup = async (b: any) => {
                     <span class="font-medium">{{ g.user_count }}</span>
                     <span class="text-xs text-[var(--b-text-muted)]">个账号</span>
                   </td>
+                  <td>
+                    <!-- 续费状态：有效期内(绿) / 到期未续费(红)；平台组无续费概念 -->
+                    <span v-if="g.renew_status === 'active'" class="b-tag b-tag-success" :title="'续费至 ' + (g.renew_expire || '')">有效期内</span>
+                    <span v-else-if="g.renew_status === 'expired'" class="b-tag b-tag-danger" :title="(g.renew_expire ? '已于 ' + g.renew_expire + ' 到期' : '未设置续费') + '，该厂家账号将禁止登录'">到期未续费</span>
+                    <span v-else class="text-xs text-[var(--b-text-muted)]">—</span>
+                  </td>
                   <td class="text-right">
-                    <UButton variant="link" color="neutral" size="xs" @click.stop="toggleEnt(g.id)">
-                      {{ isEntExpanded(g.id) ? '收起' : '展开' }}
-                    </UButton>
+                    <div class="b-actions justify-end">
+                      <UButton variant="link" color="neutral" size="xs" @click.stop="toggleEnt(g.id)">
+                        {{ isEntExpanded(g.id) ? '收起' : '展开' }}
+                      </UButton>
+                      <template v-if="isPlatformAdmin && g.id !== 0">
+                        <span class="b-sep" />
+                        <UButton variant="link" color="neutral" size="xs" @click.stop="openRenewModal(g)">续费设置</UButton>
+                        <span class="b-sep" />
+                        <!-- 有业务数据引用时删除置灰（title 由外层 span 承载，disabled 按钮自身不触发 title） -->
+                        <span v-if="!g.can_delete" class="inline-flex" :title="'该厂家存在产品/规格/批次/追溯码等业务数据，不可删除'">
+                          <UButton variant="link" color="error" size="xs" disabled>删除厂家</UButton>
+                        </span>
+                        <UButton v-else variant="link" color="error" size="xs" @click.stop="openDelEntModal(g)">删除厂家</UButton>
+                      </template>
+                    </div>
                   </td>
                 </tr>
                 <!-- 展开行：该厂家用户明细（不单独分页） -->
@@ -615,6 +686,70 @@ const deleteBackup = async (b: any) => {
           </div>
         </div>
       </div>
+
+      <!-- 续费设置对话框（总部：线下缴费完成后登记到期日；清空=到期未续费） -->
+      <UModal v-model:open="showRenewModal">
+        <template #content>
+          <div class="b-modal">
+            <div class="b-modal-head">
+              <div class="b-modal-icon">
+                <UIcon name="i-lucide-calendar-clock" class="h-4 w-4 text-[var(--b-text-regular)]" />
+              </div>
+              <div>
+                <h3 class="b-modal-title">续费设置（{{ renewForm.name }}）</h3>
+                <p class="b-modal-sub">登记厂家续费有效期至：到期日当天仍可登录，次日 0 点起该厂家全部账号禁止登录</p>
+              </div>
+            </div>
+            <div class="b-modal-body">
+              <div>
+                <label class="b-label">续费到期日</label>
+                <UInput v-model="renewForm.expire" type="date" placeholder="清空即视为到期未续费" />
+                <p class="b-help">清空日期 = 到期未续费（立即停用该厂家全部账号）；续费请按实际缴费周期填写到期日</p>
+              </div>
+            </div>
+            <div class="b-modal-foot">
+              <span class="b-card-extra">保存后立即生效</span>
+              <div class="flex items-center gap-2">
+                <UButton variant="outline" color="neutral" @click="showRenewModal = false">取消</UButton>
+                <UButton color="neutral" variant="solid" icon="i-lucide-save" :loading="renewSaving" @click="saveRenew">保存</UButton>
+              </div>
+            </div>
+          </div>
+        </template>
+      </UModal>
+
+      <!-- 删除厂家确认对话框（总部：级联清除该厂全部账号，不可恢复） -->
+      <UModal v-model:open="showDelEntModal">
+        <template #content>
+          <div class="b-modal">
+            <div class="b-modal-head">
+              <div class="b-modal-icon">
+                <UIcon name="i-lucide-trash-2" class="h-4 w-4 text-[var(--b-text-regular)]" />
+              </div>
+              <div>
+                <h3 class="b-modal-title">删除厂家</h3>
+                <p class="b-modal-sub">该操作不可恢复，请谨慎确认</p>
+              </div>
+            </div>
+            <div class="b-modal-body space-y-3">
+              <div class="b-note">
+                <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+                <p class="b-note-text">
+                  删除厂家「{{ delEnt.name }}」将<strong>同步级联清除该厂家下 {{ delEnt.userCount }} 个账号</strong>（登录名不可恢复），
+                  且该厂家将不再占用「入驻企业」名额。
+                </p>
+              </div>
+              <p class="b-help">注：存在产品/规格/批次/追溯码等业务数据的厂家不可删除（删除按钮已置灰），需先迁移或清理业务数据。</p>
+            </div>
+            <div class="b-modal-foot">
+              <div class="flex items-center gap-2">
+                <UButton variant="outline" color="neutral" @click="showDelEntModal = false">取消</UButton>
+                <UButton color="error" variant="solid" icon="i-lucide-trash-2" :loading="delEntSaving" @click="confirmDelEnt">确认删除</UButton>
+              </div>
+            </div>
+          </div>
+        </template>
+      </UModal>
 
       <!-- 新增用户对话框（Nuxt UI v4：v-model:open 绑定 open 状态，内容必须放 #content 插槽） -->
       <UModal v-model:open="showUserModal">
