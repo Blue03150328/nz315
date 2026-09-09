@@ -23,7 +23,10 @@ export default defineEventHandler(async (event) => {
   const [cntRow] = await query<any[]>(
     'SELECT COUNT(*) AS c FROM enterprise ' + whereSql, params)
   const rows = await query<any[]>(
-    `SELECT e.*, (SELECT COUNT(*) FROM \`user\` u WHERE u.enterprise_id = e.id) AS user_count
+    // 2026-09-08 精简：企业信息不再维护 website/address/description，列表显式列清单不再返回
+    `SELECT e.id, e.name, e.credit_code, e.unit_code, e.contact, e.phone, e.legal_person, e.logo,
+       e.license_no, e.qualification_expire, e.status, e.created_at,
+       (SELECT COUNT(*) FROM \`user\` u WHERE u.enterprise_id = e.id) AS user_count
      FROM enterprise e ` + whereSql + ' ORDER BY e.id DESC LIMIT ? OFFSET ?', [...params, pageSize, offset])
   return { total: Number(cntRow?.c || 0), page, pageSize, rows }
 })

@@ -13,7 +13,8 @@ export default defineEventHandler(async (event) => {
     id = user.enterprise_id
   }
   const [row] = await query<any[]>(
-    'SELECT id, name, credit_code, unit_code, contact, phone, legal_person, website, address, logo, description, license_no, qualification_expire, status, created_at FROM enterprise WHERE id = ?',
+    // 2026-09-08 精简：企业信息不再维护 企业官网/注册地址/企业简介（列保留于库，仅不再对外提供与写回）
+    'SELECT id, name, credit_code, unit_code, contact, phone, legal_person, logo, license_no, qualification_expire, status, created_at FROM enterprise WHERE id = ?',
     [id])
   if (!row) throw createError({ statusCode: 404, statusMessage: '企业信息不存在' })
   return row

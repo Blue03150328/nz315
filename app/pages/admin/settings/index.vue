@@ -9,9 +9,10 @@ const tab = ref('enterprise')
 const { user, isPlatformAdmin } = useUser()
 
 // ============ 企业信息（PRD 5.12.1） ============
+// 企业信息表单字段（2026-09-08 精简：删 企业官网/注册地址/企业简介；单元识别码保留可空）
 const entForm = reactive({
   name: '', creditCode: '', unitCode: '', contact: '', phone: '', legalPerson: '',
-  website: '', address: '', description: '', licenseNo: '', qualificationExpire: '',
+  licenseNo: '', qualificationExpire: '',
 })
 const entSaving = ref(false)
 
@@ -34,14 +35,27 @@ watch(entData, (d) => {
     Object.assign(entForm, {
       name: d.name || '', creditCode: d.credit_code || '', unitCode: d.unit_code || '',
       contact: d.contact || '', phone: d.phone || '', legalPerson: d.legal_person || '',
-      website: d.website || '', address: d.address || '', description: d.description || '',
       licenseNo: d.license_no || '', qualificationExpire: d.qualification_expire ? String(d.qualification_expire).slice(0, 10) : '',
     })
   }
 }, { immediate: true })
 
+// 企业信息必填项（前端与后端同口径校验）：名称/信用代码/联系人/电话/法人/许可证号/资质到期日；单元识别码保留可空
+const ENT_REQUIRED = [
+  ['name', '企业名称'], ['creditCode', '统一社会信用代码'], ['contact', '联系人'],
+  ['phone', '联系电话'], ['legalPerson', '法定代表人'], ['licenseNo', '农药生产许可证号'],
+  ['qualificationExpire', '资质到期日'],
+] as const
+const checkEntRequired = (): string | null => {
+  for (const [key, label] of ENT_REQUIRED) {
+    if (!String((entForm as Record<string, unknown>)[key] ?? '').trim()) return label
+  }
+  return null
+}
+
 const saveEnterprise = async () => {
-  if (!entForm.name.trim()) { toast.add({ title: '请输入企业名称', color: 'warning' }); return }
+  const missing = checkEntRequired()
+  if (missing) { toast.add({ title: '请填写：' + missing, color: 'warning' }); return }
   entSaving.value = true
   try {
     await $fetch('/api/admin/settings/enterprise/' + entData.value?.id, {
@@ -64,7 +78,6 @@ const openEntEdit = (row: any) => {
   Object.assign(entForm, {
     name: row.name || '', creditCode: row.credit_code || '', unitCode: row.unit_code || '',
     contact: row.contact || '', phone: row.phone || '', legalPerson: row.legal_person || '',
-    website: row.website || '', address: row.address || '', description: row.description || '',
     licenseNo: row.license_no || '',
     qualificationExpire: row.qualification_expire ? String(row.qualification_expire).slice(0, 10) : '',
   })
@@ -74,7 +87,8 @@ const openEntEdit = (row: any) => {
 
 // —— 总部：保存企业编辑（PATCH 已支持总部改任意企业，含 status）——
 const saveEntEdit = async () => {
-  if (!entForm.name.trim()) { toast.add({ title: '请输入企业名称', color: 'warning' }); return }
+  const missing = checkEntRequired()
+  if (missing) { toast.add({ title: '请填写：' + missing, color: 'warning' }); return }
   entSaving.value = true
   try {
     await $fetch('/api/admin/settings/enterprise/' + entEditId.value, {
@@ -341,7 +355,7 @@ const deleteBackup = async (b: any) => {
                     <UInput v-model="entForm.name" placeholder="企业全称" />
                   </div>
                   <div>
-                    <label class="b-label">统一社会信用代码</label>
+                    <label class="b-label">统一社会信用代码 <span class="b-required">*</span></label>
                     <UInput v-model="entForm.creditCode" placeholder="18 位信用代码" />
                   </div>
                   <div>
@@ -349,41 +363,29 @@ const deleteBackup = async (b: any) => {
                     <UInput v-model="entForm.unitCode" placeholder="1049号公告口径（登记类别+登记证后6位+生产类型）" />
                   </div>
                   <div>
-                    <label class="b-label">联系人</label>
+                    <label class="b-label">联系人 <span class="b-required">*</span></label>
                     <UInput v-model="entForm.contact" placeholder="联系人姓名" />
                   </div>
                   <div>
-                    <label class="b-label">联系电话</label>
+                    <label class="b-label">联系电话 <span class="b-required">*</span></label>
                     <UInput v-model="entForm.phone" placeholder="联系电话" />
                   </div>
                   <div>
-                    <label class="b-label">法定代表人</label>
+                    <label class="b-label">法定代表人 <span class="b-required">*</span></label>
                     <UInput v-model="entForm.legalPerson" placeholder="法人姓名" />
                   </div>
                   <div>
-                    <label class="b-label">企业官网</label>
-                    <UInput v-model="entForm.website" placeholder="https://..." />
-                  </div>
-                  <div>
-                    <label class="b-label">农药生产许可证号</label>
+                    <label class="b-label">农药生产许可证号 <span class="b-required">*</span></label>
                     <UInput v-model="entForm.licenseNo" placeholder="生产许可证号" />
                   </div>
                   <div>
-                    <label class="b-label">资质到期日</label>
+                    <label class="b-label">资质到期日 <span class="b-required">*</span></label>
                     <UInput v-model="entForm.qualificationExpire" type="date" />
                     <p class="b-help">到期前 30/60/90 天提醒</p>
                   </div>
                   <div>
                     <label class="b-label">状态</label>
                     <USelect v-model="entStatus" :items="[{ value: 1, label: '启用' }, { value: 0, label: '禁用' }]" class="w-full" />
-                  </div>
-                  <div class="md:col-span-2">
-                    <label class="b-label">注册地址</label>
-                    <UInput v-model="entForm.address" placeholder="企业注册地址" />
-                  </div>
-                  <div class="md:col-span-2">
-                    <label class="b-label">企业简介</label>
-                    <UTextarea v-model="entForm.description" :rows="3" placeholder="企业简介" />
                   </div>
                 </div>
               </div>
@@ -411,7 +413,7 @@ const deleteBackup = async (b: any) => {
             <UInput v-model="entForm.name" placeholder="企业全称" />
           </div>
           <div>
-            <label class="b-label">统一社会信用代码</label>
+            <label class="b-label">统一社会信用代码 <span class="b-required">*</span></label>
             <UInput v-model="entForm.creditCode" placeholder="18 位信用代码" />
           </div>
           <div>
@@ -419,37 +421,25 @@ const deleteBackup = async (b: any) => {
             <UInput v-model="entForm.unitCode" placeholder="1049号公告口径（登记类别+登记证后6位+生产类型）" />
           </div>
           <div>
-            <label class="b-label">联系人</label>
+            <label class="b-label">联系人 <span class="b-required">*</span></label>
             <UInput v-model="entForm.contact" placeholder="联系人姓名" />
           </div>
           <div>
-            <label class="b-label">联系电话</label>
+            <label class="b-label">联系电话 <span class="b-required">*</span></label>
             <UInput v-model="entForm.phone" placeholder="联系电话" />
           </div>
           <div>
-            <label class="b-label">法定代表人</label>
+            <label class="b-label">法定代表人 <span class="b-required">*</span></label>
             <UInput v-model="entForm.legalPerson" placeholder="法人姓名" />
           </div>
           <div>
-            <label class="b-label">企业官网</label>
-            <UInput v-model="entForm.website" placeholder="https://..." />
-          </div>
-          <div>
-            <label class="b-label">农药生产许可证号</label>
+            <label class="b-label">农药生产许可证号 <span class="b-required">*</span></label>
             <UInput v-model="entForm.licenseNo" placeholder="生产许可证号" />
           </div>
           <div>
-            <label class="b-label">资质到期日</label>
+            <label class="b-label">资质到期日 <span class="b-required">*</span></label>
             <UInput v-model="entForm.qualificationExpire" type="date" />
             <p class="b-help">到期前 30/60/90 天提醒</p>
-          </div>
-          <div class="md:col-span-2">
-            <label class="b-label">注册地址</label>
-            <UInput v-model="entForm.address" placeholder="企业注册地址" />
-          </div>
-          <div class="md:col-span-2">
-            <label class="b-label">企业简介</label>
-            <UTextarea v-model="entForm.description" :rows="3" placeholder="企业简介" />
           </div>
         </div>
         <div class="b-card-foot">

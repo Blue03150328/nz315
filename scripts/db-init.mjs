@@ -387,8 +387,9 @@ async function seed(conn) {
   let enterpriseId;
   if (entRows.length === 0) {
     const [r] = await conn.query(
-      'INSERT INTO enterprise (name, credit_code, unit_code, contact, phone) VALUES (?,?,?,?,?)',
-      ['山东绿丰生物科技有限公司', '91370100MA3XXXXX0X', '1PD200407671', '王经理', '0531-88888888']
+      // 2026-09-08：企业资料精简后必填 名称/信用代码/联系人/电话/法人/许可证号/资质到期日（单元识别码可空），种子同步完整字段
+      'INSERT INTO enterprise (name, credit_code, unit_code, contact, phone, legal_person, license_no, qualification_expire) VALUES (?,?,?,?,?,?,?,?)',
+      ['山东绿丰生物科技有限公司', '91370100MA3XXXXX0X', '1PD200407671', '王经理', '0531-88888888', '李建国', '农药生许(鲁)0061', '2029-06-30']
     );
     enterpriseId = r.insertId;
   } else {
