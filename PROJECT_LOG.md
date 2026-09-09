@@ -1,5 +1,16 @@
 ## 变更记录
 
+### 2026-09-09 | 厂家续费状态与删除厂家（用户权限页）：续费到期禁登录 + 删除厂家级联清账号
+- **需求**：①厂家分组行【删除厂家】（二次确认 + 级联清除该厂全部账号）；②厂家行【续费状态】字段（有效期内/到期未续费）；③续费到期未缴费→该厂全部账号禁止登录与使用系统；④默认折叠/筛选保留/原有账号操作不变；⑤前后端同步。
+- **数据**：enterprise.renew_expire DATE（续费到期日；NULL 或早于今天=到期未续费）——db-init DDL、migrate() 幂等补列（AFTER qualification_expire）、seed 企业2 过期值演示；存量库 ALTER+赋值（企业1=2027-12-31 演示有效、企业2=2026-08-01 到期）。
+- **后端**：login.post.ts——厂家账号（enterprise_id 非空）登录校验所属企业 status=1 且 renew_expire>=CURDATE()（SQL CURDATE 口径防时区漂移），否则 403（区分『企业已被平台停用』/『服务已到期未续费』文案，限速计数不触发）；auth.ts requireBackendUser 同步校验（7 天会话可能跨到期点，保证『到期即不可用』对已登录会话同样生效）；users.get.ts——组行返回 renew_expire/renew_status/renew_label/can_delete + keyword 双通道（账号信息 OR 厂家名称 LIKE，名称命中整厂返回，组内明细仍按 role/status 过滤）；新增 DELETE /api/admin/enterprises/:id（requirePlatformAdmin；5 张业务表 product/product_spec/batch/upload_batch/trace_code 引用 UNION 检查→有数据 400 防孤儿；事务级联 DELETE user+enterprise；logOperation 审计）与 PATCH /api/admin/enterprises/:id/renew（platform_admin 登记/清空到期日；格式校验；审计）。注意：[id]/ 子目录路由端点 import 需 4 级 ../（rollup 构建期报 UNRESOLVED_IMPORT，tsc 查不出）。
+- **前端**（settings 用户权限页）：外层表新增【续费状态】列——active=b-tag-success『有效期内』(title 续费至 X)/expired=b-tag-danger『到期未续费』(title 到期日)/平台组 '—'；厂家行操作列=展开收起+（总部非平台）续费设置+删除厂家；删除按钮 can_delete=false 置灰（外层 span title 提示业务数据），删除确认弹窗（trash-2 + 警示『级联清除 N 个账号不可恢复』+业务数据限制说明）确认后 DELETE+清展开态+空页回退+refresh；续费设置弹窗 date 输入（回填现值，清空=到期未续费）+保存 PATCH；平台组无管理按钮；厂家视角仅展示本企业状态只读。
+- **修改文件**：server/api/auth/login.post.ts、server/utils/auth.ts、server/api/admin/users.get.ts、server/api/admin/enterprises/[id].delete.ts（新）、server/api/admin/enterprises/[id]/renew.patch.ts（新）、app/pages/admin/settings/index.vue、scripts/db-init.mjs（另建即弃 utils/ent-renew.ts 已删）
+- **测试情况**：tsc 0；构建 12.1MB（首次构建失败=renew.patch.ts import 层级错，修复后过）；API 14 项——lvfeng 正常登录/组行续费字段（企业1 active、企业2 expired、平台 null、can_delete=false×2）/keyword=绿丰生物 厂家名命中/删除有数据企业 400 文案/续费设置 200 状态翻 active/还原/404/非总部 403/非法日期 400/临时过期 lvfeng 登录 403 文案精确/已登录会话业务接口 403/自建企业+账号删除 200 级联残余 0/0；CDP 28/28——状态 tag 双态/删除置灰与可点/删除弹窗警示确认级联+DB 复核/续费弹窗回填设期翻转 tag/清空还原/平台无按钮/厂家视角只读/零 JS 异常；上轮厂家分组回归 23/23。提交 b84844e
+- **遗留问题/待办**：①续费到期提醒（到期前站内信/预警）未接，可与自动备份调度一并规划；②企业 status 禁用与 renew_expire 双开关并存（登录校验二者都拦）；③到期被拦的已登录会话，续费恢复后即自动可用（无需重登）；④演示数据基线偏差与 agro_store 残留表仍待用户拍板
+- **给下一个 Agent 的提示**：①厂家账号登录/请求校验企业启停是两处（login.post.ts 与 auth.ts requireBackendUser），改动判定口径必须同步；②判定统一 SQL CURDATE()（dateStrings 下 'YYYY-MM-DD' 字典序可比），勿用服务器 UTC 日期（东八区凌晨差一天）；③删除厂家只拦 5 张业务主表（日志/消息等历史记录允许保留）；④users.get.ts 与 [id].delete.ts 的 ENT_REF_TABLES 同口径，加表需同步两侧；⑤CDP 脚本 scripts/_tmp-cdp-renew.mjs 可复用（自建企业3+用户后删除自清理）
+
+---
 ### 2026-09-09 | 用户权限列表改为按厂家分组（一行=厂家 + 展开明细；筛选自动展开命中厂家；后端分组结构）
 - **需求**：①列表按企业（厂家）分组，一行=一个厂家；②厂家行=厂家名称+用户总数；③点击行展开/折叠该厂家用户明细（登录名/姓名/手机号/角色/状态/操作按钮，即原平铺行信息）；④筛选查询区保留（登录名/姓名/手机号、角色、状态），跨全部厂家与下属用户检索，命中厂家自动展开；⑤【新增用户】保留且可选归属厂家；⑥重置密码/启用禁用逻辑不变；⑦外层分页=厂家分页、明细不单独分页、样式统一；⑧前后端同步改造。
 - **后端**（server/api/admin/users.get.ts 重写）：返回 { total(厂家组数), totalUsers, filtered, page, pageSize, rows:[{ id(企业id), name, user_count(全量口径), users(带 roleLabel) }] }——权限不变（platform_admin 全量、可 ?enterpriseId= 限定单企业；enterprise_admin/code_admin 仅本企业一组）；**平台总部虚拟组 id=0**（enterprise_id IS NULL 的总部账号，如 admin，仅 platform_admin 视图出现、排最后）；无条件=enterprise 表全量（含 0 用户企业）；筛选态=命中用户所在企业去重、组内仅命中用户（keyword 内存过滤兼容原 LIKE ci 语义）；企业名/全量用户数一次查询映射；组内明细不分页。规模假设注释：初期用户量级小内存分组足够，量大改 SQL GROUP BY。
