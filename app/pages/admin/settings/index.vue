@@ -255,19 +255,59 @@ const lfilters = reactive({
 })
 const lpage = ref(1)
 
+// 日志筛选参数公共构造（分组列表与组内明细拉取共用同一筛选口径）
+const buildLogQuery = (extra: Record<string, unknown> = {}) => ({
+  keyword: lfilters.keyword || undefined,
+  module: lfilters.module || undefined,
+  action: lfilters.action || undefined,
+  result: lfilters.result || undefined,
+  dateFrom: lfilters.dateFrom || undefined,
+  dateTo: lfilters.dateTo || undefined,
+  page: lpage.value, pageSize,
+  ...extra,
+})
 const { data: logData, pending: logPending, refresh: refreshLogs } = await useFetch<any>('/api/admin/logs', {
   key: 'settings-logs',
-  query: computed(() => ({
-    keyword: lfilters.keyword || undefined,
-    module: lfilters.module || undefined,
-    action: lfilters.action || undefined,
-    result: lfilters.result || undefined,
-    dateFrom: lfilters.dateFrom || undefined,
-    dateTo: lfilters.dateTo || undefined,
-    page: lpage.value, pageSize,
-  })),
+  query: computed(() => buildLogQuery()),
 })
 const logTotalPages = computed(() => Math.max(1, Math.ceil((logData.value?.total || 0) / pageSize)))
+
+// —— 日志分组视图：展开/折叠 + 组内明细（内部可独立分页，每页 10 条）——
+const LOG_DETAIL_SIZE = 10
+const expandedLogEnts = ref<Set<number>>(new Set())
+const logDetailSeq: Record<number, number> = {}
+const logDetailMap = ref<Record<number, { rows: any[]; total: number; page: number }>>({})
+const hasLogFilter = computed(() =>
+  !!(String(lfilters.keyword || '').trim() || lfilters.module || lfilters.action || (lfilters.result !== undefined && lfilters.result !== '') || lfilters.dateFrom || lfilters.dateTo))
+const isLogEntExpanded = (id: number) => expandedLogEnts.value.has(id)
+const toggleLogEnt = (g: any) => {
+  const id = Number(g.id)
+  const s = new Set(expandedLogEnts.value)
+  if (s.has(id)) { s.delete(id); expandedLogEnts.value = s; return }
+  s.add(id); expandedLogEnts.value = s
+  if (!logDetailMap.value[id]) fetchLogDetail(id, 1) // 首次展开拉第 1 页明细
+}
+const fetchLogDetail = async (entId: number, dPage: number) => {
+  const seq = (logDetailSeq[entId] = (logDetailSeq[entId] || 0) + 1) // 防旧请求晚到覆盖新请求
+  try {
+    const d = await $fetch<any>('/api/admin/logs', { query: buildLogQuery({ entId, dPage, dPageSize: LOG_DETAIL_SIZE }) })
+    if (logDetailSeq[entId] === seq) {
+      logDetailMap.value = { ...logDetailMap.value, [entId]: { rows: d.rows || [], total: Number(d.total) || 0, page: dPage } }
+    }
+  } catch { /* 拉取失败保留空态 */ }
+}
+const logDetailOf = (entId: number) => logDetailMap.value[entId] || { rows: [], total: 0, page: 1 }
+const logDetailPages = (entId: number) => Math.max(1, Math.ceil((logDetailOf(entId).total || 0) / LOG_DETAIL_SIZE))
+// 筛选命中时自动展开全部命中组并拉各自明细第 1 页
+watch(logData, (d) => {
+  if (d?.filtered) {
+    const ids = (d.rows || []).map((r: any) => Number(r.id)).filter((i: number) => Number.isInteger(i))
+    if (ids.length) {
+      expandedLogEnts.value = new Set(ids)
+      for (const id of ids) fetchLogDetail(id, 1)
+    }
+  }
+})
 
 // 页内【重置】：重置当前激活面板——企业信息回填「已保存值」（放弃未保存草稿），
 // 用户/日志清空筛选并刷新；数据备份面板无表单内容（Keep-Alive 缓存页互不影响）
@@ -290,6 +330,8 @@ const resetPanel = async () => {
   } else if (tab.value === 'logs') {
     Object.assign(lfilters, { keyword: '', module: undefined, action: '', result: undefined, dateFrom: '', dateTo: '' })
     lpage.value = 1
+    expandedLogEnts.value = new Set() // 重置回全折叠
+    logDetailMap.value = {}
     refreshLogs()
     toast.add({ title: '已重置，操作日志恢复初始筛选', color: 'primary' })
   } else {
@@ -843,48 +885,106 @@ const deleteBackup = async (b: any) => {
           </div>
         </div>
         <div class="b-card-foot">
-          <span class="b-card-extra">共 <span class="font-medium b-strong">{{ logData?.total || 0 }}</span> 条日志</span>
+          <span class="b-card-extra">
+            共 <span class="font-medium b-strong">{{ logData?.total || 0 }}</span> 个分组 ·
+            <span class="font-medium b-strong">{{ logData?.totalLogs || 0 }}</span> 条日志
+            <span v-if="hasLogFilter" class="b-tag b-tag-info ml-2">已筛选</span>
+          </span>
           <div class="flex items-center gap-2">
             <UButton color="neutral" variant="solid" :loading="logPending" @click="lpage = 1; refreshLogs()">查询</UButton>
           </div>
         </div>
       </div>
 
-      <!-- 日志列表 -->
+      <!-- 日志列表（厂家/平台分组：一行=一个分组，点击行展开/折叠明细；外层分页=分组分页，组内明细可独立分页） -->
       <div class="b-card b-card-clip">
         <div class="b-card-head">
           <span class="b-card-title">日志列表</span>
-          <span class="b-card-extra">共 {{ logData?.total || 0 }} 条 · 保留至少 3 年不可删除</span>
+          <span class="b-card-extra">按厂家/平台分组 · 点击分组行展开/折叠明细日志 · 保留至少 3 年不可删除</span>
         </div>
         <div class="b-scroll-x">
           <table class="b-table">
             <thead>
               <tr>
-                <th>操作时间</th>
-                <th>操作人</th>
-                <th>模块</th>
-                <th>操作</th>
-                <th>内容</th>
-                <th>IP</th>
-                <th>结果</th>
+                <th>分组</th>
+                <th>日志总数</th>
+                <th class="text-right">明细</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="r in logData?.rows || []" :key="r.id">
-                <td class="whitespace-nowrap">{{ String(r.created_at).slice(0, 19) }}</td>
-                <td>{{ r.username || '-' }}</td>
-                <td>{{ r.module || '-' }}</td>
-                <td class="b-strong font-medium">{{ r.action || '-' }}</td>
-                <td class="max-w-72 truncate text-xs text-[var(--b-text-muted)]" :title="r.content || ''">{{ r.content || '-' }}</td>
-                <td class="font-code text-xs text-[var(--b-text-muted)]">{{ r.ip || '-' }}</td>
-                <td>
-                  <span class="b-tag" :class="Number(r.result) === 1 ? 'b-tag-success' : 'b-tag-danger'">
-                    {{ Number(r.result) === 1 ? '成功' : '失败' }}
-                  </span>
-                </td>
-              </tr>
+              <template v-for="g in logData?.rows || []" :key="g.id">
+                <!-- 分组行 -->
+                <tr class="cursor-pointer select-none" @click="toggleLogEnt(g)">
+                  <td>
+                    <div class="flex items-center gap-2">
+                      <UIcon :name="isLogEntExpanded(g.id) ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" class="h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+                      <span class="b-strong font-medium">{{ g.name }}</span>
+                      <span v-if="g.id === 0" class="b-tag b-tag-danger">平台</span>
+                      <span v-if="hasLogFilter" class="b-tag b-tag-info">命中 {{ g.hit_count }} 条</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="font-medium">{{ g.log_count }}</span>
+                    <span class="text-xs text-[var(--b-text-muted)]">条</span>
+                  </td>
+                  <td class="text-right">
+                    <UButton variant="link" color="neutral" size="xs" @click.stop="toggleLogEnt(g)">
+                      {{ isLogEntExpanded(g.id) ? '收起' : '展开' }}
+                    </UButton>
+                  </td>
+                </tr>
+                <!-- 展开行：组内明细（内部可分页） -->
+                <tr v-if="isLogEntExpanded(g.id)">
+                  <td colspan="3" class="p-0">
+                    <table class="b-table">
+                      <thead>
+                        <tr>
+                          <th>操作时间</th>
+                          <th>操作人</th>
+                          <th>模块</th>
+                          <th>操作</th>
+                          <th>内容</th>
+                          <th>IP</th>
+                          <th>结果</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="r in logDetailOf(g.id).rows" :key="r.id">
+                          <td class="whitespace-nowrap">{{ String(r.created_at).slice(0, 19) }}</td>
+                          <td>{{ r.username || '-' }}</td>
+                          <td>{{ r.module || '-' }}</td>
+                          <td class="b-strong font-medium">{{ r.action || '-' }}</td>
+                          <td class="max-w-72 truncate text-xs text-[var(--b-text-muted)]" :title="r.content || ''">{{ r.content || '-' }}</td>
+                          <td class="font-code text-xs text-[var(--b-text-muted)]">{{ r.ip || '-' }}</td>
+                          <td>
+                            <span class="b-tag" :class="Number(r.result) === 1 ? 'b-tag-success' : 'b-tag-danger'">
+                              {{ Number(r.result) === 1 ? '成功' : '失败' }}
+                            </span>
+                          </td>
+                        </tr>
+                        <tr v-if="!logDetailOf(g.id).rows.length">
+                          <td colspan="7" class="b-empty">
+                            <div class="b-empty-inner">
+                              <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
+                              <span class="text-sm">{{ hasLogFilter ? '该分组无命中日志' : '该分组暂无日志' }}</span>
+                            </div>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <!-- 组内明细分页器（每组独立） -->
+                    <div v-if="logDetailOf(g.id).total" class="b-pager">
+                      <span class="b-card-extra">共 {{ logDetailOf(g.id).total }} 条 · 第 {{ logDetailOf(g.id).page }} / {{ logDetailPages(g.id) }} 页</span>
+                      <div class="flex items-center gap-2">
+                        <UButton variant="outline" color="neutral" size="sm" :disabled="logDetailOf(g.id).page <= 1" @click="fetchLogDetail(g.id, logDetailOf(g.id).page - 1)">上一页</UButton>
+                        <UButton variant="outline" color="neutral" size="sm" :disabled="logDetailOf(g.id).page >= logDetailPages(g.id)" @click="fetchLogDetail(g.id, logDetailOf(g.id).page + 1)">下一页</UButton>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              </template>
               <tr v-if="!logPending && !logData?.rows?.length">
-                <td colspan="7" class="b-empty">
+                <td colspan="3" class="b-empty">
                   <div class="b-empty-inner">
                     <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
                     <span class="text-sm">暂无符合条件的操作日志，请调整筛选条件后重试</span>
@@ -894,8 +994,9 @@ const deleteBackup = async (b: any) => {
             </tbody>
           </table>
         </div>
+        <!-- 外层分页：厂家分组分页 -->
         <div v-if="logData?.total" class="b-pager">
-          <span class="b-card-extra">共 {{ logData?.total || 0 }} 条 · 第 {{ logData.page }} / {{ logTotalPages }} 页</span>
+          <span class="b-card-extra">共 {{ logData?.total || 0 }} 个分组 · 第 {{ logData.page }} / {{ logTotalPages }} 页</span>
           <div class="flex items-center gap-2">
             <UButton variant="outline" color="neutral" size="sm" :disabled="lpage <= 1" @click="lpage--; refreshLogs()">上一页</UButton>
             <UButton variant="outline" color="neutral" size="sm" :disabled="lpage >= logTotalPages" @click="lpage++; refreshLogs()">下一页</UButton>
