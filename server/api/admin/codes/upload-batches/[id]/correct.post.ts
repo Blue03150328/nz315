@@ -67,8 +67,11 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 400, statusMessage: '本批次没有「已生成（未绑定）」的码，无需新建批次绑定' })
     }
     // 查同产品同批号 → 命中校验一致复用 / 未命中自动建档（与 import 同规则：质检默认合格、quantity 记 0）
+    // 注意：本文件用项目封装的 query()（返回「行数组」本身，非 [rows, fields] 二元组），
+    // 多行结果必须整体接收后按数组使用；写成 const [exist] = await query(...) 会取到首行对象，
+    // exist.length 恒为 undefined → 已存在批号也走 INSERT → 唯一键冲突 500（2026-09-10 实测修复）
     const batchCond = fid ? ' AND b.enterprise_id = ?' : ''
-    const [exist] = await query<any[]>(
+    const exist = await query<any[]>(
       'SELECT b.id, b.produce_date, b.quality_cert_no, b.qc_result FROM batch b WHERE b.product_id = ? AND b.batch_no = ?' + batchCond,
       fid ? [productId, newBatchNo, fid] : [productId, newBatchNo])
     let batchId: number
@@ -86,11 +89,19 @@ export default defineEventHandler(async (event) => {
       batchId = Number(b.id)
     } else {
       // 注意：db.ts execute 返回 ResultSetHeader（非 mysql2 二元组），不可数组解构
-      const r = await execute(
-        'INSERT INTO batch (enterprise_id, product_id, batch_no, produce_date, quality_cert_no, expire_date, qc_result, qc_report_no, quantity) VALUES (?,?,?,?,?,?,?,?,?)',
-        [ubEnterpriseId, productId, newBatchNo, newProduceDate, newQualityCertNo, newExpireDate, 1, newQcReportNo, 0])
-      batchId = Number(r.insertId)
-      batchCreated = true
+      try {
+        const r = await execute(
+          'INSERT INTO batch (enterprise_id, product_id, batch_no, produce_date, quality_cert_no, expire_date, qc_result, qc_report_no, quantity) VALUES (?,?,?,?,?,?,?,?,?)',
+          [ubEnterpriseId, productId, newBatchNo, newProduceDate, newQualityCertNo, newExpireDate, 1, newQcReportNo, 0])
+        batchId = Number(r.insertId)
+        batchCreated = true
+      } catch (e: any) {
+        // 唯一键竞态兜底（并发同时建同批号）：返回中文 400 而非 500 堆栈
+        if (e?.code === 'ER_DUP_ENTRY') {
+          throw createError({ statusCode: 400, statusMessage: '批次 ' + newBatchNo + ' 刚被创建，请重新打开修正窗口后重试' })
+        }
+        throw e
+      }
     }
     // 绑定本行全部"已生成"码（三要素冗余 + status=2）
     const rb = await execute(
