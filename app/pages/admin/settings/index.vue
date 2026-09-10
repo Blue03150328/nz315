@@ -298,6 +298,14 @@ const fetchLogDetail = async (entId: number, dPage: number) => {
 }
 const logDetailOf = (entId: number) => logDetailMap.value[entId] || { rows: [], total: 0, page: 1 }
 const logDetailPages = (entId: number) => Math.max(1, Math.ceil((logDetailOf(entId).total || 0) / LOG_DETAIL_SIZE))
+// 筛选条件变化 → 组内明细缓存失效（缓存按 entId 索引，不含筛选口径；
+// 若不失效：「筛选→展开组」缓存的是筛选口径明细，随后清空筛选再查询（filtered=false 不触发下方 watch）
+// 会继续展示旧筛选口径的明细，与全量列表口径不一致）
+watch(() => [lfilters.keyword, lfilters.module, lfilters.action, lfilters.result, lfilters.dateFrom, lfilters.dateTo], () => {
+  logDetailMap.value = {}
+  expandedLogEnts.value = new Set() // 同步折叠：避免「缓存已清但组仍展开」的空白中间态（查询后筛选态会自动展开命中组）
+})
+
 // 筛选命中时自动展开全部命中组并拉各自明细第 1 页
 watch(logData, (d) => {
   if (d?.filtered) {
