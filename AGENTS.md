@@ -66,6 +66,7 @@
 ### ✅ 项目进度（截至 2026-09-08）
 
 **已实现（V1.0 核心）**：
+- **修复修正弹窗「批号已存在必 500」（用户实测修正一直失败，提交 bc33660）**（2026-09-10）：用户想用【修正】把「生成入库」的码绑定生产批次却一直失败。根因：upload-batches/[id]/correct.post.ts 用 `const [exist] = await query(...)` 查同产品同批号，而封装 `query()` 返回**行数组本身**（非 conn.query 的 [rows,fields]）→ exist 是首行对象 → `exist.length > 0` 恒 false → 已存在批号也走 INSERT → 唯一键 batch.uq_product_batch 冲突 → **500 Server Error**（页面只显示「Server Error/修正失败」）。修复：整体接收行数组（一致→归并 / 不一致→400 中文回显库内值）+ INSERT ER_DUP_ENTRY 兜底 + 全库扫描同类风险（仅此 1 处）。验证：tsc 0 + 构建 12.2MB + API 5/5 + CDP 6/6；脚本 _tmp-verify-correct-fix.mjs/_tmp-cdp-correctfix.mjs 可复用
 - **追溯码上传支持扫码链接与 CSV 清单（智能提取 32 位码，提交 36536c2）**（2026-09-10）：用户上传生成页导出的 urls.txt（每行 https://域名/trace?code=32位码）必失败——原解析只认纯 32 位数字码。cleanLine 升级为智能提取（parse/import/stock-in 三入口同源）：①优先取链接 code 参数；②整行纯码；③行内独立 32 位串（CSV 首列，边界断言防截取）；④表头行静默跳过；⑤失败文案改「未识别到 32 位追溯码」；⑥采集页格式说明同步。验证：真实 urls 100 行识别正确 + 混合格式 8 行 + urls 变体 import 全链路 + CDP 5/5。**注意：演示/测试基线已变（trace_code 104=用户 100 条生成入库+演示 4 条、batch 1）**；并行线遗留 9 个 tsc 存量错误待处理
 - **操作日志按厂家/平台分组（一行=分组；展开明细；组内可独立分页）**（2026-09-09，提交 1d68190）：logs.get.ts 重写双模式——①分组列表：{ rows:[{ id(0=平台), name(平台操作), log_count 全量, hit_count 过滤 }], totalLogs, filtered }，无条件=全部企业+平台组、筛选=命中组 GROUP BY、外层分页=组；②entId&dPage 组内过滤后明细分页（内部可分页，越权兜底）。前端日志面板同构用户权限页：外层 3 列+展开行内嵌 7 列明细（原字段全保留）+组内分页条（每页 10、按组缓存+序号防竞态）；筛选命中自动展开（watch filtered）；重置清折叠与明细缓存。验证：tsc 0 + 构建 12.1MB + API 8 场景 + CDP 16/16。**logs 契约已变（无参=分组/带 entId=明细页）；GROUP BY 勿 [x] 解构、COUNT 单行勿再 [0]；label 定位严格 ===**。
 - **厂家续费状态与删除厂家（用户权限页）**（2026-09-09，提交 b84844e）：enterprise 新增 renew_expire DATE（续费到期日，NULL/早于今天=到期未续费；db-init DDL+migrate 幂等+seed 过期演示；存量企业1=2027-12-31/企业2=2026-08-01）。厂家行新增【续费状态】列（有效期内绿/到期未续费红/平台—）+【续费设置】弹窗（PATCH /enterprises/:id/renew，登记/清空到期日）+【删除厂家】（DELETE /enterprises/:id：5 张业务主表引用则 400 保护防孤儿，事务级联删该厂全部 user，审计）。登录与守卫双闸：login.post.ts 与 auth.ts requireBackendUser 均校验 status=1 且 renew_expire>=CURDATE()（SQL CURDATE 口径），到期未续费→403 拦截登录且已登录会话业务请求同样 403（7 天会话跨到期点也锁）。users.get.ts 组行返回 renew 三元组+can_delete，keyword 双通道（账号信息或厂家名称 LIKE，名称命中整厂返回）。验证：tsc 0 + 构建 12.1MB + API 14 项 + CDP 28/28 + 分组回归 23/23。**改启停口径须同步 login 与 requireBackendUser 两处；[id]/ 子目录端点 import 需 4 级 ../；日期判定勿用服务器 UTC**。
@@ -148,7 +149,7 @@
 | 端口 3000 被农码查残留 dev 实例占用 | 本项目 dev 固定用 **3100**；启动前 `Get-NetTCPConnection -LocalPort 3000` 排查 |
 | npm wrapper（npm.ps1/cmd）损坏 | 直调 `node <npm安装路径>/npm-cli.js install` |
 | mysql2 对 JSON 列自动解析为数组 | 勿再 `JSON.parse`；BIGINT 用 `Number()` 转换 |
-| `const [rows] = await query()` 解构陷阱 | `query()` 返回行数组，取第一行用 `const [row] =`，取全部直接赋值 |
+| **`query()` 解构陷阱（两个方向都会踩，2026-09-10 实测成灾）** | 项目封装 `query()` 返回**行数组本身**：①取单行用 `const [row] = await query(...)` 后访问 `row.字段` ✅；②取多行**不要解构**（`const rows = await query(...)`）——写成 `const [x] = await query(...)` 再 `x.length / x[0]` 会恒 falsy → **静默走错分支**（correct.post.ts 因此把「批号已存在→归并」变成「→INSERT」，唯一键冲突 500，用户侧只看到「修正失败」）；③原生 `conn.query` 返回 `[rows, fields]` 二元组，**把 import 的逻辑抄进用封装 query() 的文件时必须同步改解构方式**（本次 bug 正源于此）。排查可用脚本扫「const [x] = await query 后 x 被当数组用」模式 |
 | Vue 模板中禁止 `import.meta.*` 表达式 | 先赋值到 script 常量再用于模板（Vite 编译报错） |
 | 离线环境 dev 崩溃（fonts.google.com 超时） | nuxt.config.ts 已禁用 fonts.providers.google/googleicons，勿恢复 |
 | Nuxt UI v4 无 URadio 组件 | 单选用 URadioGroup 或自绘；v3 组件名（URadio/UButton square 等）会触发 Vue warn |

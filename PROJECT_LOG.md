@@ -1,4 +1,14 @@
 ## 变更记录
+### 2026-09-10 | 修复修正弹窗「批号已存在必 500」（用户实测修正一直失败）
+- **现象**：用户在码库管理上传批次列表点【修正】，想把「生成入库」的码绑定生产批次，一直提示修正失败（页面 toast 为 Server Error / 修正失败）。
+- **排查**：先确认服务状态（诊断时 3100 无监听、无服务进程——已一并重启）；再用临时批次复现修正弹窗的全部提交路径：新建批次(新批号) 200 / 绑定已有批次 200 / 仅字段修正 200 / 空 body 400（预期）/ **批号已存在 → 500**。服务端日志给出铁证：H3Error: Duplicate entry '1-2026080101' for key 'batch.uq_product_batch' + sql: INSERT INTO batch ...——本应命中「批号已存在 → 校验一致则归并」分支，却执行了 INSERT。
+- **根因**（提交 bc33660）：correct.post.ts 第 71 行 const [exist] = await query(...)——项目封装 query() 返回**行数组本身**（utils/db.ts: query() { const [rows] = await pool.query(); return rows }），解构后 exist 是**首行对象**；随后 if (exist && exist.length > 0) 中 exist.length 恒为 undefined → 条件恒 false → **批号已存在也走「自动建档」INSERT → 唯一键冲突 → 500**。该写法是从 import.post.ts 抄逻辑时把 conn.query（返回 [rows, fields] 二元组，解构正确）换成了封装 query() 而未同步调整解构方式。
+- **修复**：①const exist = await query(...) 整体接收行数组（命中分支恢复：一致→归并绑定；不一致→400 中文提示回显库内值）；②自动建档 INSERT 增加 ER_DUP_ENTRY 兜底 → 并发竞态下返回中文 400 而非 500 堆栈；③**全库扫描同类风险**（脚本按「const [x] = await query 后把 x 当数组用」模式扫描 server/）：仅此 1 处，其余 60+ 处均为正确的「解构取首行后访问字段」。
+- **验证**：tsc 0；构建 12.2MB；**API 5/5**（新批号建档 200 batchCreated=true / 批号已存在+要素不一致 400「批次 X 已存在，生产日期/合格证号不一致（库内 …），请核对」 / 批号已存在+要素一致 200 batchCreated=false rebound=5 且 batch 表无重复行 / 码 status 置 2）；**CDP 6/6**（修正弹窗打开→开启「新建批次并绑定」→填已存在批号见中文提示且页面无 Server Error→改填新批号「绑定完成…绑定 3 条」→库核验）；验证数据清理恢复基线 104。脚本 scripts/_tmp-verify-correct-fix.mjs、scripts/_tmp-cdp-correctfix.mjs 可复用。
+- **遗留问题/待办**：①批量修正工具（batch-correct.post.ts，勾选码走 batchId 通道）与单行修改（[id]/correct.post.ts）经复核为 const [x] = await query 取首行的正确用法，无同类问题；②诊断时发现 3100 服务未运行（本轮已启动），如需长期驻留建议用服务/计划任务托管，避免用户操作时后端不可用。
+- **给下一个 Agent 的提示**：①**本文件与 import 的差异点就是踩坑源头**：import 用 conn.query（[rows,fields]）而本文件用封装 query()（行数组），抄逻辑换 DB 封装时必须同步改解构方式；②排查「页面操作失败」先看**服务端日志堆栈**（前端 toast 往往只有「Server Error/失败」无信息量），再按提交路径逐一复现（本次 5 条路径一次定位）；③query() 取单行用 const [row] = await query(...)，取多行**不要解构**。
+
+---
 ### 2026-09-10 | 清零 tsc 存量类型错误 9 处（企业删除断言 + 规格导入 8 处）
 - **背景**：AGENTS.md 待办记录「并行线遗留 9 个 tsc 存量错误待处理」——全量 typecheck 复现 9 处错误（1 处在企业删除 API、8 处在规格 Excel 导入 API），均为 `noUncheckedIndexedAccess` 与 mysql2 `QueryResult` 联合类型所致，构建与运行不影响但破坏 tsc 0 基线。
 - **修复**：
