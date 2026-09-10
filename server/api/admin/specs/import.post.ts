@@ -47,7 +47,8 @@ export default defineEventHandler(async (event) => {
   let rows: string[][]
   try {
     const wb = XLSX.read(file.data, { type: 'buffer', cellDates: false })
-    const ws = wb.Sheets[wb.SheetNames[0]]
+    const ws = wb.Sheets[wb.SheetNames[0] ?? '']
+    if (!ws) throw createError({ statusCode: 400, statusMessage: 'Excel 中没有工作表' })
     rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '' })
   } catch {
     throw createError({ statusCode: 400, statusMessage: 'Excel 文件解析失败，请确认文件未损坏且为有效的工作簿' })
@@ -73,7 +74,7 @@ export default defineEventHandler(async (event) => {
       continue
     }
     seen.add(raw)
-    okRows.push({ name: raw, net: Number(m[1]), unit: m[2], pack: m[3] })
+    okRows.push({ name: raw, net: Number(m[1] ?? 0), unit: m[2] ?? '', pack: m[3] ?? '' })
   }
   if (okRows.length > MAX_ROWS) {
     throw createError({ statusCode: 400, statusMessage: '有效数据超过单次上限（' + MAX_ROWS + ' 条），请拆分后分批导入' })
@@ -115,7 +116,7 @@ export default defineEventHandler(async (event) => {
   // 事务内入库：基线最大规格码 + 内存递增（事务快照读看不到自插行，勿在事务内逐行查 MAX）
   const pool = getPool()
   const conn = await pool.getConnection()
-  let base = await maxSpecCodeNum(fid)
+  let base = await maxSpecCodeNum(fid as number)
   if (base + finalOk.length > 999) {
     conn.release()
     throw createError({ statusCode: 400, statusMessage: '本次导入将超出企业规格码上限（999），请清理后分批导入' })
@@ -123,7 +124,7 @@ export default defineEventHandler(async (event) => {
   try {
     await conn.beginTransaction()
     for (let i = 0; i < finalOk.length; i++) {
-      const r = finalOk[i]
+      const r = finalOk[i]!
       const specCode = String(base + 1 + i).padStart(3, '0')
       await conn.execute(
         'INSERT INTO product_spec (enterprise_id, spec_name, net_content, content_unit, pack_unit, spec_code, status) VALUES (?,?,?,?,?,?,1)',

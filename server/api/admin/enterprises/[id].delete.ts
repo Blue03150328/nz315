@@ -30,7 +30,9 @@ export default defineEventHandler(async (event) => {
   let deletedUsers = 0
   try {
     await conn.beginTransaction()
-    const [ur] = await conn.query('DELETE FROM \`user\` WHERE enterprise_id = ?', [id])
+    // mysql2 的 conn.query 返回 QueryResult 联合类型，实际 DELETE 运行时为 ResultSetHeader，需断言取 affectedRows
+    // （与 upload-batches/[id].delete.ts 同范式）
+    const [ur] = await conn.query('DELETE FROM \`user\` WHERE enterprise_id = ?', [id]) as unknown as [{ affectedRows: number }, unknown]
     deletedUsers = Number(ur?.affectedRows || 0)
     await conn.query('DELETE FROM enterprise WHERE id = ?', [id])
     await conn.commit()
