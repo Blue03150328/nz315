@@ -1,0 +1,163 @@
+%% 农资315 · 农药追溯码管理平台 — 重要业务表 ER 图
+%% 说明：数据库无物理外键，以下均为逻辑关联（字段名前缀 / 后缀无隐式约定，靠 *_id 与 code 关联）
+%% 渲染方式：VS Code Mermaid 插件 / GitHub Markdown / https://mermaid.live 粘贴即可
+erDiagram
+    enterprise {
+        BIGINT id PK
+        VARCHAR name "企业名称"
+        VARCHAR credit_code UK "统一社会信用代码"
+        DATE qualification_expire "资质到期日"
+        DATE renew_expire "续费到期日(空/过期=禁登录)"
+        TINYINT status "0禁用1启用"
+    }
+    product_spec {
+        BIGINT id PK
+        BIGINT enterprise_id FK
+        VARCHAR spec_name "规格名称 企业内唯一"
+        CHAR spec_code "规格码=码第9-11位 自动分配"
+        DECIMAL net_content
+        VARCHAR content_unit "毫升/升/克..."
+        TINYINT status
+    }
+    product {
+        BIGINT id PK
+        BIGINT enterprise_id FK
+        VARCHAR name "农药名称"
+        VARCHAR registration_no UK "登记证号 全局唯一"
+        DATE registration_expire "登记证有效期至"
+        TINYINT reg_category "1=PD 2=WP"
+        TINYINT produce_type "1持有人2委托加工3委托分装"
+        BIGINT spec_id FK
+        VARCHAR holder_name "登记证持有人"
+        TINYINT is_restricted "限用农药"
+        TINYINT status
+    }
+    product_original {
+        BIGINT id PK
+        BIGINT product_id FK
+        VARCHAR ingredient "有效成分名"
+        VARCHAR reg_no "原药登记证号"
+        VARCHAR company "原药生产企业"
+    }
+    batch {
+        BIGINT id PK
+        BIGINT enterprise_id FK
+        BIGINT product_id FK
+        VARCHAR batch_no "生产批号 同产品唯一"
+        DATE produce_date "生产日期"
+        VARCHAR quality_cert_no "质量合格证号"
+        DATE expire_date "有效期至"
+        TINYINT qc_result "0不合格1合格"
+        INT code_count
+    }
+    trace_code {
+        BIGINT id PK
+        BIGINT enterprise_id FK
+        VARCHAR code UK "32位追溯码"
+        BIGINT product_id FK
+        BIGINT batch_id FK
+        BIGINT upload_batch_id FK
+        TINYINT status "1已生成 2已绑定"
+        TINYINT abnormal_flag "0正常 1冻结 2作废"
+        VARCHAR abnormal_reason
+        DATE produce_date "冗余快照"
+        VARCHAR batch_no "冗余快照"
+        VARCHAR quality_cert_no "冗余快照"
+        DATE expire_date "单码覆盖"
+        TINYINT qc_result "单码覆盖"
+    }
+    upload_batch {
+        BIGINT id PK
+        BIGINT enterprise_id FK
+        VARCHAR file_name "上传文件名=批次名称"
+        BIGINT product_id "导入快照"
+        BIGINT batch_id "归并批次"
+        VARCHAR batch_no "快照"
+        BIGINT created_by FK
+        DATETIME created_at "上传时间"
+    }
+    user {
+        BIGINT id PK
+        BIGINT enterprise_id FK "NULL=平台总部"
+        VARCHAR username UK
+        VARCHAR password "bcrypt"
+        VARCHAR role "platform_admin/enterprise_admin/code_admin/viewer"
+        TINYINT status
+    }
+    operation_log {
+        BIGINT id PK
+        BIGINT enterprise_id
+        BIGINT user_id FK
+        VARCHAR module
+        VARCHAR action
+        TEXT content "含前后值JSON"
+        TINYINT result
+        DATETIME created_at
+    }
+    scan_log {
+        BIGINT id PK
+        BIGINT enterprise_id
+        VARCHAR code FK
+        BIGINT product_id
+        BIGINT consumer_id FK
+        DATETIME scan_time
+        VARCHAR province
+        VARCHAR city
+        VARCHAR scan_device
+    }
+    risk_alert {
+        BIGINT id PK
+        BIGINT enterprise_id
+        TINYINT alert_type "1-8类异常"
+        BIGINT code_id FK
+        BIGINT product_id
+        JSON evidence
+        INT repeat_count
+        TINYINT handle_status "0待处理1合规2违规"
+    }
+    message {
+        BIGINT id PK
+        BIGINT enterprise_id
+        BIGINT user_id
+        VARCHAR type "risk/upload_done/..."
+        VARCHAR title
+        VARCHAR link
+        TINYINT is_read
+    }
+    consumer {
+        BIGINT id PK
+        VARCHAR openid UK "微信openid"
+        VARCHAR unionid
+        VARCHAR nickname
+        TINYINT status
+    }
+    pesticide_reg {
+        BIGINT id PK
+        VARCHAR registration_no UK "登记证号"
+        VARCHAR product_name
+        VARCHAR dosage "剂型"
+        VARCHAR company "生产厂家"
+        JSON ingredient_all "有效成分数组"
+        DATE expire_date
+    }
+
+    enterprise ||--o{ product_spec : "拥有"
+    enterprise ||--o{ product : "拥有"
+    enterprise ||--o{ batch : "拥有"
+    enterprise ||--o{ trace_code : "拥有"
+    enterprise ||--o{ upload_batch : "拥有"
+    enterprise ||--o{ user : "拥有账号"
+    enterprise ||--o{ scan_log : "扫码归属"
+    enterprise ||--o{ risk_alert : "预警归属"
+    enterprise ||--o{ message : "站内信"
+    product_spec ||--o{ product : "spec_id"
+    product ||--o{ product_original : "多行原药"
+    product ||--o{ batch : "产品的批次"
+    product ||--o{ trace_code : "码对应产品"
+    batch ||--o{ trace_code : "批次下的码"
+    upload_batch ||--o{ trace_code : "文件批次下的码"
+    trace_code ||--o{ scan_log : "每次扫码"
+    trace_code ||--o{ risk_alert : "码级预警"
+    user ||--o{ operation_log : "操作人"
+    consumer ||--o{ scan_log : "consumer_id"
+    pesticide_reg }o..o{ product : "登记证号逻辑回填"

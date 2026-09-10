@@ -92,6 +92,7 @@ npm run dev -- --host 0.0.0.0 --port 3100
 | [PRD](农药追溯码管理平台%20PRD%20纯净版.md) | 产品需求文档（V2.0 纯净版） |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 生产部署指南 |
 | [docs/COMPLIANCE.md](docs/COMPLIANCE.md) | 1049 号公告合规自检表 |
+| [docs/handover/](docs/handover/README.md) | **交接文档包**（总览 / 最新需求 / 技术栈架构 / 第三方依赖 / 数据库+ER图 / 账号资源 / 资产 / 待办，共 10 篇） |
 
 ## ⚠️ 上线注意事项
 
