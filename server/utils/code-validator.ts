@@ -9,9 +9,33 @@ export interface CodeCheckResult {
   matchedProductId?: number | null  // 按第2-7位匹配的产品
 }
 
-// 单行清洗：去空白、去 BOM、去引号
+// 行内「独立」32 位数字串（边界断言避免从更长数字串中截取 32 位子串，如 40 位序列号）
+const CODE_RE = /(?<![0-9])[0-9]{32}(?![0-9])/
+// 表头关键词（生成页导出的 sn 清单 CSV 首行等）：提取不到码但命中这些词 → 视为表头静默跳过
+const HEADER_HINT = /\bsn\b|农药名称|登记证号|质量合格证号|生产企业|规格码|绑定状态/i
+
+/**
+ * 单行清洗 + 智能提取 32 位追溯码（2026-09-10 易用性增强）
+ * 支持三种常见输入格式（用户拿生成页导出的任意文件都能直接上传）：
+ *   ① 完整扫码链接：https://www.nz315.cn/trace?code=xxx（取 code 参数，兼容 ?code= / &code= / #code=）
+ *   ② 纯 32 位码：整行仅数字（允许引号/逗号/空白/BOM 包裹）
+ *   ③ 表格/CSV 行内独立 32 位数字串（如 sn 清单 CSV 的首列）
+ * 三者都不是时返回清洗后原文，由 validateCode 报「未识别到 32 位追溯码」
+ */
 export function cleanLine(raw: string): string {
-  return String(raw).replace(/^\uFEFF/, '').replace(/[\s"'，,]/g, '').trim()
+  const s = String(raw).replace(/^\uFEFF/, '').trim()
+  if (!s) return ''
+  // ① 扫码链接：优先取 code 参数（URL 中可能还有其它数字，参数最可靠）
+  const mParam = s.match(/[?&#]code=([0-9]{32})(?![0-9])/i)
+  if (mParam) return mParam[1] as string
+  // ② 剥离常见分隔符后整行即 32 位码（纯码文件 / 带引号逗号包裹的单码）
+  const stripped = s.replace(/[\s"',，;；]/g, '')
+  if (/^[0-9]{32}$/.test(stripped)) return stripped
+  // ③ 行内独立的 32 位数字串（CSV sn 清单首列、带前后缀的表格导出等）
+  const mAny = s.match(CODE_RE)
+  if (mAny) return mAny[0] as string
+  // ④ 无法提取：返回清洗后原文（交由校验给出明确失败原因）
+  return stripped || s
 }
 
 /**
@@ -29,7 +53,7 @@ export function validateCode(
   if (!code) { base.reason = '空行'; return base }
 
   // 长度与数字
-  if (!/^\d{32}$/.test(code)) { base.reason = '非32位数字'; return base }
+  if (!/^\d{32}$/.test(code)) { base.reason = '未识别到 32 位追溯码'; return base }
 
   // 第1位：登记类别
   const first = code[0]
@@ -71,6 +95,9 @@ export function validateBatch(
       reasonCount['空行'] = (reasonCount['空行'] || 0) + 1
       continue
     }
+    // 表头行跳过（生成页导出的 sn 清单 CSV 首行是列名，无码属正常）：提取不到码但含表头关键词
+    // → 静默跳过不计入失败，避免用户上传 CSV 时看到「1 条失败」的困惑
+    if (!/^\d{32}$/.test(code) && HEADER_HINT.test(String(raw))) continue
     const r = validateCode(code, ctx)
     results.push(r)
     if (!r.valid) reasonCount[r.reason] = (reasonCount[r.reason] || 0) + 1
