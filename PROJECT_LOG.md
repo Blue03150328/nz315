@@ -1,4 +1,13 @@
 ## 变更记录
+### 2026-09-10 | 清零 tsc 存量类型错误 9 处（企业删除断言 + 规格导入 8 处）
+- **背景**：AGENTS.md 待办记录「并行线遗留 9 个 tsc 存量错误待处理」——全量 typecheck 复现 9 处错误（1 处在企业删除 API、8 处在规格 Excel 导入 API），均为 `noUncheckedIndexedAccess` 与 mysql2 `QueryResult` 联合类型所致，构建与运行不影响但破坏 tsc 0 基线。
+- **修复**：
+  ① **enterprises/[id].delete.ts（TS2339）**：`conn.query` 返回 `QueryResult` 联合类型（`RowDataPacket[] | ResultSetHeader`），DELETE 运行时实为 ResultSetHeader，补 `as unknown as [{ affectedRows: number }, unknown]` 断言取 affectedRows（与 `upload-batches/[id].delete.ts` 同范式）。
+  ② **specs/import.post.ts（8 处）**：`wb.SheetNames[0]` 可能 undefined → `?? ''` + **空工作表守卫**（新增「Excel 中没有工作表」400，比断言更健壮）；正则捕获组 `m[1..3]` 可能 undefined → `?? 0` / `?? ''` 兜底；`maxSpecCodeNum(fid)` 参数 `fid: number | null` → `as number` 断言（上游 38-40 行已校验非空）；`finalOk[i]` 数组索引可能 undefined → `!` 断言（循环条件已保证 i < length）。
+- **修改文件**：server/api/admin/enterprises/[id].delete.ts、server/api/admin/specs/import.post.ts
+- **测试情况**：**tsc 0 错误**（`.nuxt/tsconfig.json` 与根 `tsconfig.json` 双配置均通过）；生产构建 12.2MB 成功；运行时回归脚本 `scripts/_tmp-verify-tcfix.mjs` **7/7 全过**——构造 xlsx（2 合法 + 1 格式错）上传，返回 success=2/failed=1 且失败明细行号=4、原因精确；新建规格查得并全部清理（库内无残留）。提交 2f58241
+- **遗留问题/待办**：工作树存在**并行线未提交改动**（`package.json`/`package-lock.json` 新增 `@types/node`、根 `tsconfig.json`、`alerts/[id].patch.ts` 空白行）——按提交契约「不混合主题」未纳入本次提交，由并行线自行提交
+- **给下一个 Agent 的提示**：①mysql2 事务内 `conn.query` 取 affectedRows 必须断言（`conn.execute` 同样适用）；②`noUncheckedIndexedAccess` 下正则捕获组与数组索引均可能 undefined，项目范式是 `?? 兜底`（见 useQrScanner）或守卫；③修复含反引号转义的 SQL 行时，`old_string` 必须含文件里真实的反斜杠（grep 的 JSON 输出可确认）；④类型检查命令：`node node_modules/typescript/bin/tsc --noEmit -p tsconfig.json`
 ### 2026-09-10 | 追溯码上传支持扫码链接与 CSV 清单（智能提取 32 位码，提交 36536c2）
 - **问题**：用户拿桌面 `PD20040767_25%多·酮可湿性粉剂_100_20260910_urls.txt`（生成页导出的 urls 文件，每行 `https://www.nz315.cn/trace?code=32位码`）上传「追溯码上传」页必解析失败——该页只认纯 32 位数字码；而生成页导出三种文件（纯码 TXT / urls 链接 / sn 清单 CSV），用户根本不知道该挑哪一种，属高频易用性障碍。
 - **修复**（`server/utils/code-validator.ts` 的 cleanLine 升级为「智能提取」，parse / import / stock-in 三入口同源生效）：
