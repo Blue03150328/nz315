@@ -85,7 +85,7 @@ export const useQrScanner = () => {
     // zxing 兜底（动态 import：仅在需要时打入客户端分包）
     // 实测 HybridBinarizer 对特定图像宽度存在「解不出」相位（520/600px 失败而相邻宽度成功），
     // 故按 1x / 0.8x / 0.6x 多尺度重试，直到解出或全部失败。
-    const zx = await import('@zxing/library')
+    const zx = await import('@zxing/library/esm/index.js')
     for (const factor of [1, 0.8, 0.6]) {
       const text = await zxingDecodeOnce(zx, cv, factor)
       if (text) {

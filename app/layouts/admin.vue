@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 后台布局：左侧深色导航（参考风格 #283850）+ 右侧内容区
+// 后台布局：左侧深色导航（复用 B 端令牌）+ 右侧内容区
 // 菜单按角色渲染；已实现模块可点击，规划中模块置灰提示
 // 路由高亮说明：数据概览（/admin 根路径）仅精确匹配当前路由；其余模块按前缀匹配，
 // 否则 /admin 前缀会吞掉全部 /admin/* 子路由，导致数据概览永远高亮
@@ -43,9 +43,9 @@ const onLogout = async () => {
 </script>
 
 <template>
-  <div class="flex min-h-screen bg-[#f0f2f5]">
+  <div class="flex min-h-screen bg-[var(--b-fill)]">
     <!-- 左侧深色导航栏 -->
-    <aside class="fixed inset-y-0 left-0 z-40 flex w-60 flex-col bg-[#283850] text-white">
+    <aside class="fixed inset-y-0 left-0 z-40 flex w-60 flex-col bg-[var(--b-sider-bg)] text-white">
       <div class="border-b border-white/10 px-6 py-5">
         <div class="text-base font-bold tracking-wide">农资315</div>
         <div class="mt-0.5 truncate text-xs text-white/60">追溯码管理平台</div>
@@ -56,7 +56,7 @@ const onLogout = async () => {
           <NuxtLink
             :to="item.path"
             class="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-colors"
-            :class="isActive(item.path) ? 'bg-[#f8f8f8] font-medium text-[#283850]' : 'text-white/75 hover:bg-white/10 hover:text-white'"
+            :class="isActive(item.path) ? 'bg-[var(--b-sider-active-bg)] font-medium text-[var(--b-sider-active-text)]' : 'text-white/75 hover:bg-white/10 hover:text-white'"
           >
             <UIcon :name="item.icon" class="h-4.5 w-4.5 shrink-0" />
             {{ item.label }}
