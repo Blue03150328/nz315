@@ -30,7 +30,7 @@ export default defineEventHandler(async (event) => {
   // 原药行校验：至少 1 行，每行登记证号与企业名称必填（含手动输入的自定义内容，需非空）
   const originals = Array.isArray(body.originals) ? body.originals : []
   if (!originals.length) throw createError({ statusCode: 400, statusMessage: '原药信息至少保留 1 行' })
-  const validOriginals = originals.filter((row: any) => String(row.regNo || '').trim() || String(row.company || '').trim())
+  const validOriginals = originals.filter((row: any) => String(row.regNo || '').trim() || String(row.company || '').trim() || String(row.ingredient || '').trim())
   if (!validOriginals.length) throw createError({ statusCode: 400, statusMessage: '原药信息至少保留 1 行有效记录' })
   for (const row of validOriginals) if (!String(row.regNo || '').trim() || !String(row.company || '').trim()) throw createError({ statusCode: 400, statusMessage: '原药登记证号与原药生产企业名称需同时填写' })
 

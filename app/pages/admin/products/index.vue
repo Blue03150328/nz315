@@ -88,11 +88,11 @@ function syncOrigRow(row: OrigRow, changed: 'regNo' | 'company') {
   if (changed === 'regNo') {
     if (!row.regNo) return
     const hit = pool.find(c => c.registration_no === row.regNo && c.company === row.company) || pool.find(c => c.registration_no === row.regNo)
-    row.company = hit ? hit.company : ''
+    if (hit) row.company = hit.company
   } else {
     if (!row.company) return
     const hit = pool.find(c => c.company === row.company && c.registration_no === row.regNo) || pool.find(c => c.company === row.company)
-    row.regNo = hit ? hit.registration_no : ''
+    if (hit) row.regNo = hit.registration_no
   }
 }
 
@@ -582,11 +582,16 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                   </UButton>
                 </div>
                 <div class="grid grid-cols-2 gap-3">
+                  <div v-if="origCompound || row.ingredient" class="col-span-2">
+                    <label class="b-label">对应有效成分 <span v-if="origCompound" class="b-required">*</span></label>
+                    <USelect v-if="origCompound" v-model="row.ingredient" :items="(pickedReg?.ingredient_all || []).map((i: string) => ({ label: i, value: i }))" class="w-full" />
+                    <div v-else class="rounded border border-[var(--b-border)] px-3 py-2 text-sm text-[var(--b-text-regular)]">{{ row.ingredient || '原药' }}</div>
+                  </div>
                   <div>
                     <label class="b-label">原药登记证号 <span class="b-required">*</span></label>
                     <RegOrigCombobox
                       :model-value="row.regNo"
-                      :items="origPool"
+                      :items="origPool.filter(c => !row.ingredient || c.ingredient === row.ingredient)"
                       value-of="reg"
                       placeholder="下拉选择或手动输入"
                       @update:model-value="row.regNo = $event; syncOrigRow(row, 'regNo')"
@@ -596,7 +601,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                     <label class="b-label">原药生产企业名称 <span class="b-required">*</span></label>
                     <RegOrigCombobox
                       :model-value="row.company"
-                      :items="origPool"
+                      :items="origPool.filter(c => !row.ingredient || c.ingredient === row.ingredient)"
                       value-of="company"
                       placeholder="下拉选择或手动输入"
                       @update:model-value="row.company = $event; syncOrigRow(row, 'company')"
