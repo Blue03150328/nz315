@@ -30,10 +30,9 @@ export default defineEventHandler(async (event) => {
   // 原药行校验：至少 1 行，每行登记证号与企业名称必填（含手动输入的自定义内容，需非空）
   const originals = Array.isArray(body.originals) ? body.originals : []
   if (!originals.length) throw createError({ statusCode: 400, statusMessage: '原药信息至少保留 1 行' })
-  for (const row of originals) {
-    if (!String(row.regNo || '').trim()) throw createError({ statusCode: 400, statusMessage: '原药登记证号不能为空（每行必填）' })
-    if (!String(row.company || '').trim()) throw createError({ statusCode: 400, statusMessage: '原药生产企业名称不能为空（每行必填）' })
-  }
+  const validOriginals = originals.filter((row: any) => String(row.regNo || '').trim() || String(row.company || '').trim())
+  if (!validOriginals.length) throw createError({ statusCode: 400, statusMessage: '原药信息至少保留 1 行有效记录' })
+  for (const row of validOriginals) if (!String(row.regNo || '').trim() || !String(row.company || '').trim()) throw createError({ statusCode: 400, statusMessage: '原药登记证号与原药生产企业名称需同时填写' })
 
   // 登记证号全局唯一（PRD 5.4 业务规则1）
   const [dup] = await query<any[]>('SELECT id FROM product WHERE registration_no = ? LIMIT 1', [registrationNo])
@@ -84,10 +83,10 @@ export default defineEventHandler(async (event) => {
        body.status === 0 ? 0 : 1]
     )
     // 原药行批量写入
-    for (const row of originals) {
+    for (const row of validOriginals) {
       await conn.query(
-        'INSERT INTO product_original (product_id, reg_no, company) VALUES (?,?,?)',
-        [result.insertId, String(row.regNo).trim(), String(row.company).trim()]
+        'INSERT INTO product_original (product_id, ingredient, reg_no, company) VALUES (?,?,?,?)',
+        [result.insertId, String(row.ingredient || '').trim() || null, String(row.regNo).trim(), String(row.company).trim()]
       )
     }
     await conn.commit()

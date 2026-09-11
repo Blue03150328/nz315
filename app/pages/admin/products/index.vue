@@ -62,8 +62,8 @@ const pickedReg = ref<any>(null) // 当前已选登记产品行（服务端数�
 // ============ 原药（母药）多行（2026-09-04 需求 2） ============
 // 每行 = 原药登记证号 + 原药生产企业名称（RegOrigCombobox：下拉选择 + 手动输入，行内双向联动）；
 // 候选池 origPool = 登记产品全有效成分匹配到的原药候选合并（复配多成分可从中选任意成分原药）
-type OrigRow = { regNo: string; company: string }
-const makeOrigRow = (): OrigRow => ({ regNo: '', company: '' })
+type OrigRow = { ingredient: string; regNo: string; company: string }
+const makeOrigRow = (ingredient = ''): OrigRow => ({ ingredient, regNo: '', company: '' })
 const origRows = ref<OrigRow[]>([])            // 原药行（至少保留 1 行）
 const origPool = ref<any[]>([])                // 行级下拉候选池
 const origHint = ref('')                       // 标题右侧提示
@@ -83,16 +83,15 @@ function removeOrigRow(idx: number) {
 
 /** 行内双向联动（下拉选择或手动输入）：命中候选池自动带出对方；不命中清空对方（无匹配可自由录入） */
 function syncOrigRow(row: OrigRow, changed: 'regNo' | 'company') {
-  if (!origPool.value.length) return
+  const pool = origPool.value.filter(c => !row.ingredient || c.ingredient === row.ingredient)
+  if (!pool.length) return
   if (changed === 'regNo') {
     if (!row.regNo) return
-    const hit = origPool.value.find(c => c.registration_no === row.regNo && c.company === row.company)
-      || origPool.value.find(c => c.registration_no === row.regNo)
+    const hit = pool.find(c => c.registration_no === row.regNo && c.company === row.company) || pool.find(c => c.registration_no === row.regNo)
     row.company = hit ? hit.company : ''
   } else {
     if (!row.company) return
-    const hit = origPool.value.find(c => c.company === row.company && c.registration_no === row.regNo)
-      || origPool.value.find(c => c.company === row.company)
+    const hit = pool.find(c => c.company === row.company && c.registration_no === row.regNo) || pool.find(c => c.company === row.company)
     row.regNo = hit ? hit.registration_no : ''
   }
 }
@@ -153,6 +152,7 @@ async function initOrigRows(row: any) {
     origPool.value = pool
     if (isOriginal) {
       // 剂型=原药/母药：首行回填自身登记信息（可下拉重选/手输修改）
+      origRows.value[0].ingredient = String(row.ingredient_main || ingredientAll[0] || '')
       origRows.value[0].regNo = row.registration_no || ''
       origRows.value[0].company = row.company || ''
       origHint.value = '原药（母药）登记：已回填其自身登记证号与企业，可下拉选择或手动输入修改'
@@ -258,7 +258,7 @@ const openEdit = (row: any) => {
   // 原药行回显（product_original 聚合数组；空则默认 1 行）
   const saved = Array.isArray(row.originals) && row.originals.length ? row.originals : []
   origRows.value = saved.length
-    ? saved.map((o: any) => ({ regNo: String(o.regNo || ''), company: String(o.company || '') }))
+    ? saved.map((o: any) => ({ ingredient: String(o.ingredient || ''), regNo: String(o.regNo || ''), company: String(o.company || '') }))
     : [makeOrigRow()]
   origHint.value = saved.length ? '已有原药记录回显，可修改；重新选择登记产品后将按有效成分重新初始化' : '该产品暂无原药记录，请补充（每行两字段必填）'
   origCompound.value = false
@@ -276,7 +276,7 @@ const save = async () => {
   if (!origRows.value.length) { toast.add({ title: '原药信息至少保留 1 行', color: 'warning' }); return }
   for (let i = 0; i < origRows.value.length; i++) {
     const r = origRows.value[i]
-    if (!r.regNo.trim() || !r.company.trim()) {
+    if ((r.regNo.trim() || r.company.trim()) && (!r.regNo.trim() || !r.company.trim())) {
       toast.add({ title: '第 ' + (i + 1) + ' 行原药：登记证号与原药企业均必填（可下拉选择或手动输入）', color: 'warning' })
       return
     }
@@ -289,7 +289,7 @@ const save = async () => {
       produceType: form.produceType, dosage: form.dosage, toxicity: form.toxicity,
       specId: form.specId, content: form.content, category: form.category,
       isRestricted: form.isRestricted, status: form.status,
-      originals: origRows.value.map(r => ({ regNo: r.regNo.trim(), company: r.company.trim() })),
+      originals: origRows.value.map(r => ({ ingredient: r.ingredient, regNo: r.regNo.trim(), company: r.company.trim() })),
     }
     if (isPlatformAdmin.value) {
       // 归属厂家（数据源厂家名）→ 服务端解析为已入驻的系统企业（归一化名称相等）
@@ -621,3 +621,4 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
     </UModal>
   </div>
 </template>
+

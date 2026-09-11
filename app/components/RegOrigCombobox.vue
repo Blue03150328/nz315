@@ -6,10 +6,11 @@ import { ref, computed, watch, onBeforeUnmount, onMounted } from 'vue'
 
 const props = withDefaults(defineProps<{
   modelValue: string
-  items: { registration_no: string; company: string }[]  // 原药候选集
+  items: { registration_no: string; company: string; ingredient?: string }[]
   valueOf: 'reg' | 'company'                             // 点击选项时 emit 的值字段（reg=登记证号 / company=企业名）
   placeholder?: string
-}>(), { placeholder: '' })
+  emptyText?: string
+}>(), { placeholder: '', emptyText: '无对应厂家，可手动填写' })
 const emit = defineEmits<{ (e: 'update:modelValue', v: string): void }>()
 
 const open = ref(false)
@@ -77,9 +78,9 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         @click="pick(it)"
       >
         <span class="font-code font-medium text-[var(--b-text-title)]">{{ it.registration_no }}</span>
-        <span class="text-[var(--b-text-muted)]"> | {{ it.company }}（原药）</span>
+        <span class="text-[var(--b-text-muted)]"> | {{ it.company }}（{{ it.ingredient || '原药' }}）</span>
       </button>
-      <div v-if="!filteredItems.length" class="px-3 py-1.5 text-xs text-[var(--b-text-muted)]">无匹配候选，可继续手动输入</div>
+      <div v-if="!filteredItems.length" class="px-3 py-1.5 text-xs text-[var(--b-text-muted)]">{{ emptyText }}</div>
     </div>
   </div>
 </template>

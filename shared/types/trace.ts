@@ -29,7 +29,7 @@ export interface TraceProduct {
   netContent?: string
   content?: string
   category?: string
-  originals?: { regNo: string; company: string }[]  // 原药（母药）信息多行（复配产品多条）
+  originals?: { ingredient?: string; regNo: string; company: string }[]
   labelImage?: string
   manualImage?: string
 }
