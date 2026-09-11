@@ -43,7 +43,7 @@ export async function findOriginalCandidates(registrationNo: string) {
   if (!main) return { reg, isOriginal: false, candidates: [] }
   // 候选仅取登记证仍在有效期内的原药/母药（过期登记证不作为原药来源）
   const candidates = await query<any[]>(
-    `SELECT registration_no, product_name, dosage, company, expire_date
+    `SELECT registration_no, product_name, dosage, ingredient_main, company, expire_date
        FROM pesticide_reg
       WHERE dosage IN ('原药','母药') AND ingredient_main = ?
         AND (expire_date IS NULL OR expire_date >= CURDATE())
@@ -73,7 +73,7 @@ export async function findOriginalPool(registrationNo: string) {
   const ingredients = (all.length ? all : [String(reg.ingredient_main || '').trim()]).filter(Boolean) as string[]
   if (!ingredients.length) return { reg, isOriginal, ingredients: [], pool: [] }
   const pool = await query<any[]>(
-    `SELECT registration_no, product_name, dosage, company, expire_date
+    `SELECT registration_no, product_name, dosage, ingredient_main, company, expire_date
        FROM pesticide_reg
       WHERE dosage IN ('原药','母药') AND ingredient_main IN (?)
         AND (expire_date IS NULL OR expire_date >= CURDATE())

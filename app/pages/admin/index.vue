@@ -41,12 +41,12 @@ const flagSegments = computed(() => {
 })
 
 const cards = computed(() => [
-  { label: '累计追溯码', value: stats.value?.totalCodes ?? '--', icon: 'i-lucide-qr-code', color: 'text-[var(--b-text-regular)]', bg: 'bg-[var(--b-fill)]' },
-  { label: '今日新增', value: stats.value?.todayCodes ?? '--', icon: 'i-lucide-plus-circle', color: 'text-[var(--b-text-regular)]', bg: 'bg-[var(--b-fill)]' },
-  { label: '累计扫码', value: stats.value?.totalScans ?? '--', icon: 'i-lucide-eye', color: 'text-[var(--b-text-regular)]', bg: 'bg-[var(--b-fill)]' },
-  { label: '今日扫码', value: stats.value?.todayScans ?? '--', icon: 'i-lucide-eye-off', color: 'text-[var(--b-text-regular)]', bg: 'bg-[var(--b-fill)]' },
-  { label: '待处理异常', value: stats.value?.abnormalCodes ?? '--', icon: 'i-lucide-shield-alert', color: 'text-amber-600', bg: 'bg-[var(--b-fill)]' },
-  { label: '待处理预警', value: stats.value?.pendingAlerts ?? '--', icon: 'i-lucide-bell-ring', color: 'text-red-600', bg: 'bg-[var(--b-fill)]' },
+  { label: '累计追溯码', value: stats.value?.totalCodes ?? '--', icon: 'i-lucide-qr-code' },
+  { label: '今日新增', value: stats.value?.todayCodes ?? '--', icon: 'i-lucide-plus-circle' },
+  { label: '累计扫码', value: stats.value?.totalScans ?? '--', icon: 'i-lucide-eye' },
+  { label: '今日扫码', value: stats.value?.todayScans ?? '--', icon: 'i-lucide-eye-off' },
+  { label: '待处理异常', value: stats.value?.abnormalCodes ?? '--', icon: 'i-lucide-shield-alert', tag: '需处理' },
+  { label: '待处理预警', value: stats.value?.pendingAlerts ?? '--', icon: 'i-lucide-bell-ring', tag: '需处理' },
 ])
 
 // 近 30 天扫码趋势折线图（SVG 自绘：面积渐变 + 折线 + 数据点 + 轴刻度）
@@ -106,10 +106,9 @@ const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.
     <div class="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
       <div v-for="c in cards" :key="c.label" class="b-stat">
         <div class="b-stat-label">
-          <span class="flex h-5 w-5 items-center justify-center rounded" :class="c.bg">
-            <UIcon :name="c.icon" class="h-3.5 w-3.5" :class="c.color" />
-          </span>
+          <UIcon :name="c.icon" class="h-4 w-4 shrink-0 text-[var(--b-text-muted)]" />
           <span>{{ c.label }}</span>
+          <span v-if="c.tag" class="b-tag b-tag-warning ml-auto">{{ c.tag }}</span>
         </div>
         <div class="b-stat-value">{{ c.value }}</div>
       </div>
@@ -225,3 +224,4 @@ const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.
     </div>
   </div>
 </template>
+

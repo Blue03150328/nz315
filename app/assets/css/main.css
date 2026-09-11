@@ -143,6 +143,9 @@ body {
   --b-fill: #f5f7fa;            /* 表头、提示框、行 hover */
   --b-fill-weak: #fafafa;       /* 分页条、吸底操作条 */
   --b-fill-badge: #f0f2f5;      /* 计数徽章 */
+  --b-sider-bg: #283850;        /* 侧栏底色 */
+  --b-sider-active-bg: #f8f8f8; /* 侧栏选中态底色 */
+  --b-sider-active-text: #283850; /* 侧栏选中态文字 */
 }
 
 @layer components {
@@ -234,3 +237,4 @@ body {
   .b-stat-value { margin-top: 0.5rem; font-size: 1.5rem; line-height: 2rem; font-weight: 600; color: var(--b-text-title); }
   .b-stat-foot { margin-top: 0.25rem; font-size: 0.75rem; line-height: 1rem; color: var(--b-text-muted); }
 }
+

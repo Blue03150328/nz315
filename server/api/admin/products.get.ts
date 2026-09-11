@@ -28,7 +28,7 @@ export default defineEventHandler(async (event) => {
   const rows = await query<any[]>(
     `SELECT p.*, s.spec_name, s.spec_code,
        (SELECT COUNT(*) FROM trace_code t WHERE t.product_id = p.id) AS code_count,
-       (SELECT IF(COUNT(*) = 0, NULL, JSON_ARRAYAGG(JSON_OBJECT('regNo', o.reg_no, 'company', o.company)))
+       (SELECT IF(COUNT(*) = 0, NULL, JSON_ARRAYAGG(JSON_OBJECT('ingredient', o.ingredient, 'regNo', o.reg_no, 'company', o.company)))
           FROM product_original o WHERE o.product_id = p.id) AS originals
      FROM product p LEFT JOIN product_spec s ON p.spec_id = s.id ` + whereSql +
     ' ORDER BY p.id DESC LIMIT ? OFFSET ?', [...params, pageSize, offset])

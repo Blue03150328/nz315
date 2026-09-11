@@ -99,7 +99,9 @@ export default defineEventHandler(async (event) => {
   const [batch] = tc.batch_id ? await query<any[]>('SELECT * FROM batch WHERE id = ? LIMIT 1', [tc.batch_id]) : []
   // 原药（母药）信息多行（product_original 表，复配产品可多条；1049 制剂展示用）
   const originals = tc.product_id ? await query<any[]>(
-    'SELECT reg_no, company FROM product_original WHERE product_id = ? ORDER BY id ASC', [tc.product_id]) : []
+    `SELECT po.reg_no, po.company, COALESCE(po.ingredient, pr.ingredient_main, pr.product_name) AS ingredient
+       FROM product_original po LEFT JOIN pesticide_reg pr ON pr.registration_no = po.reg_no
+      WHERE po.product_id = ? ORDER BY po.id ASC`, [tc.product_id]) : []
 
   // 产品展示字段（PRD 5.9 展示结构）
   const product = prod ? {
@@ -113,7 +115,7 @@ export default defineEventHandler(async (event) => {
     netContent: prod.net_content !== null && prod.net_content !== undefined ? String(Number(prod.net_content)) + (prod.content_unit || '') + '/' + (prod.pack_unit || '') : '',
     content: prod.content || '',
     category: prod.category || '',
-    originals: originals.map((o: any) => ({ regNo: o.reg_no, company: o.company })),
+    originals: originals.map((o: any) => ({ ingredient: o.ingredient || '', regNo: o.reg_no, company: o.company })),
     labelImage: prod.label_image || '',
     manualImage: prod.manual_image || '',
   } : undefined

@@ -30,10 +30,9 @@ export default defineEventHandler(async (event) => {
   // 原药行校验（同新增口径）
   const originals = Array.isArray(body.originals) ? body.originals : []
   if (!originals.length) throw createError({ statusCode: 400, statusMessage: '原药信息至少保留 1 行' })
-  for (const row of originals) {
-    if (!String(row.regNo || '').trim()) throw createError({ statusCode: 400, statusMessage: '原药登记证号不能为空（每行必填）' })
-    if (!String(row.company || '').trim()) throw createError({ statusCode: 400, statusMessage: '原药生产企业名称不能为空（每行必填）' })
-  }
+  const validOriginals = originals.filter((row: any) => String(row.regNo || '').trim() || String(row.company || '').trim() || String(row.ingredient || '').trim())
+  if (!validOriginals.length) throw createError({ statusCode: 400, statusMessage: '原药信息至少保留 1 行有效记录' })
+  for (const row of validOriginals) if (!String(row.regNo || '').trim() || !String(row.company || '').trim()) throw createError({ statusCode: 400, statusMessage: '原药登记证号与原药生产企业名称需同时填写' })
 
   const [dup] = await query<any[]>(
     'SELECT id FROM product WHERE registration_no = ? AND id <> ? LIMIT 1', [registrationNo, id])
@@ -63,10 +62,10 @@ export default defineEventHandler(async (event) => {
     )
     // 原药行全量替换（先删后插）
     await conn.execute('DELETE FROM product_original WHERE product_id = ?', [id])
-    for (const row of originals) {
+    for (const row of validOriginals) {
       await conn.execute(
-        'INSERT INTO product_original (product_id, reg_no, company) VALUES (?,?,?)',
-        [id, String(row.regNo).trim(), String(row.company).trim()]
+        'INSERT INTO product_original (product_id, ingredient, reg_no, company) VALUES (?,?,?,?)',
+        [id, String(row.ingredient || '').trim() || null, String(row.regNo).trim(), String(row.company).trim()]
       )
     }
     await conn.commit()

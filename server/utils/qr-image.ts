@@ -2,7 +2,8 @@
 // 实现参考：离线工具「农药追溯码生成工具」（E:\wokeplace\二维码生成离线软件）main.js 的 renderQrImage / renderDmImage
 /// <reference path="../types/cjs-modules.d.ts" />
 import QRCode from 'qrcode'
-import { DataMatrixWriter, BarcodeFormat } from '@zxing/library'
+// 显式使用 ESM 构建，避免 Windows 下 Nitro 将 CJS 子模块解析成裸盘符 import。
+import { DataMatrixWriter, BarcodeFormat } from '@zxing/library/esm/index.js'
 import { PNG } from 'pngjs'
 
 export type QrImageType = 'QR' | 'DM'

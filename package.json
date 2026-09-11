@@ -27,6 +27,7 @@
     "esbuild": "^0.28.1"
   },
   "devDependencies": {
+    "@types/node": "^22.20.2",
     "xlsx": "^0.18.5"
   }
 }

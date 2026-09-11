@@ -4,6 +4,13 @@ export default defineNuxtConfig({
   modules: ['@nuxt/ui'],
   css: ['~/assets/css/main.css'],
 
+  // Nitro 内联 zxing，避免 Windows 下 CJS 子模块被外置为裸盘符路径，导致所有请求 500。
+  nitro: {
+    externals: {
+      inline: ['@zxing/library', 'xlsx'],
+    },
+  },
+
   // 页面组件 name 对齐路由名（Keep-Alive 按组件 name 精确缓存的前提）：
   // 后台页面均为 admin/*/index.vue，不开启时组件名全是 'index'，无法区分/精确缓存
   experimental: {

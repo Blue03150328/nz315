@@ -1,0 +1,11 @@
+{
+  "extends": "./.nuxt/tsconfig.json",
+  "compilerOptions": {
+    "types": ["node"]
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.vue",
+    ".nuxt/**/*.d.ts"
+  ]
+}

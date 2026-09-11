@@ -26,6 +26,7 @@ export default defineEventHandler(async (event) => {
         product_name: r.product_name,
         dosage: r.dosage,
         company: r.company,
+        ingredient: r.ingredient_main || '',
         expire_date: r.expire_date,
       })),
     }
@@ -35,7 +36,7 @@ export default defineEventHandler(async (event) => {
   const ingredient = String(q.ingredient || '').trim().slice(0, 120)
   if (!ingredient) throw createError({ statusCode: 400, statusMessage: '缺少有效成分名或登记证号参数' })
   const rows = await query<any[]>(
-    `SELECT registration_no, product_name, dosage, company, expire_date
+    `SELECT registration_no, product_name, dosage, ingredient_main, company, expire_date
        FROM pesticide_reg
       WHERE dosage IN ('原药','母药') AND ingredient_main = ?
         AND (expire_date IS NULL OR expire_date >= CURDATE())
@@ -51,6 +52,7 @@ export default defineEventHandler(async (event) => {
       product_name: r.product_name,
       dosage: r.dosage,
       company: r.company,
+      ingredient: r.ingredient_main || '',
       expire_date: r.expire_date,
     })),
   }
