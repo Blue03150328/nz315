@@ -42,8 +42,12 @@ const OPTIONAL_ENV_KEYS = {
   DB_PORT: '默认 3306',
 }
 
-// 需要参与「缓存新鲜度」比较的配置文件名
-const CONFIG_FILES = ['package.json', 'package-lock.json', 'nuxt.config.ts', '.env']
+// 需要参与「缓存新鲜度」比较的配置文件名。
+// 只放**真正影响 Vite 依赖预构建结果**的文件：依赖清单与构建配置。
+// 刻意不放入 .env（它只影响运行时配置，改了重启即可、无需清依赖缓存），
+// 也刻意**不拿 git 提交时间当参照**——否则每提交一次（哪怕只改文档）都会
+// 把缓存判成「过期」，产生大量误报（2026-09-11 实测踩到该误报）。
+const CONFIG_FILES = ['package.json', 'package-lock.json', 'nuxt.config.ts']
 
 // ---------- 输出小工具 ----------
 const OK = '  [OK]  '
@@ -231,7 +235,7 @@ const present = CACHE_DIRS.filter((d) => existsSync(join(ROOT, d)))
 if (present.length === 0) {
   ok('无缓存残留（首次启动会稍慢，属正常）')
 } else {
-  // 参照时间 = 配置文件与最近一次提交里最新的那个
+  // 参照时间 = 依赖清单/构建配置里最新的那个文件的修改时间
   let refTime = 0
   let refName = ''
   for (const f of CONFIG_FILES) {
@@ -241,15 +245,9 @@ if (present.length === 0) {
       refName = f
     }
   }
-  const gitLog = spawnSync('git', ['log', '-1', '--format=%ct'], { cwd: ROOT, encoding: 'utf8', timeout: 15000 })
-  if (gitLog.status === 0 && String(gitLog.stdout).trim()) {
-    const gitTime = Number(String(gitLog.stdout).trim()) * 1000
-    if (gitTime > refTime) {
-      refTime = gitTime
-      refName = '最近一次 git 提交'
-    }
-  }
 
+  // 判定规则：缓存目录的 mtime 早于参照文件 → 缓存比当前依赖配置更旧，属跨版本残留。
+  // 若参照文件缺失（refTime 恒 0）则不做任何判定，避免误报。
   const stale = []
   for (const d of present) {
     const m = mtimeOf(join(ROOT, d))

@@ -1,4 +1,11 @@
 ## 变更记录
+### 2026-09-11 | 修正 dev-start.mjs 缓存新鲜度误报（不再拿 git 提交时间当参照）
+- **背景**：上一条变更新增的 `scripts/dev-start.mjs` 用「缓存目录 mtime 早于参照时间」判定过期缓存，参照时间取了 `package.json`、`package-lock.json`、`nuxt.config.ts`、`.env` 与 `git log -1 --format=%ct` 的最大值。提交上一条修复后立刻复跑 `--check`，脚本报「无缓存残留」→「`node_modules/.cache` 早于**最近一次 git 提交**，属跨版本残留」。
+- **问题**：这是**误报**。为了让 3100 端口服务恢复而重启 dev 时（缓存未做任何清理）实测：`Vite client built in 168ms`、`[nitro] √ Nuxt Nitro server built in 6010ms`，`/`、`/login`、`/trace?code=1` 全 200 —— 缓存完全正常。根因是**参照系选错了**：提交代码（尤其只改文档）根本不影响 Vite 依赖预构建的结果，拿 git 提交时间当参照会导致「每提交一次就报一次过期」，脚本会在使用者每次提交后被无意义地触发清缓存。
+- **修复**：① `CONFIG_FILES` 收窄为 `package.json`、`package-lock.json`、`nuxt.config.ts` —— 只保留**真正决定依赖预构建结果**的文件；② **移除 git 提交时间作为参照**，并在代码注释中写明原因；③ `.env` 一并移出参照（它只影响运行时配置，改了重启即可、无需清依赖缓存）；④ 参照文件缺失（refTime 恒 0）时不做任何判定，避免误报。
+- **验证**：① 修正后复跑 `--check` → `[OK] 缓存新鲜度正常`（误报消除）；② **反向验证检测能力未失效**——`touch -d "2026-05-01" node_modules/.cache` 后脚本仍正确报出「以下缓存早于「package.json」，属跨版本残留：node_modules\.cache」，随后 `touch` 恢复为正常。
+- **修改文件**：`scripts/dev-start.mjs`、`AGENTS.md`（进度段与方法论处的逻辑描述同步改为「对比三个依赖/构建配置文件的修改时间，刻意不拿 git 提交时间当参照」）、`PROJECT_LOG.md`（本条目）。
+- **给下一个 Agent 的提示**：**启发式判定的参照系必须与它要预测的失效原因同源**。这里要预测的是「Vite 依赖预构建缓存失效」，那就只能用依赖清单与构建配置当参照；把 git 提交时间混进去，等于把「所有代码变更」都当成「依赖变更」，必然误报。新增任何基于时间戳的启发式时，先问一句「参照物真的会导致这个缓存失效吗」。
 ### 2026-09-11 | 修复「合并后服务拉不起来」+ 新增启动体检脚本（scripts/dev-start.mjs + start-dev.cmd）
 - **现象**：用户合并 PR #1（`56261b0 Merge pull request #1 from Blue03150328/feature--qd`）后，无法正常拉起服务。
 - **排查过程（全部实测，非推测）**：
