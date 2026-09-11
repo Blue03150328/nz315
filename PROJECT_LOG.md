@@ -1,4 +1,23 @@
 ## 变更记录
+### 2026-09-11 | 开发服务改为 Windows 计划任务常驻托管（根治「服务自己消失」）
+- **背景与决策**：上一轮排查「合并后拉不起服务」时发现，用户的真实痛点是**服务没有任何守护**——由会话/终端派生的进程一结束服务就停（该项目历史里「建议用服务/计划任务托管」已被提过三次、一直未落地）。向用户列出 4 个方案（计划任务 / pm2 / 生产构建+反代 / 维持现状）后，用户选择**Windows 计划任务**。
+- **架构（双层恢复，缺一不可）**：
+  1. `scripts/dev-task-run.ps1` —— 计划任务的动作入口。**纯 ASCII**（PS 5.1 可能误读 UTF-8 中文脚本），所有路径从 `$PSScriptRoot` 推导；自己解析 node 绝对路径后调下一个脚本，并把拉起过程写入 `logs\dev-task-runner.log`。
+  2. `scripts/dev-service.mjs` —— **常驻守护进程**（本轮恢复能力的真正实现）。内部 `for(;;)` 循环跑 dev 服务；子进程退出就重启，退避 3s→6s→…→30s；「存活 < 30s」计为快速失败，1 分钟窗口内达 5 次即放弃并退出 1（防重启风暴）；启动前主动清理跨版本残留缓存；端口已被占用则退出 0（不重复启动，避免与手动起的 dev 打架）。
+  3. 计划任务「NZ315 Dev Server」—— 登录触发器（+30s 延迟）+ **1 分钟心跳触发器**，`MultipleInstances=IgnoreNew`、`ExecutionTimeLimit=PT0S`（无时限）、`Hidden`。心跳只在守护进程整个被杀时兜底；健康时任务实例一直 Running，心跳被 IgnoreNew 跳过、**不产生额外进程**。
+- **三个必须记住的 Task Scheduler 陷阱（全部实测踩过）**：
+  1. **`RestartOnFailure` 不覆盖本例**：它只在「任务计划程序启动不了任务」时生效。实测杀掉 dev 进程后 `LastTaskResult=0xFFFFFFFF`、`State=Ready`、`NextRunTime` 为空，服务一直没恢复 → 恢复能力必须做进进程内部。
+  2. **省略 `-RepetitionDuration` → 重复永不触发**：导出 XML 是 `<StopAtDurationEnd>true</StopAtDurationEnd>` 且无 `<Duration>`，重复窗口长度为零（`NextRunTime` 恒空，极易误判「已配好」）。改用 `-RepetitionDuration (New-TimeSpan -Days 3650)`；`[TimeSpan]::MaxValue` 会被 schema 拒绝（HRESULT 0x80041318）。
+  3. **重复拐在 LogonTrigger 上不排期**：登录触发器的重复从「登录那一刻」起算，注册任务时登录早已发生 → 窗口已过、`NextRunTime` 仍空。必须用**独立的 `-Once -At <近未来>` 触发器**做心跳。
+- **环境关键事实（本机特有）**：`[Environment]::GetEnvironmentVariable('Path','User')` 与 Machine PATH **都没有 node**——只有 WorkBuddy 注入到它派生的进程里。所以计划任务**不能直接写 `node`**。`dev-task-run.ps1` 做三级兜底：PATH → 扫 `%USERPROFILE%\.workbuddy\binaries\node\versions\*\node.exe` 取最高版本（能扛住 node 升级换目录）→ `Program Files\nodejs`。实测解析结果：`C:\Users\27475\.workbuddy\binaries\node\versions\22.22.2-2\node.exe`。
+- **验证（全部实测）**：
+  - **进程归属**：从监听进程向上追 5 层 → `node(nuxt dev) → node(dev-service.mjs) → powershell → svchost → services`，**根在 Windows 服务**，不依赖任何终端/会话；任务 `State=Running`。
+  - **心跳自愈**：把守护整个干掉、服务处于停止状态 → 心跳在排期的 **20:02:52 准点拉起**（`logs\dev-task-runner.log` 有对应时间戳），路由 `/`、`/login`、`/trace?code=1` 全 200。
+  - **内部守护自愈**：只杀 dev 子进程（保留守护）→ **3 秒后**新进程接管，守护日志记 `dev 服务退出：code=4294967295 存活=29.8s` → `3s 后重启 dev 服务（连续快速失败 1 次）`。
+  - **设置核验**：导出任务 XML 确认 `MultipleInstancesPolicy=IgnoreNew`、`ExecutionTimeLimit=PT0S`、`Hidden=true`、`StartWhenAvailable=true`、`RestartOnFailure(3/PT1M)`、双触发器（Logon +PT30S / Time `repInterval=PT1M repDuration=P3650D`）。
+- **修改文件**：`scripts/dev-service.mjs`（新增）、`scripts/dev-task-run.ps1`（新增）、`scripts/install-dev-task.ps1`（新增，幂等可重跑，注册后自校验并在失败时明确报错而非假报成功）、`scripts/uninstall-dev-task.ps1`（新增）、`AGENTS.md`（常用命令段新增「服务托管」小节与 6 条操作命令；进度段新增本条；踩坑表新增 5 行——三个 Task Scheduler 陷阱 + node 不在 PATH + 「.ps1/.cmd 一律 ASCII」定规）、`PROJECT_LOG.md`（本条目）。
+- **遗留问题/待办**：① 任务以「仅在用户登录时运行」（`InteractiveToken`）注册，**需用户登录后服务才可用**；若要求开机即可用（未登录也跑），须改为「不管用户是否登录都要运行」并保存密码，或改用 Windows 服务宿主（如 nssm）；② 本机**没有系统级 Node.js**，整套托管依赖 WorkBuddy 托管的 node——若日后卸载/迁移 WorkBuddy，需先装系统 Node 再重跑 `install-dev-task.ps1`；③ 心跳周期 1 分钟、时长 3650 天，十年后需重跑安装脚本（实际无影响）。
+- **给下一个 Agent 的提示**：① **不要删掉 `dev-service.mjs` 的内部守护循环去「简化」成纯计划任务方案**——本轮已实测证明计划任务的失败重启不覆盖这个场景；② 排查「服务没了」先看 `logs\dev-guard.log`（守护与重启记录）与 `logs\dev-task-runner.log`（任务拉起记录），再 `Get-ScheduledTaskInfo` 看 `LastTaskResult`；③ 任何新增的 `.ps1`/`.cmd` 都遵守「ASCII + `$PSScriptRoot`/`%~dp0`」，这是本项目的路径含中文决定的硬约束。
 ### 2026-09-11 | 修正 dev-start.mjs 缓存新鲜度误报（不再拿 git 提交时间当参照）
 - **背景**：上一条变更新增的 `scripts/dev-start.mjs` 用「缓存目录 mtime 早于参照时间」判定过期缓存，参照时间取了 `package.json`、`package-lock.json`、`nuxt.config.ts`、`.env` 与 `git log -1 --format=%ct` 的最大值。提交上一条修复后立刻复跑 `--check`，脚本报「无缓存残留」→「`node_modules/.cache` 早于**最近一次 git 提交**，属跨版本残留」。
 - **问题**：这是**误报**。为了让 3100 端口服务恢复而重启 dev 时（缓存未做任何清理）实测：`Vite client built in 168ms`、`[nitro] √ Nuxt Nitro server built in 6010ms`，`/`、`/login`、`/trace?code=1` 全 200 —— 缓存完全正常。根因是**参照系选错了**：提交代码（尤其只改文档）根本不影响 Vite 依赖预构建的结果，拿 git 提交时间当参照会导致「每提交一次就报一次过期」，脚本会在使用者每次提交后被无意义地触发清缓存。
