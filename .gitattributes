@@ -1,0 +1,9 @@
+# 换行符策略
+# ---------------------------------------------------------------
+# deploy/ 下的脚本与配置是给 Linux 服务器用的，必须是 LF。
+# Windows 工作区里用编辑器保存后极易变成 CRLF，scp 上去会报
+#   bash: /usr/bin/env: bad interpreter: No such file or directory
+# 故在此强制这三类文件以 LF 检出/入库。
+deploy/*.sh   text eol=lf
+deploy/*.conf text eol=lf
+deploy/*.cjs  text eol=lf
