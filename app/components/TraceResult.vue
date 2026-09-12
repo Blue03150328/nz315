@@ -2,6 +2,7 @@
 import type { TraceOutcome } from '#shared/types/trace'
 
 const props = defineProps<{ outcome: TraceOutcome }>()
+const router = useRouter()
 const toast = useToast()
 
 const product = computed(() => props.outcome.product)
@@ -16,23 +17,50 @@ const copyCode = async () => {
   }
 }
 
-// 产品基本信息（PRD 5.9：农药名称、登记证持有人名称、剂型、毒性、规格、净含量）
+// 信息栏分三栏，1049 六项必显字段按性质归栏：
+//   产品信息 → 农药名称、登记证持有人名称
+//   生产信息 → 生产日期、生产批次
+//   原药信息 → 原药（母药）登记证号、原药生产企业名称
+// 厂商信息栏按需求不设
+type TabKey = 'product' | 'batch' | 'original'
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'product', label: '产品信息' },
+  { key: 'batch', label: '生产信息' },
+  { key: 'original', label: '原药信息' },
+]
+
+const activeTab = ref<TabKey>('product')
+
+// 产品信息栏
 const productFields = computed(() => {
   const p = product.value
   if (!p) return []
   return [
-    { label: '农药名称', value: p.name },
-    { label: '登记证持有人', value: p.holderName || '-' },
+    { label: '农药名称', value: p.name || '-' },
+    { label: '登记证持有人名称', value: p.holderName || '-' },
     { label: '登记证号', value: p.registrationNo || '-' },
     { label: '剂型', value: p.formulation || '-' },
     { label: '毒性', value: p.toxicity || '-' },
-    { label: '规格', value: p.spec || '-' },
+    { label: '产品规格', value: p.spec || '-' },
     { label: '净含量', value: p.netContent || '-' },
+    { label: '查询次数', value: String(props.outcome.queryCount ?? 0) },
   ]
 })
 
-// 原药（母药）信息（制剂产品 1049 第二条扫码必显）——多行 originals（复合/复配产品全部原药组分）
-// 2026-09-07 需求：扫码结果页须把录入的全部原药行完整展示（多行循环渲染，不合并覆盖）
+// 生产信息栏（生产日期、生产批次为 1049 必显项，须与标签印刷值一致）
+const batchFields = computed(() => {
+  const b = batch.value
+  return [
+    { label: '生产日期', value: b?.produceDate || '-' },
+    { label: '生产批次', value: b?.batchNo || '-' },
+    { label: '有效期至', value: b?.expireDate || '-' },
+    { label: '质检结果', value: b?.qcResult || '-' },
+    { label: '质量合格证号', value: b?.qualityCertNo || '-' },
+  ]
+})
+
+// 原药（母药）信息多行：复配产品全部原药组分逐个成块完整展示
 const originals = computed(() => product.value?.originals || [])
 const hasOriginalInfo = computed(() => originals.value.length > 0)
 
@@ -69,7 +97,7 @@ const handleShare = async () => {
         <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/15"><UIcon name="i-lucide-check-circle-2" class="h-7 w-7 text-white" /></span>
         <div>
           <div class="text-[28px] font-extrabold leading-tight">查询结果正常</div>
-          <div class="mt-1 text-sm text-white/90">农药追溯信息核验通过</div>
+          <div class="mt-1 text-sm text-white/90">正品保障 · 放心使用</div>
         </div>
       </div>
     </div>
@@ -83,91 +111,92 @@ const handleShare = async () => {
             复制
           </UButton>
         </div>
-        <div class="mt-1 font-code text-sm font-medium text-default">{{ outcome.formattedCode }}</div>
+        <div class="mt-1 font-code text-sm font-medium break-all text-default">{{ outcome.formattedCode }}</div>
       </div>
 
-      <!-- 产品基本信息（唯一业务信息卡片：基础字段（含批次三字段行）+ 原药（母药）小节 + 产品图片小节收拢于一体；
-           质检信息、查询记录、「批次信息」标题模块已按要求整体移除） -->
-      <div class="rounded-xl border border-border bg-elevated shadow-sm">
-        <div class="flex items-center gap-2 border-b border-border/60 px-4 py-3 text-sm font-semibold">
-          <UIcon name="i-lucide-package" class="h-4 w-4 text-primary" />
-          产品基本信息
+      <!-- 信息栏：产品信息 / 生产信息 / 原药信息（左浅底标签列 + 右值列的表格版式） -->
+      <div class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
+        <div class="flex border-b border-border">
+          <button
+            v-for="t in TABS"
+            :key="t.key"
+            type="button"
+            class="-mb-px flex-1 border-b-2 py-3 text-sm transition-colors"
+            :class="activeTab === t.key
+              ? 'border-primary font-semibold text-primary'
+              : 'border-transparent text-muted hover:text-default'"
+            @click="activeTab = t.key"
+          >
+            {{ t.label }}
+          </button>
         </div>
-        <div class="divide-y divide-border/60">
-          <!-- 基础信息（批次三字段行常驻：生产批次号/生产日期/有效期至；有批次数据展示真实值，
-               无批次数据显示 '-' 占位与其它基础字段一致；「批次信息」小节与橙色提示已按需求删除） -->
-          <div v-for="f in productFields" :key="f.label" class="flex justify-between gap-3 px-4 py-2.5 text-sm">
-            <span class="shrink-0 text-muted">{{ f.label }}</span>
-            <span class="text-right font-medium text-default">{{ f.value }}</span>
-          </div>
-          <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
-            <span class="shrink-0 text-muted">生产批次号</span>
-            <span class="text-right font-medium text-default">{{ batch?.batchNo || '-' }}</span>
-          </div>
-          <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
-            <span class="shrink-0 text-muted">生产日期</span>
-            <span class="text-right font-medium text-default">{{ batch?.produceDate || '-' }}</span>
-          </div>
-          <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
-            <span class="shrink-0 text-muted">有效期至</span>
-            <span class="text-right font-medium text-default">{{ batch?.expireDate || '-' }}</span>
-          </div>
 
-          <!-- 原药（母药）信息小节：单原药 1 组；复合多原药循环完整展示全部组分 -->
-          <div v-if="hasOriginalInfo">
-            <div class="flex items-center justify-between px-4 py-2.5">
-              <div class="flex items-center gap-2 text-sm font-semibold text-default">
-                <UIcon name="i-lucide-flask-conical" class="h-4 w-4 text-primary" />
-                原药（母药）信息
-              </div>
-              <span v-if="originals.length > 1" class="text-xs text-muted">共 {{ originals.length }} 个原药组分</span>
-            </div>
-            <div v-if="originals.length === 1" class="divide-y divide-border/60">
-              <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
-                <span class="shrink-0 text-muted">原药登记证号</span>
-                <span class="text-right font-medium text-default">{{ originals[0].regNo || '-' }}</span>
-              </div>
-              <div class="flex justify-between gap-3 px-4 py-2.5 text-sm">
-                <span class="shrink-0 text-muted">原药生产企业</span>
-                <span class="text-right font-medium text-default">{{ originals[0].company || '-' }}</span>
-              </div>
-            </div>
-            <div v-else class="divide-y divide-border/60">
-              <div v-for="(o, idx) in originals" :key="idx" class="px-4 py-2.5">
-                <div class="mb-1.5 text-xs font-medium text-muted">原药组分 {{ idx + 1 }}</div>
-                <div class="flex justify-between gap-3 py-0.5 text-sm">
-                  <span class="shrink-0 text-muted">原药登记证号</span>
-                  <span class="text-right font-medium text-default">{{ o.regNo || '-' }}</span>
-                </div>
-                <div class="flex justify-between gap-3 py-0.5 text-sm">
-                  <span class="shrink-0 text-muted">原药生产企业</span>
-                  <span class="text-right font-medium text-default">{{ o.company || '-' }}</span>
-                </div>
-              </div>
-            </div>
+        <!-- 产品信息栏 -->
+        <div v-if="activeTab === 'product'" class="divide-y divide-border/60">
+          <div v-for="f in productFields" :key="f.label" class="flex text-sm">
+            <div class="w-36 shrink-0 border-r border-border/60 bg-muted/40 px-4 py-2.5 text-muted">{{ f.label }}</div>
+            <div class="min-w-0 flex-1 px-4 py-2.5 font-medium break-words text-default">{{ f.value }}</div>
           </div>
+        </div>
 
-          <!-- 产品图片小节（标签图/说明书图） -->
-          <div v-if="product?.labelImage || product?.manualImage">
-            <div class="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-default">
-              <UIcon name="i-lucide-image" class="h-4 w-4 text-primary" />
-              产品图片
-            </div>
-            <div class="grid grid-cols-2 gap-3 px-4 pb-4 pt-1">
-              <button v-if="product?.labelImage" type="button" class="overflow-hidden rounded-lg border border-border">
-                <img :src="product.labelImage" alt="产品标签图" class="aspect-square w-full object-cover" />
-                <div class="py-1.5 text-center text-xs text-muted">产品标签图</div>
-              </button>
-              <button v-if="product?.manualImage" type="button" class="overflow-hidden rounded-lg border border-border">
-                <img :src="product.manualImage" alt="产品说明书图" class="aspect-square w-full object-cover" />
-                <div class="py-1.5 text-center text-xs text-muted">说明书图</div>
-              </button>
+        <!-- 生产信息栏 -->
+        <div v-else-if="activeTab === 'batch'">
+          <!-- 码已生成但未绑定批次：生产日期与批次确实无从取出，明确告知而非留空 -->
+          <div v-if="!batch" class="flex items-start gap-2 border-b border-border/60 bg-warning-soft px-4 py-3 text-xs">
+            <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+            <span class="text-default">该追溯码尚未绑定生产信息，生产日期与生产批次暂不可查。如包装标签已印刷这两项，请联系生产企业核实。</span>
+          </div>
+          <div class="divide-y divide-border/60">
+            <div v-for="f in batchFields" :key="f.label" class="flex text-sm">
+              <div class="w-36 shrink-0 border-r border-border/60 bg-muted/40 px-4 py-2.5 text-muted">{{ f.label }}</div>
+              <div class="min-w-0 flex-1 px-4 py-2.5 font-medium break-words text-default">{{ f.value }}</div>
             </div>
           </div>
         </div>
+
+        <!-- 原药信息栏 -->
+        <div v-else class="p-4">
+          <div v-if="hasOriginalInfo" class="space-y-3">
+            <div v-for="(o, idx) in originals" :key="idx" class="overflow-hidden rounded-lg border border-border">
+              <div v-if="originals.length > 1" class="border-b border-border/60 bg-primary/10 px-4 py-2 text-xs font-medium text-primary">
+                原药组分 {{ idx + 1 }}
+              </div>
+              <div class="flex text-sm">
+                <div class="w-36 shrink-0 border-r border-border/60 bg-muted/40 px-4 py-2.5 text-muted">原药（母药）登记证号</div>
+                <div class="min-w-0 flex-1 px-4 py-2.5 font-medium break-words text-default">{{ o.regNo || '-' }}</div>
+              </div>
+              <div class="flex border-t border-border/60 text-sm">
+                <div class="w-36 shrink-0 border-r border-border/60 bg-muted/40 px-4 py-2.5 text-muted">原药生产企业名称</div>
+                <div class="min-w-0 flex-1 px-4 py-2.5 font-medium break-words text-default">{{ o.company || '-' }}</div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="flex items-start gap-2 rounded-lg bg-muted/40 px-4 py-3 text-xs">
+            <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
+            <span class="text-muted">该产品未录入原药（母药）信息，请联系生产企业核实。</span>
+          </div>
+        </div>
+
+        <!-- 产品图片小节（标签图/说明书图） -->
+        <div v-if="product?.labelImage || product?.manualImage" class="border-t border-border/60">
+          <div class="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-default">
+            <UIcon name="i-lucide-image" class="h-4 w-4 text-primary" />
+            产品图片
+          </div>
+          <div class="grid grid-cols-2 gap-3 px-4 pb-4 pt-1">
+            <button v-if="product?.labelImage" type="button" class="overflow-hidden rounded-lg border border-border">
+              <img :src="product.labelImage" alt="产品标签图" class="aspect-square w-full object-cover" />
+              <div class="py-1.5 text-center text-xs text-muted">产品标签图</div>
+            </button>
+            <button v-if="product?.manualImage" type="button" class="overflow-hidden rounded-lg border border-border">
+              <img :src="product.manualImage" alt="产品说明书图" class="aspect-square w-full object-cover" />
+              <div class="py-1.5 text-center text-xs text-muted">说明书图</div>
+            </button>
+          </div>
+        </div>
       </div>
 
-      <!-- 操作（信息反馈入口已移除，仅保留返回） -->
+      <!-- 操作 -->
       <UButton variant="outline" color="neutral" size="lg" icon="i-lucide-arrow-left" class="w-full" @click="router.back()">
         返回
       </UButton>
