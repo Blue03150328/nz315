@@ -2,6 +2,7 @@
 
 > 适用对象：**新接手本项目的开发者 / 运维 / 产品**。
 > 文档生成日期：**2026-09-10**；对应代码版本：`master` @ `98a4a1c`（第 155 次提交）。
+> **复核更新 2026-09-12 · `master@e657ed3`（第 167 次提交）**：远程仓库已建立、`tsconfig.json` 已入库、工作树干净、dev 模式已恢复可用。
 > 所有结论均来自**对当前代码库、运行中的服务与真实数据库的实测**，不是从需求文档转抄。
 
 ## 一、按顺序读（约 40 分钟建立完整认知）
@@ -21,9 +22,10 @@
 ## 二、5 分钟上手（本机已具备全部环境）
 
 ```powershell
-cd E:\wokeplace\二维码管理
-# 1) 服务当前已在 3100 运行（2026-09-10 14:21 构建）；如需重启：
-node .output\server\index.mjs            # 生产产物直启（本机 dev 模式不可用，见 03 文档）
+cd C:\Users\27475\Desktop\二维码管理
+# 1) 服务当前已在 3100 运行（dev 模式常驻，Windows 计划任务 NZ315 Dev Server 托管）；如需手动重启：
+node scripts\dev-start.mjs               # 清缓存后启动 dev（含启动体检；--check 仅体检不启动）
+#    或生产产物直启：node .output\server\index.mjs
 # 2) 访问
 #    后台 http://127.0.0.1:3100/login     账号 admin / admin123
 #    扫码 http://127.0.0.1:3100/trace?code=12301011001000000000000000001001
@@ -34,8 +36,8 @@ node scripts\handover-audit.mjs
 ## 三、接手当天必须知道的 6 件事
 
 1. **合规硬节点 2026-11-01**：农业农村部公告第 1049 号执行日，逾期产品不得上市——这是全部排期的锚点。
-2. **代码没有远程仓库**（`git remote` 为空）：155 次提交只在本地 `E:\wokeplace\二维码管理\.git`，**属于单点故障，第一优先事项是建远程仓库并推送**。
-3. **本机 dev 模式跑不起来**（Nitro + Node 24 + 中文路径的已知问题），开发验证一律用 **生产构建 + `node .output/server/index.mjs`**。
+2. **代码已有远程仓库**：`origin` = `https://github.com/Blue03150328/-----.git`，`master` 与 `feature--qd` 均已推送（~~原先"无远程仓库"的单点故障已消除~~）。
+3. **本机 dev 模式已可用**：`node scripts\dev-start.mjs` 一键启动，`scripts\dev-service.mjs` 进程内守护（退出自动重启），已注册 Windows 计划任务 `NZ315 Dev Server` 常驻；也可用生产构建产物 `node .output\server\index.mjs` 验证。
 4. **文档与代码存在已知漂移**：`README.md` 的表数（13）、页面数（14）等表述已过时，**以 `AGENTS.md` + `PROJECT_LOG.md` + 本目录文档为准**。
 5. **隐私红线**：`.env`（数据库密码、微信 Secret、高德 Key、SESSION_SECRET）与 `backup/*.sql`（全量数据）**一律不入库**，接手后请勿提交。
 6. **一轮修改 = 一次提交**，且必须在 `PROJECT_LOG.md` 顶部补一条变更记录、同步 `AGENTS.md` 进度段（本项目强制契约）。

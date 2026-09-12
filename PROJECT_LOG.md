@@ -1,4 +1,24 @@
 ## 变更记录
+### 2026-09-12 | push 前安全审查（semgrep）+ 代码图谱审查（code-review-graph）+ 交接文档过时项校正
+- **背景**：用户要求「直接 push、过时文档也改一下，push 前先用 semgrep 与 code-review-graph 两个技能审查」。属"推送前门禁 + 文档校正"一轮。
+- **semgrep 安全审查（两轮，0 findings）**：安装于隔离 venv `C:\Users\27475\.workbuddy\binaries\python\envs\default`（semgrep 1.177.0）。① 首轮 `p/security-audit` + `p/secrets` + `p/typescript` + `p/javascript`：125 条规则 × 121 个 git 跟踪文件 → **0 findings**；② 补轮 `p/owasp-top-ten` + `p/sql-injection` + `p/command-injection` + `p/jwt` + `p/nodejs` + `p/expressjs` + `p/xss`：79 条规则 → **0 findings**。注意 `--config=auto` 在 `--metrics=off` 下会直接报错（"Cannot create auto config when metrics are off"），须用具体规则包。
+- **人工复核（semgrep 之外的补充，因为扫描仅限 git 跟踪文件）**：
+  - **SQL 注入面 = 0**：全 `server/` 目录仅 1 处模板字符串插值，是登录限流提示文案（`login.post.ts:22`），**无任何 SQL 语句用 `${}` 拼接**；`db.ts` 的 `query()`/`execute()` 分别走 `pool.query(sql, params)` / `pool.execute(sql, params)`，后者为预编译语句，参数一律 `?` 占位。
+  - **认证/会话**：`auth.ts` 用 HMAC-SHA256 签名会话 + `timingSafeEqual` 恒时比较；会话 cookie `httpOnly`/`sameSite=lax`/HTTPS 下 `secure`；生产环境显式拒绝默认密钥 `dev-session-secret-change-me`；`assertSameOrigin` 对非 GET 请求做 Origin 同源校验（**允许无 Origin 请求**是刻意的 API 客户端兼容口径，已注释说明）。
+  - **登录接口**：同账号+IP 5 次/分钟锁 15 分钟（进程内 Map）；用户名/密码错误返回同一文案（无用户枚举）；bcrypt 校验；成功/失败均写审计日志。
+  - **公开端点** `server/api/trace.get.ts`：先 `^\d{32}$` 正则校验再查库，全部参数化；**唯一可提的风险是未加限流**——该接口公开且每次调用都会 `INSERT scan_log`，存在被刷日志/放大写入的可能（当前单实例、无防护，建议上线时在网关层限流）。另一处：登录限流用进程内 Map，**多实例部署时失效**（需外置存储），属部署注意事项而非当前缺陷。
+  - **凭据**：`.env` 未被 git 跟踪（`.gitignore` 已含 `.env`/`.env.*`）；仓库内无生产密钥明文。`scripts/db-init.mjs` 内的 `admin123` 与 117 个 `_tmp-*.mjs` 里的 `admin123` 均为**演示/测试账号**，且 `_tmp-*` 已被 `.gitignore`（`scripts/_tmp-*`）排除，不会推送。
+- **code-review-graph 审查**：MCP 服务未连接，改为直接读 `.code-review-graph/graph.db`（SQLite，123 nodes/788 edges/79 risk_index）。**注意该图数据构建于 2026-08-31 且路径全为另一台机器（`E:/wokeplace/...`），仅作参考、非本机现态**。安全相关节点 10 个，最高风险 `server/utils/db.ts::execute`（0.85，7 个调用方）、`server/utils/auth.ts` 系列（0.700，6 个函数）——三者已逐个人工复核，结论见上，无实际漏洞。次高 `auth.ts::requireBackendUser`（0.45）、`server/api/query/[code].get.ts::formatCode`（0.45，**该端点在本机不存在，属旧版路径**）。
+- **交接文档过时项校正（8 个文件）**：`docs/handover/` 生成于 2026-09-10（`master@98a4a1c`/155 提交），多项已不实，按本机实测校正：
+  1. **远程仓库**：由「无（`git remote -v` 为空）——最高优先级待办」改为已建立 `origin` = `https://github.com/Blue03150328/-----.git`（`master`/`feature--qd` 均已推送）。涉及 README 第 2 条、01 快照表与阻塞风险、03 §4.1、07 风险 1、08 P0-1 与 §6。
+  2. **`tsconfig.json` 未跟踪**：已入库 → 07 风险 2、08 P2-2 标记 ✅。
+  3. **dev 模式不可用**：已于 2026-09-11 实测推翻（`af33393` 修掉 xlsx 外置导致的裸盘符 ESM 500），改为 `scripts/dev-start.mjs` / `start-dev.cmd` 启动 + 计划任务 `NZ315 Dev Server` 托管；并强调「**服务自愈靠 `dev-service.mjs` 进程内守护循环，Task Scheduler 的失败后重启在本例不生效**」。涉及 01 §8/§9、03 §2/§8、04 依赖表、08 P2-1 与 P2-13。
+  4. **环境实测值**：node `v24.18.0`→**v22.22.2**（WorkBuddy 托管、无系统级 Node、不在持久 PATH）、npm `11.16.0`→**10.9.7**、Windows `10.0.19045`→**10.0.26200**、工作副本路径 `E:\wokeplace\...`→`C:\Users\27475\Desktop\二维码管理`（旧机路径保留为"原始开发机"注记）。涉及 03 §3.1 与 §1 技术栈表、06 §6。
+  5. **计数类**：提交 155→167、跟踪文件 128→148、`_tmp-*` 119→117、`PROJECT_LOG` 条目 64→70；07 §1 资产行、08 §三、02 头部同步。
+  6. **npm wrapper「损坏」表述**：本机 npm 正常，旧记录 `E:\software\nodejs\...` 属另一台机器（本机无 E 盘，照抄必 `MODULE_NOT_FOUND`）→ 改为「直调 `node node_modules/nuxt/bin/nuxt.mjs` / `node node_modules/typescript/bin/tsc`，勿写死 npm-cli.js 绝对路径」。
+- **修改文件**：`docs/handover/{README,01,02,03,04,06,07,08}.md`（8 个，仅文档）；`PROJECT_LOG.md`（本条目）；`AGENTS.md`（进度段）。
+- **未改**：代码零改动（本轮为审查 + 文档），故未跑 tsc/构建；`scripts/` 未动。
+- **给下一个 Agent 的提示**：① 交接文档是**快照**，`> 生成日期 …` 行保留历史口径，其下的「复核更新」行才是现态——改文档时请沿用这个双层写法，不要直接覆盖快照行；② semgrep 在 `--metrics=off` 时**不能用 `--config=auto`**；③ 该图 `.code-review-graph/graph.db` 路径属另一台机器、日期停在 2026-08-31，**引用前先确认是否需重建**。
 ### 2026-09-11 | 开发服务改为 Windows 计划任务常驻托管（根治「服务自己消失」）
 - **背景与决策**：上一轮排查「合并后拉不起服务」时发现，用户的真实痛点是**服务没有任何守护**——由会话/终端派生的进程一结束服务就停（该项目历史里「建议用服务/计划任务托管」已被提过三次、一直未落地）。向用户列出 4 个方案（计划任务 / pm2 / 生产构建+反代 / 维持现状）后，用户选择**Windows 计划任务**。
 - **架构（双层恢复，缺一不可）**：
