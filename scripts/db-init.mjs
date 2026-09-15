@@ -2,7 +2,6 @@
 // 用法：node scripts/db-init.mjs
 'use strict';
 import mysql from 'mysql2/promise';
-import { migrateProductionSchema } from './lib/production-schema.mjs';
 import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import path from 'path';
@@ -506,7 +505,6 @@ async function main() {
 
   // 3) 增量迁移（历史库补列/补索引）
   await migrate(conn);
-  await migrateProductionSchema(conn);
 
   // 4) seed
   await seed(conn);

@@ -1,7 +1,6 @@
 // 扫码查询接口（H5）：/trace?code=xxx —— 真实查询链路（PRD 5.9）
 // 流程：格式校验 → 查 trace_code → 写扫码日志(scan_log) → 异常判定（作废/冻结优先）→ 联查产品/批次 → 返回展示数据
 import { query, execute } from '../utils/db'
-import { effectiveProduction } from '../utils/production-values'
 import { triggerAlert } from '../utils/risk-alert'
 import { getCurrentConsumer } from '../utils/consumer-auth'
 import type { TraceOutcome, TraceResultType } from '#shared/types/trace'
@@ -123,13 +122,12 @@ export default defineEventHandler(async (event) => {
 
   // 批次信息展示：单码字段修正只写 trace_code 覆盖列（produce_date/quality_cert_no/expire_date/qc_result），
   // 扫码展示 COALESCE 优先码级值（批次码明细单行修改功能，2026-09-04），未覆盖时回退批次级数据
-  const effective = batch ? effectiveProduction(tc, batch) : null
-  const batchInfo = batch && effective ? {
+  const batchInfo = batch ? {
     batchNo: batch.batch_no,
-    produceDate: String(effective.produceDate || '').slice(0, 10),
-    expireDate: String(effective.expireDate || '').slice(0, 10),
-    qcResult: Number(effective.qcResult) === 1 ? '合格' : '不合格',
-    qualityCertNo: effective.qualityCertNo || '',
+    produceDate: String(tc.produce_date || batch.produce_date || '').slice(0, 10),
+    expireDate: String(tc.expire_date || batch.expire_date || '').slice(0, 10),
+    qcResult: Number(tc.qc_result ?? batch.qc_result) === 1 ? '合格' : '不合格',
+    qualityCertNo: tc.quality_cert_no || batch.quality_cert_no || '',
     qcReportNo: batch.qc_report_no || '',
   } : undefined
 
@@ -153,11 +151,11 @@ export default defineEventHandler(async (event) => {
   }
 
   // 8) 产品已过有效期（批次有效期至 < 今天）
-  if (effective?.expireDate && String(effective.expireDate).slice(0, 10) < today) {
+  if (batch?.expire_date && String(batch.expire_date).slice(0, 10) < today) {
     const out: TraceOutcome = {
       ...baseOutcome, resultType: 'expired', status, abnormalFlag: 0,
       queryCount, firstQuery, product, batch: batchInfo, recentScans: scans,
-      reasons: ['该产品已过有效期（' + String(effective.expireDate).slice(0, 10) + '），请勿使用'],
+      reasons: ['该产品已过有效期（' + String(batch.expire_date).slice(0, 10) + '），请勿使用'],
       generatedReport: null,
     }
     return out

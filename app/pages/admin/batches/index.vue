@@ -51,13 +51,23 @@ const expiryBadge = (expireDate: unknown): { cls: string; label: string } | null
 const showModal = ref(false)
 const editingId = ref<number | null>(null)
 const saving = ref(false)
-const batchPreview = ref<any>(null)
-const requestKey = ref('')
-const reason = ref('')
 const form = reactive({
   productId: null as number | null, batchNo: '', produceDate: '', qualityCertNo: '',
   expireDate: '', qcResult: 1, qcReportNo: '', quantity: 0,
 })
+
+const selectedProduct = computed(() => (productData.value?.rows || []).find((p: any) => Number(p.id) === Number(form.productId)))
+
+// 有效期自动计算：生产日期 + 产品保质期（如 "2年"），可覆盖
+const autoExpire = () => {
+  const p = selectedProduct.value
+  if (!p || !form.produceDate || !p.shelf_life) return
+  const m = String(p.shelf_life).match(/(\d+)\s*年/)
+  if (!m) return
+  const d = new Date(form.produceDate + 'T00:00:00')
+  d.setFullYear(d.getFullYear() + Number(m[1]))
+  form.expireDate = d.toISOString().slice(0, 10)
+}
 
 // 新建入口已移除（2026-09-04 流程改造：批次由生产采集导入时自动建档）；本弹窗仅用于编辑
 const openEdit = (row: any) => {
@@ -69,12 +79,9 @@ const openEdit = (row: any) => {
     expireDate: row.expire_date ? String(row.expire_date).slice(0, 10) : '',
     qcResult: Number(row.qc_result ?? 1), qcReportNo: row.qc_report_no || '', quantity: Number(row.quantity || 0),
   })
-  batchPreview.value = null
-  reason.value = ''
   showModal.value = true
 }
 
-watch([form, reason], () => { batchPreview.value = null; requestKey.value = '' }, { deep: true })
 const save = async () => {
   if (!form.productId) { toast.add({ title: '请选择关联产品', color: 'warning' }); return }
   if (!form.batchNo.trim()) { toast.add({ title: '请输入生产批次号', color: 'warning' }); return }
@@ -83,13 +90,8 @@ const save = async () => {
   saving.value = true
   try {
     if (!editingId.value) { toast.add({ title: '请选择要编辑的批次', color: 'warning' }); return }
-    if (!batchPreview.value) {
-      batchPreview.value = await $fetch('/api/admin/batches/' + editingId.value + '/preview', { method: 'POST', body: { ...form, reason: reason.value } })
-      requestKey.value = crypto.randomUUID()
-      return
-    }
-    const result: any = await $fetch('/api/admin/batches/' + editingId.value, { method: 'PATCH', body: { ...form, reason: reason.value, previewToken: batchPreview.value.previewToken, requestKey: requestKey.value } })
-    toast.add({ title: result.status === 'pending' ? '更正申请已提交总部审批' : '批次已更新', color: 'success' })
+    await $fetch('/api/admin/batches/' + editingId.value, { method: 'PATCH', body: { ...form } })
+    toast.add({ title: '批次已更新', color: 'success' })
     showModal.value = false
     refresh()
   } catch (e: any) {
@@ -240,7 +242,7 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
           </div>
           <div>
             <h3 class="b-modal-title">编辑批次</h3>
-            <p class="b-modal-sub">更正公共生产资料：涉及该批次所有上传文件，码级更正值保留</p>
+            <p class="b-modal-sub">编辑批次档案：效期/质检更正后，扫码页展示随之更新</p>
           </div>
         </div>
         <div class="b-modal-body">
@@ -262,7 +264,7 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="b-label-lg">生产日期 <span class="b-required">*</span></label>
-              <UInput v-model="form.produceDate" type="date"  />
+              <UInput v-model="form.produceDate" type="date" @change="autoExpire" />
               <p class="b-help">请确认与产品标签喷码日期一致</p>
             </div>
             <div>
@@ -290,13 +292,9 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
             </div>
           </div>
         </div>
-        <div class="px-5 pb-4 space-y-3">
-            <label class="b-label">更正原因 *</label><UTextarea v-model="reason" maxlength="500" class="w-full" />
-            <div v-if="batchPreview" class="b-note">本次涉及 {{ batchPreview.uploadCount }} 个上传文件、{{ batchPreview.targetCount }} 条码；{{ batchPreview.legacyCount }} 条历史码保留原有覆盖值。请核对上方公共资料，继续确认后提交。</div>
-          </div>
-          <div class="b-modal-foot">
+        <div class="b-modal-foot">
           <UButton variant="outline" color="neutral" @click="showModal = false">取消</UButton>
-          <UButton color="neutral" variant="solid" :loading="saving" @click="save">{{ batchPreview ? '确认提交更正' : '预览影响范围' }}</UButton>
+          <UButton color="neutral" variant="solid" :loading="saving" @click="save">保存</UButton>
         </div>
       </div>
       </template>

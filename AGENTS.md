@@ -21,11 +21,6 @@
 
 ---
 
-
-### 2026-09-15 变更：生产绑定与整批修正已拆分
-- 新增独立页面与接口：生产绑定、整批修正、公共生产批次更正、审批记录；修正按上传文件码级覆盖，公共批次更正显示跨文件影响。
-- 新增 production_override 与 production_operation/production_change 结构；旧混合修正入口已停用。
-- 验证：TypeScript、生产构建、34 项隔离接口/数据库场景及浏览器页面检查通过。
 ## 📌 项目：农资315 · 追溯码管理平台（SaaS）
 
 | 项 | 说明 |
@@ -277,4 +272,3 @@ gives you structural context (callers, dependents, test coverage) that file sear
 3. Use `get_affected_flows_tool` to understand impact.
 4. Use `query_graph_tool` pattern="tests_for" to check coverage.
 <!-- /code-review-graph MCP tools -->
-
