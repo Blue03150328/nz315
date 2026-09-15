@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { isInputDate } from '#shared/utils/input-date'
 // 码库管理（2026-09-04 聚合改造）：不再逐条展示追溯码，改为按「上传文件批次」聚合展示——
 // 每行 = 生产采集上传的一份追溯码文件（upload_batch），展示批次汇总信息与整批操作。
 // 行操作：【详细】弹窗查看/单行操作本批次码明细（原单条表格内容，仅查看+单行冻结/作废/恢复）、
@@ -90,6 +91,7 @@ const submitFreeze = async () => {
 
 // ============ 整批修正（表单字段复用批量修正工具：批次重绑/生产日期/有效期/质检/合格证号） ============
 const showCorrectModal = ref(false)
+const showBindModal = ref(false)
 const correcting = ref(false)
 const correctTarget = ref<any>(null)
 // batchId=0 与 qcResult='keep' 为「不修改」哨兵值（reka-ui 禁止空字符串 value）
@@ -105,21 +107,27 @@ const { data: batchAll } = await useFetch<any>('/api/admin/batches', {
   key: 'admin-upload-batches-correct',
   query: { page: 1, pageSize: 100 },
 })
-const openCorrect = (row: any) => {
+const openCorrect = (row: any, bind = false) => {
   if (row.frozenCount + row.voidedCount > 0) {
     toast.add({ title: '本批次含 ' + (row.frozenCount + row.voidedCount) + ' 条已冻结/已作废的码，整批修正前请先在「详细」中处理（单行恢复/作废）', color: 'warning' })
     return
   }
   correctTarget.value = row
   Object.assign(correctForm, { batchId: 0, produceDate: '', expireDate: '', qcResult: 'keep', qualityCertNo: '', batchNo: '', qcReportNo: '' })
-  newBatchMode.value = false
-  showCorrectModal.value = true
+  newBatchMode.value = bind
+  showBindModal.value = bind
+  showCorrectModal.value = !bind
 }
 const submitCorrect = async () => {
-  // 新建批次模式：三要素必填（质检默认合格）；与字段修正/已有批次绑定互斥
+  for (const [label, value] of [['生产日期', correctForm.produceDate], ['有效期至', correctForm.expireDate]]) {
+    if (value && !isInputDate(value)) {
+      toast.add({ title: label + '请输入有效日期，格式为 YYYY-MM-DD', color: 'warning' }); return
+    }
+  }
+  // 新建批次模式：批号、生产日期必填，合格证号为空使用约定文字（质检默认合格）；与字段修正/已有批次绑定互斥
   if (newBatchMode.value) {
-    if (!correctForm.batchNo.trim() || !correctForm.produceDate || !correctForm.qualityCertNo.trim()) {
-      toast.add({ title: '新建批次需填写生产批次号、生产日期与质量合格证号', color: 'warning' }); return
+    if (!correctForm.batchNo.trim() || !correctForm.produceDate) {
+      toast.add({ title: '新建批次需填写生产批次号与生产日期', color: 'warning' }); return
     }
   } else if (!correctForm.batchId && !correctForm.produceDate && !correctForm.expireDate && correctForm.qcResult === 'keep' && !correctForm.qualityCertNo) {
     toast.add({ title: '请至少选择一个要修改的字段', color: 'warning' }); return
@@ -132,7 +140,7 @@ const submitCorrect = async () => {
         ? {
             batchNo: correctForm.batchNo.trim(),
             produceDate: correctForm.produceDate,
-            qualityCertNo: correctForm.qualityCertNo.trim(),
+            qualityCertNo: correctForm.qualityCertNo.trim() || '见箱内质量合格证',
             qcReportNo: correctForm.qcReportNo.trim() || undefined,
             expireDate: correctForm.expireDate || undefined,
           }
@@ -153,6 +161,7 @@ const submitCorrect = async () => {
     }
     toast.add({ title: (newBatchMode.value ? '绑定完成：' : '整批修正完成：') + (parts.join('，') || '无变更'), color: 'success' })
     showCorrectModal.value = false
+    showBindModal.value = false
     refresh()
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || '修正失败', color: 'error' })
@@ -468,6 +477,8 @@ const flagBadge = (f: number) => {
                     @click="openFreeze(row)"
                   >冻结</UButton>
                   <span class="b-sep" />
+                  <UButton variant="link" color="neutral" size="xs" icon="i-lucide-link" :disabled="row.codeTotal <= row.boundCount" @click="openCorrect(row, true)">新建批次并绑定</UButton>
+                  <span class="b-sep" />
                   <UButton variant="link" color="neutral" size="xs" icon="i-lucide-wrench" @click="openCorrect(row)">修正</UButton>
                   <span class="b-sep" />
                   <!-- 删除：批次内存在已绑定码时置灰不可点，hover 提示原因（disabled 按钮自身不触发 title，由外层 span 承载） -->
@@ -544,11 +555,6 @@ const flagBadge = (f: number) => {
             </div>
           </div>
           <div class="b-modal-body">
-            <UCheckbox
-              v-model="newBatchMode"
-              label="新建批次并绑定（自动建档；适用于「生成入库」的已生成码）"
-              class="mb-3"
-            />
             <div v-if="!newBatchMode">
               <label class="b-label-lg">重新绑定批次（仅"已生成"码生效，绑定后自动置为"已绑定"）</label>
               <USelect
@@ -578,12 +584,12 @@ const flagBadge = (f: number) => {
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="b-label-lg">生产日期 <span v-if="newBatchMode" class="b-required">*</span></label>
-                <UInput v-model="correctForm.produceDate" type="date" />
+                <BatchDateInput v-model="correctForm.produceDate" label="生产日期" />
                 <p class="b-help">{{ newBatchMode ? '与产品标签喷码日期一致（1049 第五条）' : '修改后扫码页展示的生产日期将变更，请确认与标签喷码一致' }}</p>
               </div>
               <div>
                 <label class="b-label-lg">有效期至</label>
-                <UInput v-model="correctForm.expireDate" type="date" />
+                <BatchDateInput v-model="correctForm.expireDate" label="有效期至" />
                 <p v-if="newBatchMode" class="b-help">选填；留空可在批次管理页补填</p>
               </div>
             </div>
@@ -599,8 +605,8 @@ const flagBadge = (f: number) => {
                 <p v-if="newBatchMode" class="b-help">新建批次质检默认为合格</p>
               </div>
               <div>
-                <label class="b-label-lg">质量合格证号 <span v-if="newBatchMode" class="b-required">*</span></label>
-                <UInput v-model="correctForm.qualityCertNo" :placeholder="newBatchMode ? '该批次质量合格证编号' : '不修改留空'" />
+                <label class="b-label-lg">质量合格证号</label>
+                <UInput v-model="correctForm.qualityCertNo" :placeholder="newBatchMode ? '留空自动填写：见箱内质量合格证' : '不修改留空'" />
               </div>
             </div>
             <div class="b-note">
@@ -611,6 +617,86 @@ const flagBadge = (f: number) => {
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showCorrectModal = false">取消</UButton>
             <UButton color="neutral" variant="solid" :loading="correcting" @click="submitCorrect">确认修正</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <UModal v-model:open="showBindModal">
+      <template #content>
+        <div class="b-modal">
+          <div class="b-modal-head">
+            <div class="b-modal-icon">
+              <UIcon name="i-lucide-wrench" class="h-4 w-4 text-[var(--b-text-regular)]" />
+            </div>
+            <div>
+              <h3 class="b-modal-title">新建批次并绑定</h3>
+              <p class="b-modal-sub">作用域：本批次全部 {{ correctTarget?.codeTotal || 0 }} 条追溯码</p>
+            </div>
+          </div>
+          <div class="b-modal-body">
+            <div v-if="!newBatchMode">
+              <label class="b-label-lg">重新绑定批次（仅"已生成"码生效，绑定后自动置为"已绑定"）</label>
+              <USelect
+                v-model="correctForm.batchId"
+                :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
+                class="w-full"
+                :content="{ class: 'min-w-72' }"
+                :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
+              />
+            </div>
+            <div v-else class="space-y-3">
+              <div>
+                <label class="b-label-lg">生产批次号 <span class="b-required">*</span></label>
+                <UInput v-model="correctForm.batchNo" placeholder="与产品标签喷码一致；批号已存在则自动归并" />
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="b-label-lg">质检报告号</label>
+                  <UInput v-model="correctForm.qcReportNo" placeholder="选填" />
+                </div>
+                <div class="flex items-end pb-1">
+                  <span class="b-tag b-tag-success">质检默认合格</span>
+                </div>
+              </div>
+              <p class="b-help">生产日期、质量合格证号在下方填写；有效期至选填（可稍后在批次管理页补填）；本批全部「已生成」码将绑定并置为「已绑定」</p>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="b-label-lg">生产日期 <span v-if="newBatchMode" class="b-required">*</span></label>
+                <BatchDateInput v-model="correctForm.produceDate" label="生产日期" />
+                <p class="b-help">{{ newBatchMode ? '与产品标签喷码日期一致（1049 第五条）' : '修改后扫码页展示的生产日期将变更，请确认与标签喷码一致' }}</p>
+              </div>
+              <div>
+                <label class="b-label-lg">有效期至</label>
+                <BatchDateInput v-model="correctForm.expireDate" label="有效期至" />
+                <p v-if="newBatchMode" class="b-help">选填；留空可在批次管理页补填</p>
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="b-label-lg">质量检验结果</label>
+                <USelect
+                  v-model="correctForm.qcResult"
+                  :disabled="newBatchMode"
+                  :items="[{ value: 'keep', label: '不修改' }, { value: '1', label: '合格' }, { value: '0', label: '不合格' }]"
+                  class="w-full"
+                />
+                <p v-if="newBatchMode" class="b-help">新建批次质检默认为合格</p>
+              </div>
+              <div>
+                <label class="b-label-lg">质量合格证号</label>
+                <UInput v-model="correctForm.qualityCertNo" :placeholder="newBatchMode ? '留空自动填写：见箱内质量合格证' : '不修改留空'" />
+              </div>
+            </div>
+            <div class="b-note">
+              <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+              <p class="b-note-text">已绑定码的生产日期/质检字段修改属合规更正，将记录强审计日志（不可撤销）；本批次含已冻结/作废码时需先在明细中处理</p>
+            </div>
+          </div>
+          <div class="b-modal-foot">
+            <UButton variant="outline" color="neutral" @click="showBindModal = false">取消</UButton>
+            <UButton color="neutral" variant="solid" :loading="correcting" @click="submitCorrect">确认绑定</UButton>
           </div>
         </div>
       </template>

@@ -1,4 +1,34 @@
 ## 变更记录
+### 2026-09-15 | 分离新建批次绑定与整批修正
+- 码库列表新增「新建批次并绑定」独立弹窗入口，原「修正」保留独立弹窗，移除模式切换复选框。
+- 新建绑定合格证号选填，留空统一写入「见箱内质量合格证」，已有批次一致性校验与三处数据同步沿用原逻辑；整批修正留空仍不修改。
+- 两弹窗生产日期/有效期至支持 YYYY-MM-DD 手输与右侧原生日历选择，前后端校验真实日期。其他入口及状态判定不变。
+- 验证：TypeScript 检查通过、日期边界 9 项通过、生产构建通过（12 MB，沙箱 EPERM 后提权重跑）；未执行真实业务数据写入和浏览器交互验收。
+
+### 2026-09-12 | 域名不可访问排查 + 阿里云上线方案（部署材料三件套 + 操作手册）
+- **背景**：用户问「`https://www.nz315.cn/MP_verify_OUOoNSqTrpZkfWli.txt` 浏览器访问不了」，随后要求给出「让服务在公网可访问」的完整做法。已知条件：阿里云 ECS、Linux、2 核 4G、自建 MySQL 8、微信公众号**服务号已就绪**、代码尚未部署到服务器。
+- **排查结论（域名与站点层，与校验文件无关）**：① `www.nz315.cn` 在 AliDNS(223.5.5.5) 与 114DNS 均返回 **Non-existent domain**；② 裸域 `nz315.cn` 只有 SOA 与 NS（`dns1/dns2.hichina.com` = 阿里云万网）**无任何 A 记录**；③ 本地侧完全正常——`public/MP_verify_OUOoNSqTrpZkfWli.txt` 16 字节，`http://localhost:3100/MP_verify_OUOoNSqTrpZkfWli.txt` **HTTP 200**；④ `docs/handover/08-待办清单.md` P0-2 记载**无服务器、无备案、无证书**，即站点从未上线到公网。→ **"不可访问"的真因是域名无解析 + 站点未部署，校验文件本身无罪。**
+- **决定排期的关键约束**：微信「网页授权域名」**强制要求域名已备案**（微信后台对接工信部备案库校验，未备案直接拒绝保存），换中国香港/海外服务器**同样绕不开**；管局审核 1–20 个工作日且**无法加急**；未备案期间域名不能解析到大陆节点（阿里云拦截，备案期间网站无法访问），只能以 `http://<公网IP>:3000` 测试。距合规硬节点 2026-11-01 剩 **50 天**——结论是**备案是唯一关键路径，必须最先启动**。
+- **交付物（4 个新文件）**：
+  1. `deploy/setup-server.sh` —— 服务器环境一键初始化（幂等）：2G swap（2 核 4G 跑 `nuxt build` 防 OOM）、Node 22 走 **npmmirror 二进制**（国内直连，不走国外源）并切 npm 源、MySQL 8（utf8mb4 + `+08:00` + max_connections 200）、nginx、PM2、目录（`/var/www/nz315` 权限 750，因 `.output/` 内嵌明文凭据）、firewalld 放行 80/443。
+  2. `deploy/nginx-nz315.conf` —— 80→443 全量跳转（并放行 `/.well-known/acme-challenge/` 供证书续期）+ **裸域名 `nz315.cn` 301 到 `www.nz315.cn`**（微信回调域名取自请求头 Host，白名单只登记 www，否则真机撞 **10003**）+ 反代 `127.0.0.1:3000`、透传 `X-Forwarded-Proto`、`client_max_body_size 60m`、SSR 不缓冲、超时 120s。
+  3. `deploy/ecosystem.config.cjs` —— PM2 守护（`type: module` 项目必须用 `.cjs` 后缀）：仅监听回环、`max_memory_restart 800M`、`min_uptime 30s` 防重启风暴、日志落 `/var/log/nz315/`。
+  4. `docs/上线操作手册-阿里云.md` —— 以备案为关键路径的操作序列，含：备案三个硬前置条件（包年包月≥3 个月 / 备案服务号 / 域名持有人与主体一致）、**企业主体 vs 个人主体的决策**（本平台属经营性质，个人备案有驳回与事后注销风险）、材料清单、备案等待期可并行项、备案通过后的解析/证书/微信校验/公安联网备案/备案号展示、上线验收 14 项、故障速查表。
+- **本轮查出的两个项目侧缺口（已写入手册，属待办）**：① **前端无任何备案号展示**——`app/` 全目录搜 `备案`/`ICP` 零命中，而工信部要求首页底部标注备案号并链接工信部，备案通过后需补页脚（手册 §4.6）；② **农药登记数据源 xlsx 已不在项目根目录**（`.gitignore` 排除、不随仓库分发），而 `pesticide_reg`（97,471 条）是产品弹窗搜索/回填的必需数据 → 手册给出替代路径「本机 `mysqldump` 仅导出 `pesticide_reg` 单表 → `scp` → 服务器导入」，本机 `C:/Program Files/MySQL/MySQL Server 8.0/bin/mysqldump.exe` 已确认可用。另注：`backup/nz315_20260905085514.sql`（25 MB）虽含全部 15 表，但**落后于 2026-09-07「删 `system_setting` 表」的结构变更，已过时**，不宜直接用于生产恢复。
+- **校验情况**：`bash -n deploy/setup-server.sh` 通过；`node --check deploy/ecosystem.config.cjs` 通过；nginx 配置花括号配平 7/7、server 块 3 个；三个文件换行符经 Python 逐字节实测 **CRLF=0 / 单独 CR=0（纯 LF）**。**未验证项：脚本未在任何 Linux 上实跑过，`rhel`/`debian` 分支与 `dnf`/`apt` 包名仅按官方文档与常见发行版推断，首次部署时须逐段观察输出。**
+- **⚠️ 本轮我犯过一次误报并已自我更正（记录留痕）**：初检换行符时用 `grep -c $'\r'` 得出「三个文件全是 CRLF、共 412 行含 CR」，据此还执行了 `sed -i 's/\r$//'` 与 `tr -d '\r'` 两次「修复」；随后用 `od -c` 与 Python `read_bytes().count(b'\r\n')` 复核，**证明文件自始即为纯 LF、CR 计数为 0**——`grep -c $'\r'` 在 Git Bash（PortableGit）下对该模式不可靠，输出的是**假阳性**。当前文件状态正确，无需再转换。该工具陷阱已记入 `AGENTS.md` 踩坑表（判 CRLF 改用 `od -c` 或 Python 逐字节，勿用 grep）。
+- **修改文件**：新增 `deploy/setup-server.sh`、`deploy/nginx-nz315.conf`、`deploy/ecosystem.config.cjs`、`docs/上线操作手册-阿里云.md`、`.gitattributes`（对 `deploy/*` 强制 `text eol=lf`，防后续在 Windows 编辑保存后变 CRLF）；`PROJECT_LOG.md`（本条）；`AGENTS.md`（进度段 + 踩坑表）。**代码零改动**，故未跑 tsc/构建。
+- **给下一个 Agent 的提示**：① 上线这件事的瓶颈是**备案**而不是技术，任何「先把域名跑起来」的想法在大陆节点都会撞阿里云拦截；② 微信回调域名由**请求 Host** 决定，nginx 必须把非 www 的 Host 301 到 www（本配置已做），否则真机必撞 10003；③ 生产 `.env` 的 `SESSION_SECRET` 若保持默认值会导致登录 **500**（`nuxt.config.ts:50-52` 主动抛错拦截），且 runtimeConfig **构建时内嵌**——必须「先配 `.env` 后 `npm run build`」，顺序反了要重新构建；④ 手册中 `deploy/...` 是**仓库内相对路径**，部署到 `/var/www/nz315` 后即 `/var/www/nz315/deploy/...`。
+### 2026-09-12 | 微信网页授权：回调域名机制澄清 + 文档校正 + 明文凭据脚本清理
+- **背景**：用户问「公众平台把网页授权域名配成 www.nz315.cn 这一步该怎么做」，并要求删除含明文凭据的临时脚本、修正文档中「redirect_uri 取自 SITE_URL」的错误表述。
+- **核心发现（文档与代码不符）**：`server/api/consumer/wechat/authorize.get.ts:15-17` 的 callback 由请求头 `x-forwarded-proto` + `host` **动态拼接**；全仓库 grep `SITE_URL` **只命中 4 处文档**（`docs/DEPLOYMENT.md:38`、`handover/03:131`、`08-待办 P0-4`、`AGENTS.md:148`），**代码零引用**。→ 原文档「改 `SITE_URL` 后重建」是一条**无效路径**；但也不必改代码，线上以 www.nz315.cn 访问时 Host 自动即白名单域名。
+- **机制澄清**：微信网页授权**没有服务器回调**——微信仅校验 `redirect_uri` 域名是否在白名单（不在即报 **10003** 且不跳转），跳转由**用户浏览器**执行。原记录「本地 127.0.0.1 回调无法被微信服务器访问」表述不准；真因是白名单不接受 IP、不接受带端口，且手机上的 127.0.0.1 指向手机自身。
+- **文档校正（4 处，采用删除线 + 更正标注，保留历史）**：`PROJECT_LOG.md` 2026-09-07 条目待办①②；`docs/handover/03-技术文档.md` §3.2 `SITE_URL` 行与头部复核行；`docs/handover/08-待办清单.md` P0-4 与头部复核行；`AGENTS.md` 待办段（第 4 处为主动补漏，用户未点名，但它是 AI 接手的第一入口）。
+- **凭据清理**：删除 `scripts/_tmp-set-wechat-env.mjs`（内含**明文 AppSecret**）。删除前已做全仓库反向扫描（以 `.env` 各键实际值做 `includes` 比对，排除 node_modules/.git/.output/.nuxt/screenshots/backup/logs 及 `.env` 自身）：**AppSecret 仅命中该文件**；`DB_PASSWORD` / `SESSION_SECRET` / `AMAP_WEB_KEY` / `NUXT_PUBLIC_AMAP_JS_KEY` **全部零命中**。该文件**未被 git 跟踪**（`.gitignore:25 scripts/_tmp-*` 命中、`git log --all` 无历史），故**未泄漏**，删除亦不产生 git 变更。另一临时探针 `scripts/_tmp-probe-wechat.mjs` 仅含 AppID（**公开信息**，授权 URL 自带，非秘密），**保留**。
+- **顺带发现与处置**：`public/MP_verify_OUOoNSqTrpZkfWli.txt`（用户自公众平台下载）此前**未提交**（`git status` 为 `??`）——不提交则生产构建不带此文件、微信抓取必失败，本轮**一并纳入提交**（`public/` 无 `.gitignore` 规则覆盖，可正常入库）。
+- **测试情况**：① `curl http://127.0.0.1:3100/MP_verify_OUOoNSqTrpZkfWli.txt` → **HTTP 200**、`text/plain; charset=utf-8`、**16 字节**、内容 `OUOoNSqTrpZkfWli`，与本地文件 `cmp` **逐字节一致**、**无 BOM、无多余换行**（微信字节级校验的两个坑已排除）；② 全量凭据反向扫描（见上，零残留）；③ 文档为纯文本改动，**代码零改动**，故未跑 tsc/构建。
+- **修改文件**：`PROJECT_LOG.md`（本条 + 2026-09-07 条目更正）、`docs/handover/03-技术文档.md`、`docs/handover/08-待办清单.md`、`AGENTS.md`（待办段 + 进度段）；新增 `public/MP_verify_OUOoNSqTrpZkfWli.txt`；删除 `scripts/_tmp-set-wechat-env.mjs`（未跟踪，无 diff）。
+- **给下一个 Agent 的提示**：① 微信网页授权回调域名由**请求 Host** 决定，不是环境变量——排查「回调域名不对」先查 nginx 是否把非 www 的 Host 301 到 www，而不是去改 `.env`；② 公众号还须单独配「**JS 接口安全域名**」（与「网页授权域名」是两个独立入口，各限 2 个），将来用 JSSDK 分享/定位时才需要；③ 若公众号开启「IP 白名单」，服务器出口 IP 必须加入，否则 callback 换 openid 会报 **40164**；④ 本地/测试环境无法走通真实授权（白名单不收 IP 与端口），可走已备案子域名隧道或微信公众平台**接口测试号**（后者不要求认证服务号）；⑤ 域名备案 + 站点上线是本步骤的硬前置，微信保存域名时会**实时抓取**校验文件。
 ### 2026-09-12 | push 前安全审查（semgrep）+ 代码图谱审查（code-review-graph）+ 交接文档过时项校正
 - **背景**：用户要求「直接 push、过时文档也改一下，push 前先用 semgrep 与 code-review-graph 两个技能审查」。属"推送前门禁 + 文档校正"一轮。
 - **semgrep 安全审查（两轮，0 findings）**：安装于隔离 venv `C:\Users\27475\.workbuddy\binaries\python\envs\default`（semgrep 1.177.0）。① 首轮 `p/security-audit` + `p/secrets` + `p/typescript` + `p/javascript`：125 条规则 × 121 个 git 跟踪文件 → **0 findings**；② 补轮 `p/owasp-top-ten` + `p/sql-injection` + `p/command-injection` + `p/jwt` + `p/nodejs` + `p/expressjs` + `p/xss`：79 条规则 → **0 findings**。注意 `--config=auto` 在 `--metrics=off` 下会直接报错（"Cannot create auto config when metrics are off"），须用具体规则包。
@@ -290,7 +320,7 @@
 ### 2026-09-07 | 微信网页授权凭据配置到位（.env，不入库）
 - **工作内容**：用户提供微信公众号 AppID/AppSecret（服务号，网页授权用）→ 追加到 .env（WECHAT_APP_ID/WECHAT_APP_SECRET，仅存本机，gitignore 已保护）；runtimeConfig 构建时内嵌，已重新生产构建 + 重启 3100。
 - **测试情况**：GET /api/consumer/wechat/authorize → 302 Location=https://open.weixin.qq.com/connect/oauth2/authorize?appid=wx1a6093c716310340&redirect_uri=https%3A%2F%2F127.0.0.1%3A3100%2Fapi%2Fconsumer%2Fwechat%2Fcallback&scope=snsapi_userinfo&state=%2Fprofile#wechat_redirect —— appid/scope/state 全部正确（配置前该端点 503「微信登录尚未配置」）；callback 端点需真实 code 才能全链路验证（不伪造，遵循「未配置凭据禁止假登录」同源原则）。
-- **遗留问题/待办**：①**用户操作**：微信公众平台「网页授权域名」配置为 www.nz315.cn（本地 127.0.0.1 回调无法被微信服务器访问）；②生产环境 SITE_URL 改 https://www.nz315.cn 后重建（redirect_uri 取自 SITE_URL，见 authorize.get.ts）；③真机验证授权回调（微信内打开 → 授权 → 落库 consumer → /profile 展示）；④其余待办不变
+- **遗留问题/待办**：①**用户操作**：微信公众平台「网页授权域名」配置为 www.nz315.cn（~~本地 127.0.0.1 回调无法被微信服务器访问~~ → **2026-09-12 更正**：网页授权**没有服务器回调**，微信只校验 `redirect_uri` 的域名是否在白名单，通过后由**用户浏览器**带 code 跳回；127.0.0.1 测不通的真因是白名单不接受 IP 与带端口，且手机上的 127.0.0.1 指向手机自身）；②~~生产环境 SITE_URL 改 https://www.nz315.cn 后重建（redirect_uri 取自 SITE_URL，见 authorize.get.ts）~~ → **2026-09-12 更正**：`redirect_uri` **取自请求头、非 `SITE_URL`**——`server/api/consumer/wechat/authorize.get.ts:15-17` 用 `x-forwarded-proto` + `host` 动态拼接，全仓库 grep `SITE_URL` **仅命中 4 处文档、代码零引用**，改它再重建不产生任何效果；改为**线上须确保唯一入口为 www.nz315.cn**（回调域名由 Host 决定，用 IP 或其他域名访问会撞微信 10003）；③真机验证授权回调（微信内打开 → 授权 → 落库 consumer → /profile 展示）；④其余待办不变
 - **给下一个 Agent 的提示**：凭据不在代码/文档/提交中；验证授权端点用 redirect:'manual' 的 fetch 检查 302 Location 即可，勿真调微信接口（需要真实用户 code）；consumer 会话 cookie nz315_consumer 与后台 nz315_user 不可互换
 
 ---

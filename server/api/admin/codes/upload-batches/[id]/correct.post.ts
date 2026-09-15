@@ -1,3 +1,4 @@
+import { isInputDate } from '#shared/utils/input-date'
 // POST /api/admin/codes/upload-batches/:id/correct —— 整批修正（2026-09-04 码库聚合改造）
 // 作用域 = 本上传批次（upload_batch）内全部追溯码；表单字段与批量修正工具（batch-correct）一致：
 //   重新绑定批次（仅"已生成"码生效，绑定后自动置"已绑定"）/ 生产日期 / 有效期至 / 质检结果 / 质量合格证号
@@ -16,6 +17,11 @@ export default defineEventHandler(async (event) => {
   if (!Number.isInteger(ubId) || ubId <= 0) throw createError({ statusCode: 400, statusMessage: '无效的上传批次ID' })
 
   const body = await readBody(event) || {}
+  for (const [key, label] of [['produceDate', '生产日期'], ['expireDate', '有效期至']] as const) {
+    if (body[key] && (typeof body[key] !== 'string' || !isInputDate(body[key]))) {
+      throw createError({ statusCode: 400, statusMessage: label + '请输入有效日期，格式为 YYYY-MM-DD' })
+    }
+  }
   const fid = user.role === 'platform_admin' ? null : user.enterprise_id
 
   // 上传批次归属校验 + 快照
@@ -53,11 +59,11 @@ export default defineEventHandler(async (event) => {
   // ① 新建批次绑定（仅"已生成"码；生成入库留档的码在此完成生产绑定，与 import 建批/归并同口径）
   if (isNewBatchMode) {
     const newProduceDate = String(body.produceDate || '').trim()
-    const newQualityCertNo = String(body.qualityCertNo || '').trim()
+    const newQualityCertNo = String(body.qualityCertNo || '').trim() || '见箱内质量合格证'
     const newQcReportNo = String(body.qcReportNo || '').trim() || null
     const newExpireDate = String(body.expireDate || '').trim() || null
-    if (!newProduceDate || !newQualityCertNo) {
-      throw createError({ statusCode: 400, statusMessage: '新建批次需同时填写生产日期与质量合格证号' })
+    if (!newProduceDate) {
+      throw createError({ statusCode: 400, statusMessage: '新建批次需填写生产日期' })
     }
     // 本行须存在可绑定的"已生成"码（生产采集导入的行全为已绑定，无需此操作）
     const [unbound] = await query<any[]>(
