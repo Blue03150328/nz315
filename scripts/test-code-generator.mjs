@@ -1,11 +1,7 @@
-// 追溯码生成核心逻辑端到端测试（Node 24 原生 TS 运行；不依赖 dev 服务器）
-// 覆盖：36 种自定义段配置组合 × 结构/校验位/批量统计 + QR/DM 图片渲染 + zip 打包
+// 追溯码生成核心逻辑端到端测试（Node 原生 TS 运行；不依赖 dev 服务器）
+// 覆盖：36 种自定义段配置组合 × 结构/校验位/批量统计
+// 注：图片渲染与 zip 打包用例已于 2026-09-15 随服务端生成链路下线移除
 import { generateOne, generateBatch, checksumValue, segments, DEFAULT_CONFIG, TIMESTAMP_TYPES, RANDOM_TYPES, CHECKSUM_TYPES } from '../server/utils/code-generator.ts'
-import { renderCodePng } from '../server/utils/qr-image.ts'
-import archiver from 'archiver'
-import { mkdir, writeFile, readdir, rm } from 'node:fs/promises'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
 
 let pass = 0
 let fail = 0
@@ -54,29 +50,10 @@ ok(batch2.codes.length === 3 && batch2.codes.every(c => c !== '12301011001000000
 const rnd = generateBatch(ctx, 200, { timestampType: 'none', randomType: 'rand8', checksumType: 'none' })
 ok(new Set(rnd.codes).size === 200, 'rand8 无碰撞（200 条采样）')
 
-// ---------- 5. QR / DM 图片渲染 ----------
-const pngQr = await renderCodePng('https://www.nz315.cn/trace?code=' + batch.codes[0], { type: 'QR', moduleSize: 4, quietZone: 2 })
-ok(pngQr.length > 100 && pngQr.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), 'QR PNG 有效 (' + pngQr.length + 'B)')
-const pngDm = await renderCodePng('https://www.nz315.cn/trace?code=' + batch.codes[0], { type: 'DM', moduleSize: 4, quietZone: 2 })
-ok(pngDm.length > 100 && pngDm.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])), 'DM PNG 有效 (' + pngDm.length + 'B)')
-
-// ---------- 6. zip 打包（模拟下载 API 流程） ----------
-const dir = join(tmpdir(), 'nz315-test-' + Date.now())
-await mkdir(dir, { recursive: true })
-for (let i = 1; i <= 5; i++) await writeFile(join(dir, 'bar_' + String(i).padStart(4, '0') + '.png'), pngQr)
-const zipPath = join(tmpdir(), 'nz315-test-' + Date.now() + '.zip')
-const archive = archiver('zip', { zlib: { level: 9 } })
-const out = await import('node:fs').then(m => m.createWriteStream(zipPath))
-archive.pipe(out)
-archive.directory(dir, false)
-archive.finalize()
-await new Promise((resolve, reject) => { out.on('close', resolve); out.on('error', reject) })
-const zipBuf = await import('node:fs/promises').then(m => m.readFile(zipPath))
-ok(zipBuf.subarray(0, 2).toString() === 'PK', 'zip 文件头正确 (' + zipBuf.length + 'B)')
-const zipFiles = await readdir(dir)
-ok(zipFiles.length === 5, '临时目录 5 张 PNG')
-await rm(dir, { recursive: true, force: true })
-await rm(zipPath, { force: true })
+// ---------- 5. 图片渲染与 zip 打包：已随服务端生成下线移除（2026-09-15） ----------
+// 原「QR/DM PNG 渲染 + archiver zip 打包」用例，测的是 server/utils/qr-image.ts 与下载 API。
+// 该链路已整体下线（二维码图片改由官方离线工具在本机生成），故用例一并删除，不再断言。
+// 本脚本此后只覆盖「码生成引擎」本身：结构 / 校验位 / 批量统计。
 
 console.log('\n==== 测试结果: 通过 ' + pass + ' / 失败 ' + fail + ' ====')
 if (fail > 0) process.exit(1)

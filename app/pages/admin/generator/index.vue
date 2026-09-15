@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 追溯码生成（PRD 5.5.1：离线生成工具 Web 版——生成不入库，导出文件后经生产采集导入）
 // 自定义段配置对齐 PRD 3.2：时间戳段 + 随机数字段 + 校验位段；导出命名对齐 PRD 5.5.1 强制命名规范
-// 二维码图片输出对齐合规第一条（QR/DM 码制，供印刷厂赋码）
+// 二维码图片输出对齐合规第一条（QR/DM 码制，供印刷厂赋码）：2026-09-15 起改为「下载官方离线工具、本机生成」，服务端不再渲染 PNG
 // Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '追溯码生成' })
@@ -55,15 +55,12 @@ const SEGMENT_COLORS = ['b-tag-danger', 'b-tag-info', 'b-tag-warning', 'b-tag-su
 const resetPage = () => {
   Object.assign(form, { productId: null, quantity: 100 })
   result.value = null
-  Object.assign(imgForm, { codeType: 'QR', moduleSize: 4, quietZone: 2, count: null, prefix: '', startIndex: 1 })
-  imgResult.value = null
   toast.add({ title: '已重置，页面恢复初始状态', color: 'primary' })
 }
 
 const doGenerate = async () => {
   if (!form.productId) { toast.add({ title: '请选择产品', color: 'warning' }); return }
   if (form.quantity < 1 || form.quantity > 10000) { toast.add({ title: '生成数量须为 1-10000', color: 'warning' }); return }
-  imgResult.value = null // 新一批码，清空图片输出结果
   generating.value = true
   try {
     result.value = await $fetch('/api/admin/codes/generate', { method: 'POST', body: { ...form } })
@@ -173,49 +170,42 @@ const doStockIn = async () => {
   }
 }
 
-// ========== 二维码图片输出（合规第一条：QR/DM 码制，供印刷厂赋码） ==========
-const imgForm = reactive({
-  codeType: 'QR' as 'QR' | 'DM',
-  moduleSize: 4,
-  quietZone: 2,
-  count: null as number | null, // 留空 = 全部
-  prefix: '',
-  startIndex: 1,
-})
-const imgGenerating = ref(false)
-const imgResult = ref<any>(null)
-
-const doGenImages = async () => {
-  if (!result.value?.allCodes?.length) { toast.add({ title: '请先生成追溯码', color: 'warning' }); return }
-  imgGenerating.value = true
-  imgResult.value = null
-  try {
-    imgResult.value = await $fetch('/api/admin/codes/qrcode', {
-      method: 'POST',
-      body: {
-        codes: result.value.allCodes,
-        type: imgForm.codeType,
-        moduleSize: imgForm.moduleSize,
-        quietZone: imgForm.quietZone,
-        count: imgForm.count,
-        prefix: imgForm.prefix || urlFilePrefix(),
-        startIndex: imgForm.startIndex,
-      },
-    })
-    toast.add({ title: '图片生成完成：' + imgResult.value.done + ' 张' + (imgResult.value.failed ? '（失败 ' + imgResult.value.failed + ' 张）' : ''), color: 'success' })
-  } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage || '图片生成失败', color: 'error' })
-  } finally {
-    imgGenerating.value = false
-  }
+// ========== 二维码图片输出：官方离线工具（合规第一条：QR/DM 码制，供印刷厂赋码） ==========
+// 2026-09-15 改造：原「服务端渲染 PNG + zip 打包下载」整体下线，改为下载官方离线工具在本机生成——
+// 万张级批量不再受服务器与网络限制，印刷厂/生产车间可离线自行出图；码内容口径与平台一致（完整扫码 URL）。
+// 工具发布件放 public/tools/；版本号/size/SHA256 在此维护并展示，便于客户核对拿到的是否为官方发布件
+const OFFLINE_TOOL = {
+  name: '农药追溯码生成工具',
+  version: 'v1.1.0（便携版）',
+  platform: 'Windows 10/11',
+  size: '90.6 MB',
+  fileName: '农药追溯码生成工具-v1.1.0-便携版.exe',
+  url: '/tools/nz315-qr-tool-v1.1.0.exe',
+  // 发布件校验值：客户下载后可用 `certutil -hashfile 文件名 SHA256` 核对，确认拿到的是官方发布件、未被替换
+  sha256: 'df9cd9ea79cd67d545ee3f4161d1175c1197344c2dba3509e5b27a46347f59a7',
 }
+const toolDownloading = ref(false)
 
-const downloadZip = () => {
-  if (!imgResult.value?.token) return
-  const a = document.createElement('a')
-  a.href = '/api/admin/codes/qrcode-download?token=' + encodeURIComponent(imgResult.value.token)
-  a.download = 'trace-qrcodes.zip'
-  a.click()
+/** 离线工具下载：走 fetch → Blob → 临时 a 标签。
+ *  不用 <a href download> 直链——SPA 客户端路由会拦截无路由路径（同 specs/index.vue 模板下载的踩坑记录） */
+const downloadOfflineTool = async () => {
+  toolDownloading.value = true
+  try {
+    const blob: any = await $fetch(OFFLINE_TOOL.url, { responseType: 'blob' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = OFFLINE_TOOL.fileName
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    toast.add({ title: '离线工具下载已开始', color: 'success' })
+  } catch {
+    toast.add({ title: '离线工具下载失败，请稍后重试', color: 'error' })
+  } finally {
+    toolDownloading.value = false
+  }
 }
 </script>
 <template>
@@ -224,7 +214,7 @@ const downloadZip = () => {
     <div class="flex items-center justify-between">
       <div>
         <h1 class="b-page-title">追溯码生成</h1>
-        <p class="b-page-desc">按 1049 号公告结构批量生成 32 位追溯码（生成不入库，导出后经生产采集导入；二维码图片供印刷厂赋码）</p>
+        <p class="b-page-desc">按 1049 号公告结构批量生成 32 位追溯码（生成不入库，导出后经生产采集导入；二维码图片由官方离线工具在本机生成）</p>
       </div>
       <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetPage">重置</UButton>
     </div>
@@ -380,10 +370,10 @@ const downloadZip = () => {
       </div>
 
       <div class="b-card-foot">
-        <span class="b-card-extra">TXT 命名遵循 PRD 5.5.1 强制规范（企业ID_产品名_规格_日期）；urls.txt 每行为完整扫码地址，可直接用于二维码印刷。码文件可先「入库留档」——入库为「已生成（未绑定）」，生产时到码库管理绑定批次</span>
+        <span class="b-card-extra">TXT 命名遵循 PRD 5.5.1 强制规范（企业ID_产品名_规格_日期）；urls.txt 每行为完整扫码地址，是离线二维码工具的输入文件（见下方「二维码图片输出」）。码文件可先「入库留档」——入库为「已生成（未绑定）」，生产时到码库管理绑定批次</span>
         <div class="flex flex-wrap items-center gap-2">
           <UButton variant="outline" color="neutral" icon="i-lucide-file-text" @click="exportTxt">导出 TXT</UButton>
-          <UButton variant="outline" color="neutral" icon="i-lucide-link" @click="exportUrls">导出 urls.txt</UButton>
+          <UButton variant="outline" color="neutral" icon="i-lucide-link" @click="exportUrls">导出 urls.txt（离线工具输入）</UButton>
           <UButton color="neutral" variant="solid" icon="i-lucide-file-spreadsheet" @click="exportCsv">导出 CSV</UButton>
           <span class="b-sep" />
           <UButton
@@ -400,76 +390,44 @@ const downloadZip = () => {
       </div>
     </div>
 
-    <!-- 二维码图片输出（合规第一条：QR/DM 码制） -->
-    <div v-if="result" class="b-card">
+    <!-- 二维码图片输出：官方离线工具（合规第一条：QR/DM 码制） -->
+    <div class="b-card">
       <div class="b-card-head">
-        <span class="b-card-title">二维码图片输出</span>
-        <span class="b-card-extra">按 1049 号公告第一条生成 QR / DataMatrix 码 PNG，zip 打包供印刷厂赋码</span>
+        <span class="b-card-title">二维码图片输出（离线工具）</span>
+        <span class="b-card-extra">按 1049 号公告第一条生成 QR / DataMatrix 码 PNG，供印刷厂赋码</span>
       </div>
-      <div class="b-form-grid md:grid-cols-2 xl:grid-cols-3">
-        <div>
-          <label class="b-label">码制</label>
-          <USelect v-model="imgForm.codeType" class="w-full" :items="[
-            { value: 'QR', label: 'QR 码（推荐）' },
-            { value: 'DM', label: 'DataMatrix 码' },
-          ]" />
-        </div>
-        <div>
-          <label class="b-label">模块大小（像素）</label>
-          <UInput v-model.number="imgForm.moduleSize" type="number" min="1" max="20" />
-        </div>
-        <div>
-          <label class="b-label">静区白边（模块）</label>
-          <UInput v-model.number="imgForm.quietZone" type="number" min="0" max="20" />
-        </div>
-        <div>
-          <label class="b-label">数量（留空 = 全部）</label>
-          <UInput v-model.number="imgForm.count" type="number" min="1" placeholder="全部" />
-        </div>
-        <div>
-          <label class="b-label">文件名前缀</label>
-          <UInput v-model="imgForm.prefix" placeholder="默认：登记证号_产品名_数量_日期" />
-        </div>
-        <div>
-          <label class="b-label">起始序号</label>
-          <UInput v-model.number="imgForm.startIndex" type="number" min="1" />
-        </div>
-      </div>
-      <div class="px-4 pb-3.5">
+      <div class="b-card-body space-y-3">
         <div class="b-note">
           <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
-          <p class="b-note-text">模块大小印刷推荐 3-6；静区白边印刷必须 ≥2（保证识读率）；文件名示例：{前缀}_0001.png</p>
+          <p class="b-note-text">二维码图片改由官方<strong>离线工具</strong>在本机生成，不再经过服务器：万张级批量不受网络与服务器限制，印刷厂、生产车间均可离线自行出图。码内容口径与平台一致，为完整扫码地址（<span class="font-code">{{ traceBaseUrl }}32位码</span>）。</p>
+        </div>
+        <ol class="space-y-1.5 text-[13px] leading-6 text-[var(--b-text-muted)]">
+          <li>① 在上方「生成结果」区点【导出 urls.txt】，得到每行一个完整扫码地址的码文件。</li>
+          <li>② 下载并双击运行离线工具（便携版，免安装、无需联网）。</li>
+          <li>③ 在工具内导入该码文件，设置码制、模块大小、静区白边等参数，导出 PNG 图片包。</li>
+        </ol>
+        <div class="b-note">
+          <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+          <p class="b-note-text">
+            工具未做数字签名，首次运行若 Windows 提示「已保护你的电脑 / 未知发布者」，点【更多信息】→【仍要运行】即可。<br>
+            发布件校验值 SHA256：<span class="font-code break-all">{{ OFFLINE_TOOL.sha256 }}</span><br>
+            下载后可用 <span class="font-code">certutil -hashfile 文件名 SHA256</span> 核对，确认拿到的是官方发布件。
+          </p>
         </div>
       </div>
       <div class="b-card-foot">
-        <span class="b-card-extra">图片生成不影响已生成的码，可重复调整参数后再生成</span>
-        <UButton color="neutral" variant="solid" icon="i-lucide-qr-code" :loading="imgGenerating" @click="doGenImages">
-          生成二维码图片
+        <span class="b-card-extra">
+          {{ OFFLINE_TOOL.name }} {{ OFFLINE_TOOL.version }} · {{ OFFLINE_TOOL.platform }} · {{ OFFLINE_TOOL.size }}
+        </span>
+        <UButton
+          color="neutral"
+          variant="solid"
+          icon="i-lucide-download"
+          :loading="toolDownloading"
+          @click="downloadOfflineTool"
+        >
+          下载离线工具
         </UButton>
-      </div>
-
-      <!-- 图片生成结果 -->
-      <div v-if="imgResult" class="border-t border-[var(--b-divider)] p-4">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div class="b-card-title">{{ imgResult.type === 'DM' ? 'DataMatrix' : 'QR' }} 码生成完成</div>
-            <p class="b-card-extra">成功 {{ imgResult.done }} 张<span v-if="imgResult.failed">，失败 {{ imgResult.failed }} 张</span> · 耗时 {{ (imgResult.elapsedMs / 1000).toFixed(1) }}s</p>
-          </div>
-          <UButton color="neutral" variant="solid" size="sm" icon="i-lucide-download" @click="downloadZip">下载 ZIP</UButton>
-        </div>
-        <div class="mt-3 flex flex-wrap gap-3">
-          <div v-for="(b64, i) in imgResult.previews" :key="i" class="text-center">
-            <img :src="'data:image/png;base64,' + b64" class="h-24 w-24 rounded border border-[var(--b-border)] bg-white object-contain p-1" :alt="'预览' + (i + 1)" />
-            <div class="mt-1 text-xs text-[var(--b-text-muted)]">{{ i === 0 ? imgResult.exampleName : '...' }}</div>
-          </div>
-        </div>
-        <p class="b-help mt-3">zip 内按 {前缀}_{序号}.png 命名（示例：{{ imgResult.exampleName }}），下载凭证一次性有效</p>
-      </div>
-      <div v-else class="b-empty border-t border-[var(--b-divider)]">
-        <div class="b-empty-inner">
-          <UIcon name="i-lucide-image" class="b-empty-icon h-8 w-8" />
-          <span class="text-sm">生成后可预览前 3 张并打包下载全部 PNG</span>
-        </div>
       </div>
     </div>
   </div>

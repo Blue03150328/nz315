@@ -25,6 +25,21 @@ npm ci
 
 > Windows 本机 npm wrapper 损坏时使用：`node "<npm安装路径>/npm-cli.js" install`
 
+**⚠️ 必须额外拷贝 `public/tools/`（不要跳过）**
+
+生成页的「二维码图片输出」提供离线二维码生成工具下载，该 EXE 约 **90.6 MB**，因体积过大**已被 `.gitignore` 排除**（`public/tools/*.exe`）——`git clone` 拿不到它，跳过后页面下载按钮会 **404**。
+
+```bash
+# 从本机（或发布机）单独上传，目录结构要对齐
+scp -r public/tools/ root@<服务器IP>:/srv/二维码管理/public/tools/
+```
+
+| 文件 | 版本 | 大小 | SHA256 |
+|---|---|---|---|
+| `public/tools/nz315-qr-tool-v1.1.0.exe` | v1.1.0 便携版 | 90.6 MB | `df9cd9ea79cd67d545ee3f4161d1175c1197344c2dba3509e5b27a46347f59a7` |
+
+> 换新版本时：上传新文件 → 改 `app/pages/admin/generator/index.vue` 顶部的 `OFFLINE_TOOL` 常量（`url`/`version`/`size`/`sha256`）→ 重新 `npm run build`。**若用 `git archive` 打部署包，该目录同样不会被包含。**
+
 ### 2. 配置环境变量（.env）
 
 ```bash
