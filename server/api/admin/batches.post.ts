@@ -1,9 +1,9 @@
 // POST /api/admin/batches —— 新建生产批号（PRD 5.6）
 import { query, execute } from '../../utils/db'
-import { requireBackendUser } from '../../utils/auth'
+import { requireWritableUser } from '../../utils/auth'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const body = await readBody(event) || {}
 
   const productId = Number(body.productId)

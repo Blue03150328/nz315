@@ -33,7 +33,7 @@ export default defineEventHandler(async (event) => {
   }
   if (q.productId) { conds.push('ub.product_id = ?'); params.push(Number(q.productId)) }
   if (q.batchNo) {
-    conds.push('ub.batch_no LIKE ?')
+    conds.push('EXISTS (SELECT 1 FROM trace_code tc JOIN batch bc ON bc.id=tc.batch_id WHERE tc.upload_batch_id=ub.id AND bc.batch_no LIKE ?)')
     params.push('%' + String(q.batchNo).trim().slice(0, 64) + '%')
   }
   if (q.dateFrom) { conds.push('ub.created_at >= ?'); params.push(String(q.dateFrom) + ' 00:00:00') }
@@ -47,8 +47,10 @@ export default defineEventHandler(async (event) => {
   const [cntRow] = await query<any[]>(
     'SELECT COUNT(*) AS c FROM upload_batch ub ' + whereSql, params)
   const rows = await query<any[]>(
-    `SELECT ub.id, ub.file_name, ub.product_id, ub.batch_no, ub.created_at, ub.created_by,
+    `SELECT ub.id, ub.file_name, ub.product_id, ub.created_at, ub.created_by,
        p.name AS product_name,
+       CASE WHEN COUNT(DISTINCT t.batch_id)>1 THEN '多个生产批次'
+         ELSE MAX(b.batch_no) END AS batch_no,
        COUNT(t.id) AS code_total,
        COALESCE(SUM(t.abnormal_flag = 1), 0) AS frozen_count,
        COALESCE(SUM(t.abnormal_flag = 2), 0) AS voided_count,
@@ -56,6 +58,7 @@ export default defineEventHandler(async (event) => {
      FROM upload_batch ub
      LEFT JOIN product p ON p.id = ub.product_id
      LEFT JOIN trace_code t ON t.upload_batch_id = ub.id
+     LEFT JOIN batch b ON b.id=t.batch_id
      ` + whereSql + `
      GROUP BY ub.id, ub.file_name, ub.product_id, ub.batch_no, ub.created_at, ub.created_by, p.name
      ORDER BY ub.id DESC LIMIT ? OFFSET ?`, [...params, pageSize, offset])

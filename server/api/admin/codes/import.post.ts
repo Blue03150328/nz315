@@ -14,7 +14,8 @@
 //   ⑤ 自动建批 + 批量插码在同一数据库事务内，失败整体回滚，不留孤儿批次。
 import { getPool, query } from '../../../utils/db'
 import { sendMessage } from '../../../utils/notify'
-import { requireBackendUser } from '../../../utils/auth'
+import { requireWritableUser } from '../../../utils/auth'
+import { resolveProductionBatch } from '../../../utils/production-workflow'
 import { cleanLine, validateCode } from '../../../utils/code-validator'
 
 // 日期入参格式（YYYY-MM-DD，与批次页 UInput type=date 口径一致）
@@ -23,7 +24,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const CHUNK = 5000
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const body = await readBody(event) || {}
   const codes: string[] = (Array.isArray(body.codes) ? body.codes : []).map((c: any) => String(c))
   const productId = Number(body.productId)
@@ -50,9 +51,10 @@ export default defineEventHandler(async (event) => {
 
   const fid = user.role === 'platform_admin' ? null : user.enterprise_id
   const [prod] = await query<any[]>(
-    'SELECT id, enterprise_id FROM product WHERE id = ?' + (fid ? ' AND enterprise_id = ?' : ''),
+    'SELECT *, CURDATE() AS today FROM product WHERE id = ?' + (fid ? ' AND enterprise_id = ?' : ''),
     fid ? [productId, fid] : [productId])
   if (!prod) throw createError({ statusCode: 400, statusMessage: '产品不存在' })
+  if (Number(prod.status) !== 1 || (prod.registration_expire && prod.registration_expire < prod.today)) throw createError({ statusCode: 400, statusMessage: '产品已停用或登记证已过期，不能绑定' })
   const enterpriseId = Number(prod.enterprise_id)
 
   // 加载校验上下文（企业内；与 parse.post.ts 同口径，条件前缀必须 AND——基底已含 WHERE）
@@ -100,34 +102,11 @@ export default defineEventHandler(async (event) => {
   try {
     await conn.beginTransaction()
 
-    // 1) 批次：按 同产品+同批号 查找 → 命中校验复用 / 未命中自动创建
-    const batchCond = fid ? ' AND b.enterprise_id = ?' : ''
-    const [exist] = await conn.query<any[]>(
-      'SELECT b.id, b.produce_date, b.quality_cert_no, b.qc_result FROM batch b WHERE b.product_id = ? AND b.batch_no = ?' + batchCond,
-      fid ? [productId, batchNo, fid] : [productId, batchNo])
-    if (exist && exist.length > 0) {
-      const b = exist[0]
-      if (Number(b.qc_result) === 0) {
-        throw createError({ statusCode: 400, statusMessage: '批次 ' + batchNo + ' 质检不合格，其追溯码不得绑定（请先在生产批次页处理）' })
-      }
-      const dbDate = b.produce_date ? String(b.produce_date).slice(0, 10) : ''
-      const dbCert = String(b.quality_cert_no || '')
-      if (dbDate !== produceDate || dbCert !== qualityCertNo) {
-        throw createError({
-          statusCode: 400,
-          statusMessage: '批次 ' + batchNo + ' 已存在，生产日期/合格证号与本次填写不一致（库内 ' + (dbDate || '-') + ' / ' + (dbCert || '-') + '），请核对后再导入',
-        })
-      }
-      batchId = Number(b.id)
-    } else {
-      // 自动创建批次：质检默认合格；有效期至选填（可稍后在批次页补填）；生产数量未知记 0，编辑时补填
-      // mysql2 execute 返回类型为联合（QueryResult），实际 INSERT 运行时为 ResultSetHeader，断言取 insertId
-      const [r] = await conn.execute(
-        'INSERT INTO batch (enterprise_id, product_id, batch_no, produce_date, quality_cert_no, expire_date, qc_result, qc_report_no, quantity) VALUES (?,?,?,?,?,?,?,?,?)',
-        [enterpriseId, productId, batchNo, produceDate, qualityCertNo, expireDate, 1, qcReportNo, 0]) as unknown as [{ insertId: number }, unknown]
-      batchId = Number(r.insertId)
-      batchCreated = true
-    }
+    // 生产采集与库内首次绑定共用批次建档、复用及资料冲突校验。
+    const choice = await resolveProductionBatch(conn, prod, { batchNo, produceDate, qualityCertNo,
+      expireDate: body.expireDate || undefined, qcReportNo: body.qcReportNo || undefined }, true)
+    batchId = Number(choice.batch.id)
+    batchCreated = choice.created
 
     // 2) 上传文件批次建档（码库管理聚合维度：一份上传文件 = 一行 upload_batch，与插码同事务，
     //    失败整体回滚不留孤儿批次行）
@@ -150,6 +129,8 @@ export default defineEventHandler(async (event) => {
       inserted += Number(r.affectedRows || 0)
     }
 
+    // 新码显式跟随公共资料，避免冗余列被误认成人工更正。
+    await conn.execute('UPDATE trace_code SET production_override=JSON_OBJECT() WHERE upload_batch_id=?', [uploadBatchId])
     await conn.commit()
   } catch (e: any) {
     await conn.rollback()
