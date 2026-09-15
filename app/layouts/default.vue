@@ -25,6 +25,18 @@ const hideNav = computed(() => {
       <main class="pb-20 lg:mx-auto lg:w-full lg:max-w-6xl lg:px-8 lg:pb-10">
         <slot />
       </main>
+
+      <!-- 全站页脚：ICP 备案号公示（《互联网信息服务管理办法》要求网站底部标明备案号并链接工信部） -->
+      <footer class="px-4 pb-24 pt-2 text-center lg:pb-8">
+        <a
+          href="https://beian.miit.gov.cn/"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="text-xs text-muted transition-colors hover:text-primary"
+        >
+          桂ICP备2024035642号-5
+        </a>
+      </footer>
       <!-- 手机底部导航（仅 <lg 显示） -->
       <BottomNav v-if="!hideNav" />
     </div>
