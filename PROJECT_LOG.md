@@ -1,4 +1,11 @@
 ## 变更记录
+### 2026-09-15 | 修复「dev 服务弹 Vite 解析错误」——根因是构建与 dev 争抢 `.nuxt`
+- **现象**：用户看到浏览器弹窗 `[plugin:vite:import-analysis] Failed to resolve import "#app-manifest" from "node_modules/nuxt/dist/app/composables/manifest.js"`。**同时 `curl http://localhost:3100/login` 仍返回 200** —— 服务端（SSR）完全正常，只有客户端 Vite 管道挂了。
+- **根因（我的操作失误，不是代码问题）**：上一轮改造中我**在 dev 服务（计划任务 `NZ315 Dev Server`）运行期间跑了两次 `npm run build`**。`nuxt build` 会清空并重写共享的 `.nuxt` 目录，而正在跑的 dev 服务依赖其中的虚拟模块与别名（`#app-manifest` 属其一）→ 目录被换掉后客户端模块解析全线失败。**与代码改动无关**：本轮页面/服务端改动已用 tsc、引擎回归、生产构建、SSR 抓页四重验证通过，仅 dev 客户端的运行时环境被我自己破坏。
+- **处置（项目既有流程，实测 9 秒恢复）**：① `Stop-ScheduledTask -TaskName 'NZ315 Dev Server'` → 实测 `State=Ready`、端口 3100 释放、无残留 `dev-service.mjs`/`nuxt dev` 进程（剩余 node 进程均为无关的 MCP/Codex 运行时）；② 删 `.nuxt` + `node_modules/.cache` + `node_modules/.vite`；③ `Start-ScheduledTask` → 第 3 次探测（约 9 秒）即 200。
+- **复核（真实浏览器，非 curl）**：新写 `scripts/_tmp-cdp-vitecheck.mjs`（Edge headless + 原生 CDP，沿用项目既有 `_tmp-cdp-*.mjs` 模式，零额外依赖）→ **10 项全过**：`vite-error-overlay` 不存在 · 控制台无 `Failed to resolve import` · 无未捕获异常 · 无 5xx · `/admin/generator` 未被守卫弹回 · Nuxt 已 hydration · 新卡片标题/下载按钮/版本/体积全在位 · 旧表单已消失。截图 `.tmp-shot/gen-page-after-fix.png`（人工核对排版正常）。
+- **教训（已写进 AGENTS.md 踩坑表）**：① **不要在 dev 服务运行时构建**——要构建先停服务，构建完再启回来；② **「curl 200」不能当作 dev 健康的证据**——SSR 正常而客户端全挂是这套架构下的典型故障形态，必须用真实浏览器复核；③ 同族问题的另一半（`[optimizer] scanning dependencies...` / 全站 502）此前已记录，根因都是 `.nuxt` 与运行中的进程不匹配。
+- **修改文件**：`AGENTS.md`（踩坑表新增 1 行）、`PROJECT_LOG.md`（本条目）、`.workbuddy/memory/2026-09-15.md`（补记）。**代码零改动**（本轮只动文档与缓存），故未重跑 tsc/构建。
 ### 2026-09-15 | 二维码图片输出改为「下载官方离线工具、本机生成」（下线服务端 PNG 渲染与 zip 打包）
 - **背景与决策**：用户指着生成页「二维码图片输出」板块要求「改为放置一个下载链接，下载本地工具生成」。先出方案（含 3 种工具形态、服务端处置、下载权限、两点风险）经用户确认后执行；用户同时确认「服务端三个文件同轮删干净」+「下载放 public 公开」+「工具由我提供」。用户随后提供「农药追溯码生成工具 v1.1.0 便携版」EXE。
 - **页面（`app/pages/admin/generator/index.vue`）**：删 `imgForm` / `imgResult` / `doGenImages` / `downloadZip` 与整块模板（原六个参数：码制 / 模块大小 / 静区白边 / 数量 / 文件名前缀 / 起始序号，**全部随之下线，改由工具内设置**）、删 `resetPage` 里对 `imgForm`/`imgResult` 的重置、删 `doGenerate` 里对 `imgResult` 的清空。新增「二维码图片输出（离线工具）」卡片：三步说明（导出 urls.txt → 双击运行工具 → 导入并导出 PNG）+ 未签名 SmartScreen 提示 + SHA256 校验值与 `certutil` 核对方法 + 下载按钮。**下载实现走 `fetch → Blob → 临时 a 标签`**，注释里写明原因（`<a href download>` 直链会被 SPA 客户端路由拦截，同 `specs/index.vue` 模板下载的既有踩坑记录）。工具元信息收敛到页面顶部单一常量 `OFFLINE_TOOL`（name/version/platform/size/fileName/url/sha256），换版本只改这一处。
