@@ -42,5 +42,10 @@ Thumbs.db
 
 # 农药登记数据源文件（6.9MB xlsx，公开数据但体积大不入库；导入 scripts/import-regdata.mjs → pesticide_reg 表）
 2026农药登记证大全*.xlsx
+
+# 离线二维码生成工具发布件（便携版 EXE 约 90MB，体积过大不入库；
+# 放 public/tools/ 由本机磁盘直接提供下载，部署时需单独拷贝该目录到服务器）
+public/tools/*.exe
+public/tools/*.zip
 # Added by code-review-graph
 .code-review-graph/
