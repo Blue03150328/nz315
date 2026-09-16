@@ -1,12 +1,13 @@
 ## 变更记录
-### 2026-09-16 | 上线手册两处硬伤修复：pm2 命令写法 + public/tools 目录缺失（pm2 路径已实测确认）
+### 2026-09-16 | 上线手册三处硬伤修复：pm2 命令写法 · public/tools 目录缺失 · ps 判据形态（均已实测确认）
 - **结果一句话**：用户在宝塔终端实跑第 2 步报 `env: 'pm2': No such file or directory`，暴露出手册里一条**凭空猜的**命令（以及第一次「修正」时另一条更危险的猜测）；已全部改为有实测证据的写法，11 / 12 号两份手册同步修正。**服务器代码仍未改动一个字节**（用户只跑到第 2 步体检）。
 - **硬伤①（pm2 写法）**：原手册写 `env PATH=/usr/local/node22/bin:/usr/bin:/bin pm2 ...`——这段 PATH 只为让 `node`/`npm` 落到 node22，却把 pm2 一起圈了进去，而 pm2 不在该目录 → 直接报错。第一次修复又改成绝对路径 `/usr/local/bin/pm2`（当时**纯属推测、无任何证据**）。**最终结论（实测）**：`which pm2` = `/usr/local/bin/pm2`、`pm2 -v` = **7.0.3**；pm2 命令一律**裸写**（或写绝对路径，二者是同一二进制），**唯一禁忌是加 `env PATH=...` 前缀**——PM2 CLI 的 Node 版本与 God Daemon 不一致时，PM2 会**杀掉并重建 daemon**，而 daemon 与 `cynx` 共用（同一台宝塔机），会把正式站一起干掉。反向规则：`node`/`npm` 类命令**必须**带 node22 的 PATH 前缀。
 - **硬伤②（目录缺失）**：`/var/www/nz315/public/tools/` 在服务器上不存在（旧版不需要它，且 git 不跟踪空目录，`git archive` 包内也没有）→ 手册新增 `mkdir -p /var/www/nz315/public/tools/` 步骤，并明确顺序：**EXE 必须在第 7 步 `npm run build` 之前就位**（Nitro 是构建期把 `public/` 拷进 `.output/public/`）。
-- **顺带补强体检段（3 条判读）**：`node -v` 应为 `v22.22.2`（验证 node22 工具链可达，防第 7 步构建 command not found）；`ls public/tools/` **无输出属正常**；新增 `ps -eo pid,args | grep -E 'Daemon[.]js|God Daemon'` 与 `readlink -f /usr/local/bin/pm2`，把「daemon 究竟用哪个 node」从推测变成**可现场核对**——`node -v` 与守护进程那条的版本一致才安全。
+- **顺带补强体检段**：`node -v` 应为 `v22.22.2`（验证 node22 工具链可达，防第 7 步构建 command not found）；`ls public/tools/` **无输出属正常**（目录尚不存在）；`which pm2` = `/usr/local/bin/pm2`、`pm2 -v` = `7.0.3`。
+- **🔴 二次纠正（同一天内第二处「猜输出形态」翻车）**：我原本写「用 `ps -eo pid,args | grep God Daemon` 看第 1 列拿到 daemon 的 node 路径」——**实测输出是 `244345 PM2 v7.0.3: God Daemon (/root/.pm2)`：第 1 列是 PID，而且 PM2 会改写进程标题，`ps` 里根本看不到 node 路径**。判据已改用 `/proc/<pid>/exe`：`DPID=$(ps -eo pid,args | grep -E 'God Daemon|Daemon[.]js' | grep -v grep | awk '{print $1}' | head -1); readlink -f /proc/$DPID/exe; $(readlink -f /proc/$DPID/exe) -v`，再与 `which node`（实测 = **`/usr/bin/node`**）比对，一致才动手。**教训：要写进手册的「命令 + 期望输出」组合，证明输出形态的那一半同样需要证据**——同一天连踩两次（pm2 路径靠猜、`ps` 输出形态靠想象），都是"命令是我编的、没人跑过"。
 - **包内容复核（修正了我自己的假阴性）**：`tar tzf` 复核确认上传包**含** `deploy/`（未修正版 `ecosystem.config.cjs` 在包内 → 第 6 步「还原服务器修正版」**确有必要**）、**不含** `public/tools`、**不含** `.env`（只有 `.env.example`）、`docs/handover` 只到 10 号。**教训：列 tar 条目不要假设 `./` 前缀**（按 `/^\.\/deploy\//` 过滤时会得出「包里没有 deploy」的错误结论）。
-- **仓库状态**：`master` 提交 `7e805ff` → `80c44a5` → `85f0116`（docs 修正三连），领先 `origin/master` **5 个提交**；工作区干净；**上传包无需重打**（改动全在 docs，不参与构建）。
-- **给下一个 Agent 的提示**：① 手册里凡是「看起来合理」的路径/命令，**没有实测输出支撑的都算猜的**——写部署手册前先回头翻上一轮的真实命令输出；② 用户当前进度：第 2 步体检跑了一半，**下一步是从 2.1 的修正版命令重跑，再进 2.2 备份**；③ cynx 隔离铁律不变（只 `pm2 reload`、只 `nginx -s reload`、不碰它的文件与进程）。
+- **仓库状态**：`master` 提交 `7e805ff` → `80c44a5` → `85f0116`（docs 修正连发），领先 `origin/master` **9 个提交**；工作区干净；**上传包无需重打**（改动全在 docs，不参与构建）。
+- **给下一个 Agent 的提示**：① 手册里凡是「看起来合理」的路径/命令，**没有实测输出支撑的都算猜的**——写部署手册前先回头翻上一轮的真实命令输出；② 用户当前进度：第 2 步体检已跑出关键事实——`which pm2` = `/usr/local/bin/pm2`（v7.0.3）、`which node` = `/usr/bin/node`、daemon 进程标题 `PM2 v7.0.3: God Daemon (/root/.pm2)`；**下一步**是用 `/proc/<pid>/exe` 核对 daemon 与 CLI 同 node，再跑完 §2.1 其余项、进 §2.2 备份；③ cynx 隔离铁律不变（只 `pm2 reload`、只 `nginx -s reload`、不碰它的文件与进程）。
 
 ### 2026-09-16 | 把 feature/ewm 合入 master（主分支保持 master）并完成上线前本机验证（新增 11 号执行手册）
 - **结果一句话**：按用户要求「主分支继续是 master」，把 `ewm` 合入 `master`（`8264bcb` → **`92445d3`**，ewm 原样保留），合并结果 24/24 断言通过；本机 tsc 0 错误、生产构建成功（9.59 MB）、实跑生产入口 9/9 全过；已产出上传包与全套服务器执行命令（`docs/handover/11-部署方案-新分支上线.md`）。**服务器仍未改动一个字节。**
