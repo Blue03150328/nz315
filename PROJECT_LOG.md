@@ -1,4 +1,15 @@
 ## 变更记录
+### 2026-09-17 | 微信授权 502「未返回 openid」排查与修复（新增 15 号文档）
+- **现象**：微信中打开 `http://www.nz315.cn` → 我的 → 微信一键登录 → **502 · 微信授权失败：未返回 openid**。
+- **结论①：与 HTTPS 无关**。实测 `http://www.nz315.cn/` 200（标题「农资315 - 农药追溯查询」）、`/MP_verify_OUOoNSqTrpZkfWli.txt` 200（16 字节）、`authorize` 端点 302 且 `redirect_uri` 正确拼成 **http** 回调；**微信确实带着 code 回调到了服务器**（否则报的是 400「缺少 code」，而全仓库只有 `callback.get.ts` 一处会产生 502 那句文案）→ OAuth 第一步在 http 下是通的。同期复测 443：证书仍是 `CN=www.cynx.cn`、`https://www.nz315.cn/` 返回 cynx 首页、https 校验文件 **404**、**80 端口未做 301**（14 号文档第一段尚未执行）。
+- **结论②：根因在代码层——失败详情被吞掉**。原实现 `tokenRes?.errmsg || '未返回 openid'` 有两个盲区：**(a)** ofetch 对**非 JSON 的 Content-Type** 会把响应原样返回成**字符串**（微信接入层历史上存在 `text/plain`），此时 `openid` 与 `errmsg` **全为 undefined**；**(b)** 只取 `errmsg` 不取 `errcode`，遇到只带 errcode 的响应同样退化成「未返回 openid」。盲区 (a) 已用实验坐实：本地 `text/plain` 接口喂给项目自带 ofetch → `typeof = "string"`、`openid = undefined`。
+- **凭据与微信侧实测**：用项目真实 AppID/Secret 打微信（故意用假 code）→ `HTTP 200`、`Content-Type: application/json`、`{"errcode":40029,"errmsg":"invalid code, rid: …"}` → **这对凭据匹配有效**，且**微信失败响应必带 errmsg** → 反证「errmsg 为空」只可能来自非微信标准响应。
+- **修复（`a372c7e` on master）**：`server/api/consumer/wechat/callback.get.ts` 新增 `callWechatApi()`（统一 `responseType:'text'` 取回后手动 `JSON.parse`，非 JSON/空响应保留 `__raw`）与 `describeWechatFailure()`（文案 = `errmsg（errcode=…）`，缺失时回落原始响应片段），失败详情同时 `console.error` 进 PM2 error log；`sns/userinfo` 同步改造。
+- **验证（实测）**：用 esbuild 转译该路由 + 注入 mock `$fetch` 执行**真实路由逻辑**，6 场景全过——① text/plain 字符串含 openid → **登录成功（旧代码在此必失败）**；② JSON 对象 → 成功；③ `errcode=40163 code been used` → 报出真实原因（旧代码只会说「未返回 openid」）；④ HTML 异常响应 → 带原始片段；⑤ 空响应 → 明确提示；⑥ 对象字段缺失 → 带原始 JSON。
+- **⚠️ 新发现的隐患（部署前必须核对）**：本机 `.env` 的 `WECHAT_APP_ID` = `wx9bd4bc120dea3f98`，而本机 `.output/server/chunks/_/nitro.mjs` **内嵌**的 `wechatAppId` = `wx1a6093c716310340`，**是两个不同的公众号**（用假 secret 请求均返回 40029 而非 40013，说明**两个 appid 都真实存在**）。因 `runtimeConfig` 构建期内嵌，**线上实际用哪个取决于服务器那份 `.output` 是用哪份 `.env` 构建的**。→ 已写入 15 号文档 §3/§4 的三条只读核对命令，**appid 口径未核准前不建议构建部署**（否则可能把线上 appid 换成另一个公众号）。
+- **修改文件**：`server/api/consumer/wechat/callback.get.ts`（唯一代码改动）· 新增 `docs/handover/15-微信授权502排查与修复.md` · 本条目。**未部署服务器、未改数据库、未重启任何服务。**
+- **给下一个 Agent 的提示**：① 先读 `docs/handover/15-微信授权502排查与修复.md`，按 §4 的三条只读命令定案（产物内嵌 appid / 服务器 `.env` / 出网 curl）；② **HTTPS 仍需配**（理由与优先级见 15 号 §5），但它修的不是这个 502；③ 14 号文档与 AGENTS.md 中「微信必抓 https 校验文件、不配 HTTPS 就配不上域名」的表述**与本次实测存在张力**（http 校验文件 200、https 404），下次核对公众平台域名配置状态时应重新验证该结论，勿直接沿用。
+
 ### 2026-09-17 | 修复已有产品编辑保存误报「请选择归属厂家」
 - **原因**：总部编辑时厂家选择器被隐藏，`save()` 却对所有总部保存操作强制校验 `pickedCompany`；首次编辑该值为空，导致未发出 PATCH 就被拦截。
 - **修复**：仅总部新增校验并提交厂家；编辑沿用后端产品原归属。打开编辑弹窗时回填 `enterprise_id` 并清除上次新增选择的厂家，生产类型切换核对同步使用当前产品企业编号，防止旧状态影响登记产品候选。
