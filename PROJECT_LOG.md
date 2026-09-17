@@ -9,6 +9,13 @@
 - **⚠️ 新发现的隐患（部署前必须核对）**：本机 `.env` 的 `WECHAT_APP_ID` = `wx9bd4bc120dea3f98`，而本机 `.output/server/chunks/_/nitro.mjs` **内嵌**的 `wechatAppId` = `wx1a6093c716310340`，**是两个不同的公众号**（用假 secret 请求均返回 40029 而非 40013，说明**两个 appid 都真实存在**）。因 `runtimeConfig` 构建期内嵌，**线上实际用哪个取决于服务器那份 `.output` 是用哪份 `.env` 构建的**。→ 已写入 15 号文档 §3/§4 的三条只读核对命令，**appid 口径未核准前不建议构建部署**（否则可能把线上 appid 换成另一个公众号）。
 - **修改文件**：`server/api/consumer/wechat/callback.get.ts`（唯一代码改动）· 新增 `docs/handover/15-微信授权502排查与修复.md` · 本条目。**未部署服务器、未改数据库、未重启任何服务。**
 - **给下一个 Agent 的提示**：① 先读 `docs/handover/15-微信授权502排查与修复.md`，按 §4 的三条只读命令定案（产物内嵌 appid / 服务器 `.env` / 出网 curl）；② **HTTPS 仍需配**（理由与优先级见 15 号 §5），但它修的不是这个 502；③ 14 号文档与 AGENTS.md 中「微信必抓 https 校验文件、不配 HTTPS 就配不上域名」的表述**与本次实测存在张力**（http 校验文件 200、https 404），下次核对公众平台域名配置状态时应重新验证该结论，勿直接沿用。
+- **同日 14:14 用户回执 + 两处自纠**：① 服务器 `.env` 实测 `WECHAT_APP_ID=wx9bd4bc120dea3f98`（与本机一致）、secret 键存在；
+  ② 服务器 `curl` 打微信返回 `{"errcode":40013,"errmsg":"invalid appid, rid: …"}` → **出网正常、微信正常回 JSON**，
+  「服务器连不上微信」假设**已排除**；③ 🔴 我给的产物 appid 查询**返回空属假阴性**——模式应为
+  `grep -rhoE 'wechatAppId"?[[:space:]]*:[[:space:]]*"[^"]*"'`（产物里是 `"wechatAppId": "wx…"`，**冒号后带空格**），
+  已在 15 号文档 §4.1 修正并写明避坑；④ 🔴 我再次给 pm2 命令加了 `env PATH=` 前缀（终端报 `env: 'pm2': No such file or directory`）——
+  该禁忌 09-16 已记录，现于 15 号 §4.5 再次高亮。⑤ 15 号新增 §4.4：**curl 通 ≠ Node 通**，
+  应用跑在 Node 上，需用 `/usr/local/node22/bin/node -e "fetch(…)"` 再验一次，作为「应用/产物问题」与「Node 网络栈问题」的分水岭。
 
 ### 2026-09-17 | 修复已有产品编辑保存误报「请选择归属厂家」
 - **原因**：总部编辑时厂家选择器被隐藏，`save()` 却对所有总部保存操作强制校验 `pickedCompany`；首次编辑该值为空，导致未发出 PATCH 就被拦截。
