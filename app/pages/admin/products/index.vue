@@ -199,7 +199,7 @@ async function onProduceTypeChange(v: number) {
         exact: pickedReg.value.registration_no,
         produceType: v,
         company: isPlatformAdmin.value ? (pickedCompany.value || undefined) : undefined,
-        enterpriseId: isPlatformAdmin.value ? undefined : (enterpriseId.value || undefined),
+        enterpriseId: enterpriseId.value || undefined,
       },
     })
     if (!chk?.ok) {
@@ -238,6 +238,9 @@ const openCreate = async () => {
 
 const openEdit = (row: any) => {
   editingId.value = row.id
+  // 编辑沿用产品原归属，清除上次新增弹窗的厂家选择，避免登记候选串用其他企业。
+  enterpriseId.value = Number(row.enterprise_id) || null
+  pickedCompany.value = null
   Object.assign(form, {
     trademark: row.trademark || '', name: row.name, registrationNo: row.registration_no,
     registrationExpire: row.registration_expire ? String(row.registration_expire).slice(0, 10) : '',
@@ -291,8 +294,8 @@ const save = async () => {
       isRestricted: form.isRestricted, status: form.status,
       originals: origRows.value.map(r => ({ ingredient: r.ingredient, regNo: r.regNo.trim(), company: r.company.trim() })),
     }
-    if (isPlatformAdmin.value) {
-      // 归属厂家（数据源厂家名）→ 服务端解析为已入驻的系统企业（归一化名称相等）
+    if (isPlatformAdmin.value && !editingId.value) {
+      // 仅新增时选择厂家；编辑接口按现有产品保留归属，不要求重选或提交厂家。
       if (!pickedCompany.value) { toast.add({ title: '请选择归属厂家（登记数据源厂家）', color: 'warning' }); saving.value = false; return }
       body.company = pickedCompany.value
     }
