@@ -7,15 +7,21 @@
 > 🚧 **正在进行：阿里云上线部署（2026-09-15 起）**
 > 若本次任务是**部署上线**，请先读 **`docs/handover/09-部署进度-阿里云.md`**（交接文档：服务器现状、
 > 已完成/剩余步骤与命令、踩坑、开场白模板），再读 `.workbuddy/memory/2026-09-15.md`。
-> **当前状态（2026-09-15 17:05）**：应用**已完整上线**——独立 MySQL 8.0.43（3307）建库建号 + 导入
+> **当前状态（2026-09-17 11:00 复核）**：应用**已完整上线**——独立 MySQL 8.0.43（3307）建库建号 + 导入
 > pesticide_reg 97,471 条 · PM2 托管（node22 / 端口 3100）· nginx 反代 `nz315.conf` · 登录与后台接口
-> 实测 200。**唯一阻塞项 = DNS 未解析**（`www.nz315.cn` 在阿里云云解析里仍无 A 记录，属用户侧操作）；
-> DNS 生效后跑预置脚本 `/root/nz315-issue-cert.sh` 签证书，再给 `nz315.conf` 补 443 + 80 跳转。
+> 实测 200。**DNS 已解析**（2026-09-15 17:05 用户配置，`www` + `@` 均指向 8.163.107.137），公网 HTTP 已通。
+> 🔴 **当前阻塞项 = HTTPS 未配**：`nz315.conf` 仍**只有 80 端口块**，于是 **443 上站着的是 cynx** ——
+> 实测 `https://www.nz315.cn/` 返回的是 cynx 首页、`/login` 与 `/MP_verify_*.txt` 均 **404**、
+> 443 证书 `subject CN = www.cynx.cn`。**而微信网页授权域名只支持 https** → 不补 HTTPS 就去配必定失败。
+> 依次做：① 签证书（阿里云免费证书 · DNS 验证，**不要用** `/root/nz315-issue-cert.sh`——它走 Let's Encrypt，
+> 该通道已被网络阻断）② 给 `nz315.conf` 补 443 + 80 跳 301 ③ 配微信「网页授权域名」= `www.nz315.cn`。
+> **完整流程与每步通过判据见 `docs/handover/14-微信网页授权域名配置流程.md`。**
 > 要点：服务器 `8.163.107.137` 是**宝塔生产机**，跑着正式站 `www.cynx.cn`（**绝对不许影响**）；
 > nz315 走独立端口 3100 / 独立库 / 独立 nginx 配置；独立 MySQL 8.0.43 已装好在 3307 端口。
-> ⚠️ 两条最容易踩的：① **改服务器 `.env` 后必须重新构建**（Nitro runtimeConfig 构建期内嵌，
+> ⚠️ 三条最容易踩的：① **改服务器 `.env` 后必须重新构建**（Nitro runtimeConfig 构建期内嵌，
 > 改 `.env` 不重建则运行期不生效）；② **PM2 God Daemon 挂在系统 Node v20 上**（cynx 共用），
-> nz315 靠 per-app `interpreter` 指到 `/usr/local/node22/bin/node`，**绝不可 `pm2 kill` / `pm2 delete all`**。
+> nz315 靠 per-app `interpreter` 指到 `/usr/local/node22/bin/node`，**绝不可 `pm2 kill` / `pm2 delete all`**；
+> ③ **`nz315.conf` 里绝不能写 `listen 443 ssl default_server`**（会抢走 cynx 的默认 443，cynx 直接挂）。
 
 ---
 
