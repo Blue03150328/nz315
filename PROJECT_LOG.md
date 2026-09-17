@@ -16,6 +16,16 @@
   已在 15 号文档 §4.1 修正并写明避坑；④ 🔴 我再次给 pm2 命令加了 `env PATH=` 前缀（终端报 `env: 'pm2': No such file or directory`）——
   该禁忌 09-16 已记录，现于 15 号 §4.5 再次高亮。⑤ 15 号新增 §4.4：**curl 通 ≠ Node 通**，
   应用跑在 Node 上，需用 `/usr/local/node22/bin/node -e "fetch(…)"` 再验一次，作为「应用/产物问题」与「Node 网络栈问题」的分水岭。
+- **同日 14:18 用户回执（结果全绿，两条假设被排除）**：⑥ 服务器产物内嵌 **`"wechatAppId": "wx9bd4bc120dea3f98"`** ——
+  与服务器 `.env`、本机 `.env` **三者一致**（本机 `.output` 里的 `wx1a6093c716310340` 属另一次构建，不参与上线）；
+  node22 的 `fetch` 打微信 → `status=200` + `application/json` + `40013 invalid appid` → **Node 网络栈同样正常**。
+  → 出网 / DNS / appid 口径 / 凭据有效性 / 微信回 JSON **五项全部排除**；
+  剩余唯一可能：**产物里的 callback 代码与仓库源码不是同一版**。下一步判据：
+  `grep -rho '微信授权失败.\{0,120\}' /var/www/nz315/.output/server/ | sort -u`
+  （若文案是硬编码的「微信授权失败：未返回 openid」、不含 `+ errmsg` 拼接段 → 产物是旧代码，当场定案）。
+- ⚠️ ⑦ **部署硬约束**：`runtimeConfig` 用的是**不带 `NUXT_` 前缀**的 `process.env.DB_HOST` 写法 → **运行期不会被环境变量覆盖**
+  → **绝不能把本机构建的 `.output` 传上服务器**（本机 DB 连接信息会被内嵌进去，线上会连错库），
+  只能传源码改动、在服务器上**原地 `npm run build`** 后再 `pm2 reload nz315`。
 
 ### 2026-09-17 | 修复已有产品编辑保存误报「请选择归属厂家」
 - **原因**：总部编辑时厂家选择器被隐藏，`save()` 却对所有总部保存操作强制校验 `pickedCompany`；首次编辑该值为空，导致未发出 PATCH 就被拦截。
