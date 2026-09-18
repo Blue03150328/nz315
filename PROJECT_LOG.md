@@ -1,4 +1,26 @@
 ## 变更记录
+### 2026-09-18 | 阿里云 HTTPS 配好并通过公网验证（公众端摄像头前置条件达成）
+- **结果一句话**：用户在宝塔终端执行「阿里云免费证书 → 证书落位 `/www/server/panel/vhost/cert/nz315/` → 改 `nz315.conf`（80 跳 301 + 443 反代 3100）→ `nginx -t && nginx -s reload`」，**零代码改动、零构建、零 PM2 重启**；本机从**公网侧**独立复测全部通过，`www.cynx.cn` 全程 online。
+- **动机**：公众端扫码页要用摄像头，而 `navigator.mediaDevices.getUserMedia` 只在**安全上下文**（https 或 localhost）下可用 —— `app/composables/useQrScanner.ts:222` 的 `window.isSecureContext` 预检会在 http 下直接报「扫码需在 HTTPS 安全页面使用」。**HTTPS 是摄像头功能的硬前置。**
+- **公网侧实测判据（本机 node 直连，非服务器本地回环）**：
+  | 检查 | 结果 |
+  |---|---|
+  | 443 证书（SNI=www.nz315.cn） | `authorized: true`（信任链 OK）· `subject CN=www.nz315.cn` · **`SAN=DNS:www.nz315.cn, DNS:nz315.cn`** · issuer **DigiCert** · 到期 **2026-12-16** |
+  | `https://www.nz315.cn/` | **200** · 标题「农资315 - 农药追溯查询」（**不再是 cynx**）|
+  | `https://www.nz315.cn/login` | **200** |
+  | **`https://www.nz315.cn/scan`** | **200** · 标题「扫码查询 - 农资315」← **摄像头页在安全上下文下可达** |
+  | `http://www.nz315.cn/` | **301** → `Location: https://www.nz315.cn/` |
+  | `https://www.cynx.cn/` | **200** · 标题正常 → **正式站未受影响** |
+  | `pm2 list`（用户实跑） | **cynx online（21h）· nz315 online（24h）** |
+- **混合内容预检（HTTPS 才暴露得出的雷）**：全仓库 `*.ts/*.vue/*.json/*.cjs/*.mjs` grep `http://`（排除 `localhost`/`127.0.0.1`）**零命中** → 页面不会因混合内容被浏览器拦资源。
+- **两条实测更正（推翻既有文档结论）**：
+  1. **「阿里云免费证书是单域名，不能加裸域名 443 块」错误** —— 本次证书 SAN **实际包含 `nz315.cn`**。实测裸域名 `https://nz315.cn` 现状为证书不匹配（`ERR_TLS_CERT_ALTNAME_INVALID`、`CN=www.cynx.cn`），真因是**没有裸域名的 443 server 块**、请求落到了 cynx 上，而**不是**证书不覆盖。→ 14 号文档 §2.3 已用删除线就地更正，并新增 §2.7 给出修法（补 `server_name nz315.cn` 的 `return 301` 块，精确匹配、**照旧不写 `default_server`**）。
+  2. 14 号文档 §0 那张「cynx 占着 443 / https 全 404」的实测表**已全部过期**，保留为 09-17 历史证据。
+- **仍未完成**：① 裸域名 443 跳转块**尚未执行**（用户已确认要做）；② `https://www.nz315.cn/MP_verify_OUOoNSqTrpZkfWli.txt` 实测仍 **404** —— nginx 两处 location 已就位，缺 `/www/server/nginx/html/` 下的文件（14 号文档 §2.4）→ **微信「网页授权域名」尚未配**；③ 公安联网备案。
+- **运维提醒**：阿里云免费证书 **90 天、不自动续期**，**2026-12-16 到期**，到期前须重新申请并替换 `cert/nz315/` 两个文件 + `nginx -s reload`。
+- **修改文件**：`AGENTS.md`（状态块 + 项目进度段）· `docs/handover/14-微信网页授权域名配置流程.md`（复核更新段 + §2.3 更正 + 新增 §2.7 + 排错表更正）· `docs/handover/09-部署进度-阿里云.md`（状态行 + §0）· `docs/handover/08-待办清单.md`（复核更新段：P0-2 作废、P0-7 可执行、新增 P0-10 与证书续期项）· `.workbuddy/memory/2026-09-18.md` · 本条目。**服务器上除 `nz315.conf` 外零改动；仓库代码零改动，未跑构建。**
+- **给下一个 Agent 的提示**：① 摄像头相关改动先看 `app/composables/useQrScanner.ts`，**微信内置浏览器（尤其 iOS）不允许网页调相机**，已有相册选图兜底 `decodeImageFile` —— 真机验证请用**系统浏览器**，别在微信里测；② 判断证书是否覆盖某域名**只信实测 SAN**，不要按证书"类型"推断（本轮已因此翻车一次）；③ **SSH 不可用**，服务器操作由用户逐条粘贴执行、回贴输出。
+
 ### 2026-09-17 | 微信授权 502「未返回 openid」排查与修复（新增 15 号文档）
 - **现象**：微信中打开 `http://www.nz315.cn` → 我的 → 微信一键登录 → **502 · 微信授权失败：未返回 openid**。
 - **结论①：与 HTTPS 无关**。实测 `http://www.nz315.cn/` 200（标题「农资315 - 农药追溯查询」）、`/MP_verify_OUOoNSqTrpZkfWli.txt` 200（16 字节）、`authorize` 端点 302 且 `redirect_uri` 正确拼成 **http** 回调；**微信确实带着 code 回调到了服务器**（否则报的是 400「缺少 code」，而全仓库只有 `callback.get.ts` 一处会产生 502 那句文案）→ OAuth 第一步在 http 下是通的。同期复测 443：证书仍是 `CN=www.cynx.cn`、`https://www.nz315.cn/` 返回 cynx 首页、https 校验文件 **404**、**80 端口未做 301**（14 号文档第一段尚未执行）。

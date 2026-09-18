@@ -7,15 +7,21 @@
 > 🚧 **正在进行：阿里云上线部署（2026-09-15 起）**
 > 若本次任务是**部署上线**，请先读 **`docs/handover/09-部署进度-阿里云.md`**（交接文档：服务器现状、
 > 已完成/剩余步骤与命令、踩坑、开场白模板），再读 `.workbuddy/memory/2026-09-15.md`。
-> **当前状态（2026-09-17 11:00 复核）**：应用**已完整上线**——独立 MySQL 8.0.43（3307）建库建号 + 导入
-> pesticide_reg 97,471 条 · PM2 托管（node22 / 端口 3100）· nginx 反代 `nz315.conf` · 登录与后台接口
-> 实测 200。**DNS 已解析**（2026-09-15 17:05 用户配置，`www` + `@` 均指向 8.163.107.137），公网 HTTP 已通。
-> 🔴 **当前阻塞项 = HTTPS 未配**：`nz315.conf` 仍**只有 80 端口块**，于是 **443 上站着的是 cynx** ——
-> 实测 `https://www.nz315.cn/` 返回的是 cynx 首页、`/login` 与 `/MP_verify_*.txt` 均 **404**、
-> 443 证书 `subject CN = www.cynx.cn`。**而微信网页授权域名只支持 https** → 不补 HTTPS 就去配必定失败。
-> 依次做：① 签证书（阿里云免费证书 · DNS 验证，**不要用** `/root/nz315-issue-cert.sh`——它走 Let's Encrypt，
-> 该通道已被网络阻断）② 给 `nz315.conf` 补 443 + 80 跳 301 ③ 配微信「网页授权域名」= `www.nz315.cn`。
-> **完整流程与每步通过判据见 `docs/handover/14-微信网页授权域名配置流程.md`。**
+> **当前状态（2026-09-18 14:55 复核）**：应用**已完整上线，且 HTTPS 已配好并通过公网验证**——
+> 独立 MySQL 8.0.43（3307）建库建号 + 导入 pesticide_reg 97,471 条 · PM2 托管（node22 / 端口 3100）·
+> nginx `nz315.conf`（80 跳 301 + 443 反代 3100）· **DNS 已解析**（2026-09-15 17:05 配置）。
+> ✅ **HTTPS 完成（2026-09-18）**：阿里云免费证书（issuer **DigiCert**，`CN=www.nz315.cn`，
+> **`SAN = DNS:www.nz315.cn, DNS:nz315.cn`**，**2026-12-16 到期 · 不自动续期**）落位
+> `/www/server/panel/vhost/cert/nz315/`。公网侧实测：信任链 OK（`authorized: true`）·
+> `https://www.nz315.cn/` **200**（标题「农资315 - 农药追溯查询」，不再是 cynx）· `/login` **200** ·
+> **`/scan` 200 ← 摄像头扫码页已在 HTTPS 安全上下文下可用** · `http://` **301** 且 `Location` 正确 ·
+> **`www.cynx.cn` 全程 online 未受影响**。→ **公众端摄像头（`getUserMedia`）的前置条件已满足。**
+> 🔴 **剩余待办**：① **裸域名 `https://nz315.cn` 证书不匹配**（`ERR_TLS_CERT_ALTNAME_INVALID`，
+> 它落到了 cynx 的 server 块）—— 证书 SAN 已含 `nz315.cn`，补一个 `server_name nz315.cn` 的 **443 跳转块**即可修
+> （**14 号文档原「阿里云免费证书是单域名、不能加裸域名块」的结论已被实测推翻**）；
+> ② 微信「网页授权域名」仍未配 —— `https://www.nz315.cn/MP_verify_OUOoNSqTrpZkfWli.txt` 实测 **404**，
+> nginx 里两处 location 已就位，只差把文件放到 `/www/server/nginx/html/`（14 号文档 §2.4）；
+> ③ 公安联网备案。**流程与判据见 `docs/handover/14-微信网页授权域名配置流程.md`。**
 > 要点：服务器 `8.163.107.137` 是**宝塔生产机**，跑着正式站 `www.cynx.cn`（**绝对不许影响**）；
 > nz315 走独立端口 3100 / 独立库 / 独立 nginx 配置；独立 MySQL 8.0.43 已装好在 3307 端口。
 > ⚠️ 三条最容易踩的：① **改服务器 `.env` 后必须重新构建**（Nitro runtimeConfig 构建期内嵌，
@@ -95,9 +101,10 @@
 - 主题：`app/assets/css/main.css`（UI4 变量体系，主色沉稳深绿 hsl(142 32% 30%)，圆角 --ui-radius 0.375rem，中后台克制基调）
 - 静态下载件：`public/templates/`（规格导入模板 xlsx）+ `public/tools/`（**离线二维码生成工具 EXE——注意：该文件与「生成页走离线工具」的改造只存在于 `feature/ewm` 分支，未合入 master；master 版生成页仍走服务端渲染，不需要也没有这个文件**；体积大已 gitignore，若在该分支部署需单独拷贝）；页面内下载统一走 `fetch → Blob → 临时 a 标签`（`<a href download>` 直链会被 SPA 路由拦截）
 
-### ✅ 项目进度（截至 2026-09-17）
+### ✅ 项目进度（截至 2026-09-18）
 
 **已实现（V1.0 核心）**：
+- **阿里云 HTTPS 配好并通过公网验证（公众端摄像头前置条件达成）**（2026-09-18）：用户在宝塔终端执行「阿里云免费证书 → 证书落位 → 改 `nz315.conf`（80 跳 301 + 443 反代 3100）→ `nginx -t && nginx -s reload`」四步，脚本零改动、零构建、零 PM2 重启。**本机公网侧独立复测**（node 直连，非服务器回环）：① 443 证书 `authorized: true` · `subject=CN=www.nz315.cn` · `SAN=DNS:www.nz315.cn, DNS:nz315.cn` · issuer **DigiCert** · 到期 **2026-12-16**；② `https://www.nz315.cn/` **200**（标题「农资315 - 农药追溯查询」，**不再是 cynx**）、`/login` **200**、**`/scan` 200**（标题「扫码查询 - 农资315」）；③ `http://www.nz315.cn/` **301** 且 `Location: https://www.nz315.cn/`；④ `https://www.cynx.cn/` 200 标题正常 → **正式站未受影响**；⑤ PM2 里 **cynx 与 nz315 均 online**。**混合内容预检**：全仓库 `*.ts/*.vue/*.json/*.cjs/*.mjs` grep `http://`（排除 localhost/127.0.0.1）**零命中** → HTTPS 下不会拦资源。**两条实测更正**：① **阿里云免费证书并非单域名**——本次证书 SAN 含裸域名 `nz315.cn`，故「不能加裸域名 443 块」的旧结论作废（14 号文档 §2.3 已就地更正）；② 裸域名 https 现状 **证书不匹配**（落到 cynx 的 server 块，`ERR_TLS_CERT_ALTNAME_INVALID`），**修法已给出但尚未执行**（补 `server_name nz315.cn` 的 443 `return 301` 块，精确匹配、不写 `default_server`，安全）。**仍未完成**：`/MP_verify_OUOoNSqTrpZkfWli.txt` 在 https 侧仍 **404**（nginx location 已就位，缺 `/www/server/nginx/html/` 下的文件）→ 微信「网页授权域名」尚未配；公安联网备案未做。
 - **修复产品编辑误报「请选择归属厂家」**（2026-09-17）：总部编辑弹窗不展示厂家选择器，但保存误用了新增校验；现仅总部新增要求并提交 `company`，编辑保留服务端现有企业归属。`openEdit` 回填产品 `enterprise_id`、清空新增遗留 `pickedCompany`，生产类型核对同步传入企业编号，防止登记候选串用其他厂家。旧页面脚本复现相同提示，修复后隔离网络的表单回归 4/4、tsc 与生产构建通过；未写业务数据，未部署服务器。
 - **阿里云生产环境部署——应用层完整上线（2026-09-15）**：服务器 `8.163.107.137`（Anolis OS 8.10 / **宝塔生产机**，正式站 `www.cynx.cn` 在 3000 端口，**全程未受影响**）。**共存隔离已落实**：nz315 独立目录 `/var/www/nz315` + 独立 Node 22.22.2（`/usr/local/node22`，系统 node 保持 v20 给 cynx）+ 独立 MySQL 8.0.43（`/www/server/mysql80`，端口 **3307**，socket `/tmp/mysql80.sock`，systemd 单元 **`mysql80.service`**——**绝不用官方 yum 包**，其服务名同为 `mysqld.service` 会覆盖宝塔的）+ 独立 nginx `nz315.conf` + 独立 PM2 app。**本轮完成**：① 建库建号——`skip-name-resolve` 下**必须建两个身份** `'nz315'@'localhost'`（socket）与 **`'nz315'@'127.0.0.1'`（TCP）**，只建前者时应用走 TCP 报 `ERROR 1130`；密码用 `mysql_native_password`（mysql2 非 SSL 下对 `caching_sha2_password` 需额外 RSA 交换）。② `db-init.mjs` 建 **14 张表** + 导入 **pesticide_reg 97,471 条**（3,637 家厂商，md5 校验后导入）。③ PM2：`ecosystem.config.cjs` **从 3000 改为 3100**（原值会撞 cynx），新增 **`interpreter: '/usr/local/node22/bin/node'`**（PM2 God Daemon 挂在系统 Node v20 上、与 cynx 共用，**per-app 指定解释器是唯一安全路径——`pm2 kill` 会杀 cynx**），并创建 `/var/log/nz315/`；实测 `readlink /proc/<pid>/exe` = node22 v22.22.2。④ nginx `nz315.conf`（80 端口 acme 通道 + 反代 3100 + `client_max_body_size 100m`），`nginx -t` 通过后**只用 `reload`**。⑤ **备案号页脚**——`app/layouts/default.vue` 新增 footer（`桂ICP备2024035642号-5` + 工信部链接，`f5fe93f`）。⑥ MySQL 8.0 **root 空密码已收紧**（写入 `/root/.my.cnf` 600 供 CLI 免密）。**实测证据**：`/login` 200 · `POST /api/auth/login` **200（走真实数据库）** · `products`/`codes`/`regdata`/`upload-batches` 全 200 · `POST /api/admin/codes/qrcode` 空参返回业务 400（路由与依赖在位）· 首页与 `/profile` 渲染出备案号 · `curl -H Host:www.nz315.cn` 走 nginx 全 200 · cynx 始终 online。**两个必记的坑**：① **`.env` 的 `DB_PORT` 原为 3306（= cynx 的 5.7 生产库）**，若直接跑 db-init 会污染生产库（在建库前的安全检查中拦下）；且 **Nitro runtimeConfig 是构建时内嵌 `.output` 的，改 `.env` 必须重新构建**，否则运行期不生效（改正端口后未重建时应用报 `Access denied for user 'nz315'@'localhost'`，重建后即 200）。② **`/root/.my.cnf` 会压过 `MYSQL_PWD`**（客户端优先级：命令行 `-p` > 选项文件 > 环境变量），导致脚本里用 `MYSQL_PWD` 连 nz315 时被 root 密码顶掉、报出误导性 `Access denied … 'nz315'@'127.0.0.1'` → **服务器脚本连库一律加 `--no-defaults`**。**未完成（阻塞在用户侧）**：DNS 解析（阿里云云解析 `dns1/2.hichina.com`，`www` 与 `@` 两条 A 记录 → 8.163.107.137；实测 `www.nz315.cn` 仍 Non-existent domain）· HTTPS 证书（脚本已预置 `/root/nz315-issue-cert.sh`，certbot **只有 standalone/webroot 插件无 nginx 插件**，走 webroot）· 微信网页授权域名 · 公安联网备案。**另发现（非本次范围，已提示用户）**：cynx 的 `certbot-renew.timer` 为 **enabled 但 inactive** 且无 crontab 兜底，其证书 **2026-11-17 到期**。**注意**：`public/tools/*.exe`（90.6 MB 离线工具）**本次不需要上传**——master 版生成页仍走服务端渲染，grep 确认 master 零引用 `OFFLINE_TOOL`/`nz315-qr-tool`（旧交接文档那条「必须上传否则 404」只对未上线的 `feature/ewm` 成立）。**待办**：把 `e3d1015`（交接文档）与 `f5fe93f`（备案号）cherry-pick 到 **master**——服务器已用这两个文件，master 里没有。
 - **二维码图片输出改为「下载官方离线工具、本机生成」（下线服务端 PNG 渲染）**（2026-09-15）：用户决策——生成页「二维码图片输出」板块不再由服务器渲染 PNG，改为提供官方离线工具的下载入口。**改动**：① 页面 `app/pages/admin/generator/index.vue`——删 `imgForm`/`imgResult`/`doGenImages`/`downloadZip` 与六个参数表单、生成按钮、预览区（原 6 个参数：码制/模块大小/静区/数量/前缀/起始序号**全部随之下线**，改由工具内设置），换成「二维码图片输出（离线工具）」卡片：三步说明（导出 urls.txt → 运行工具 → 导入并导出 PNG）+ 下载按钮 + 版本/大小/未签名提示 + **SHA256 校验值**；下载走 `fetch → Blob → 临时 a 标签`（**不用 `<a href download>` 直链**——SPA 路由会拦截无路由路径，同 `specs/index.vue` 模板下载的踩坑）。② **服务端三文件删除**：`server/api/admin/codes/qrcode.post.ts`、`qrcode-download.get.ts`、`server/utils/qr-image.ts`；**依赖移出 `qrcode` + `pngjs`，但 `@zxing/library` 必须保留**（公众端 `useQrScanner.ts` 扫码兜底动态 import 它，且 `nuxt.config.ts` 把它列入 SSR `inline`）——这点与初始方案不同，是 grep 排查后才发现的。③ **连带清理 4 处**：`server/types/cjs-modules.d.ts` 删 `qrcode`/`pngjs`/`archiver` 三段本地类型声明；`scripts/test-code-generator.mjs` 删 QR/DM 渲染与 zip 打包用例（原直接 import `qr-image.ts`，不删会直接跑挂）→ 回归 **140 通过 / 0 失败**；`scripts/_tmp-gen-scan-test-qr.cjs`（依赖 `qrcode` 生成扫码测试图）删除；顺带发现并消除一个**既存隐性依赖缺口**——`archiver` 从未写进 `package.json`（靠 nuxt 传递依赖 hoist 才可用），随下载接口下线一并消失。④ **工具发布件**：用户提供「农药追溯码生成工具 v1.1.0 便携版」（7z 自解压 PE、90.6 MB、**未做数字签名**、SHA256 `df9cd9ea…f59a7`），放 `public/tools/nz315-qr-tool-v1.1.0.exe`；**因体积过大已写入 `.gitignore`（`public/tools/*.exe`）——部署时必须单独拷贝该目录，clone 仓库拿不到它**。⑤ **口径变化**：`urls.txt` 由"可选导出之一"升级为**离线工具的唯一输入文件**，导出按钮标签改为「导出 urls.txt（离线工具输入）」。**验证**：tsc 0 错误 · 引擎回归 140/0 · 生产构建成功（9.56 MB / 2.4 MB gzip）· dev 实测 `/tools/nz315-qr-tool-v1.1.0.exe` HEAD 200（`application/x-msdos-program`、支持 Range）· 旧接口 `POST /api/admin/codes/qrcode` 与 `qrcode-download` 均 **404** · 登录后抓 `/admin/generator` SSR 200，新卡片文案全在、旧表单残留 **0**。**未验证项**：工具内部界面流程无法在不运行 EXE 的情况下确认（payload 为 7z 压缩，字符串扫描无有效信息），页面三步说明是**按预期流程撰写**——若工具实际操作与此不符须改文案。
