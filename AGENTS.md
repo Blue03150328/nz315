@@ -4,6 +4,20 @@
 > 本文件是项目的长期记忆：记录**用户全局偏好**（所有项目通用）与**本项目状态**（进度/架构/踩坑）。
 > 接手顺序：本文件 → `git log --oneline`（最近提交）→ PRD 需求文档（农药追溯码管理平台 PRD 纯净版.md）。
 
+> 🔐 **待部署的安全加固（2026-09-19 已完成、本机验证通过、尚未上线）**
+> 提交 `1db9535`（P0 提权漏洞 + P1 viewer 写守卫）+ `30760cb`（前端按角色收口 + 会话吊销 + 登录 Origin 校验 +
+> 生成数量 0 边界），**线上仍是旧版本**，待部署窗口。**部署前必读**
+> **`docs/handover/16-交接手册-安全加固收尾与新对话接续.md`**，内含逐条命令、验证清单与回滚路径。
+> ⚠️ 两条硬约束：① **必须先补 `user.session_epoch` 列**，用 **`node scripts/db-init.mjs --migrate-only`**
+> —— **`--migrate-only` 绝不能省**：不带参数的 db-init 会跑 `seed()`，往库里实打实插入演示企业
+> （"山东绿丰生物科技有限公司"，名字对不上就新建）、4 条演示追溯码（含冻结/作废码）、演示产品/批次
+> 与 `admin123` 演示账号 —— 在真实库上执行即**生产数据污染**。本机库现存的企业 id=2 与 4 条 `1230101*`
+> 码就是 seed 的产物，是活证据。历史教训：交接文档 13 号原本明写「绝对不要跑 db-init」，与「必须补列」
+> 直接对撞，2026-09-19 才补出 `--migrate-only` 参数解开这个死结。
+> （**漏跑迁移则登出/改密的会话吊销静默失效**——不报错、不告警，只是没生效）；
+> ② **部署后所有在线用户需重新登录一次**（旧两段格式 token 被主动拒绝，属预期行为，不是故障）。
+> 验证用只读账号：`viewer / admin123`（企业 1，2026-09-19 新增）。
+
 > 🚧 **正在进行：阿里云上线部署（2026-09-15 起）**
 > 若本次任务是**部署上线**，请先读 **`docs/handover/09-部署进度-阿里云.md`**（交接文档：服务器现状、
 > 已完成/剩余步骤与命令、踩坑、开场白模板），再读 `.workbuddy/memory/2026-09-15.md`。
@@ -61,7 +75,9 @@
 | 命令 | 说明 |
 |---|---|
 | `start-dev.cmd`（双击）或 `npm run dev -- --host 0.0.0.0 --port 3100` | 启动开发服务器（**端口 3100**！3000 被农码查残留实例占用，勿用 3000） |
-| `node scripts/db-init.mjs` | 初始化数据库（建库建表 + 演示数据，幂等可重跑；连接凭据从 `.env` 读取） |
+| `node scripts/db-init.mjs` | 初始化数据库（建库建表 + 增量迁移 + **演示数据**，幂等可重跑；连接凭据从 `.env` 读取）。**只在空库/本机开发库用** |
+| `node scripts/db-init.mjs --migrate-only` | **只建表 + 增量迁移，跳过演示数据与历史码归档**（2026-09-19 新增）。**真实库/生产库补列补索引一律用这个** |
+| `node scripts/verify-db-migration.mjs dump\|compare` | **迁移安全性校验**（2026-09-19 新增）：`dump` 记基线 → 跑迁移 → `compare` 逐表比对行数 / `MAX(id)` / 企业名单 / 账号 / 追溯码快照，**证明"补列没顺手写数据"**。真实库部署时的三明治用法（详见 `docs/handover/16-…` §5.1） |
 | `node scripts/import-regdata.mjs` | 导入农药登记数据源（pesticide_reg 字典表，97,471 条；数据源 2026农药登记证大全2.xlsx 不入库；幂等重灌） |
 | `npm run build` / `npm run preview` | 生产构建与预览 |
 | `node scripts/dev-start.mjs --check` | **启动失败先跑这个**（只读体检：node/npm、端口占用、依赖完整性、.env 键、缓存新鲜度，并给出结论与修复建议） |
@@ -82,7 +98,7 @@
 
 14 张表（PRD 第七章 9 张 + message 消息 + consumer 消费者 + **product_original 产品原药多行表**（2026-09-04 原药多行化：复配产品多条原药；product.original_* 单值列已迁移下线）+ **upload_batch 上传文件批次**（2026-09-04 码库聚合改造新增：生产采集每上传一份追溯码文件即一行，trace_code.upload_batch_id 关联）+ **pesticide_reg 农药登记数据源字典表**（97,471 条，登记证号唯一，产品弹窗自动回填；农资店改用高德 POI 实时检索，无自建表；system_setting 配置表已于 2026-09-07 随通知配置功能删除）：`enterprise`（企业）· `product_spec`（产品规格主数据，规格码=码第9-11位）· `product`（产品 SKU，登记证号全局唯一）· `batch`（生产批次，三要素）· `trace_code`（追溯码：两状态 status 1已生成/2已绑定 + 异常标记 abnormal_flag 0正常/1冻结/2作废，正交；含 upload_batch_id 上传批次归属）· `user`（角色 platform_admin/enterprise_admin/code_admin/viewer，bcrypt 密码）· `operation_log` · `scan_log`（含 `consumer_id`，登录消费者扫码归属） · `risk_alert` · `consumer`（微信 openid 唯一，公众端消费者）
 
-演示账号：`admin/admin123`（总部）、`lvfeng/admin123`（厂家）、`codeop/admin123`（码管理员）
+演示账号：`admin/admin123`（总部）、`lvfeng/admin123`（厂家）、`codeop/admin123`（码管理员）、**`viewer/admin123`（只读账号，2026-09-19 新增，用于验收「前端按角色收口」——库里此前无任何 viewer，该角色无从登录）**
 
 ### 🧠 核心业务规则（编码与码状态）
 
@@ -108,7 +124,8 @@
 ### ✅ 项目进度（截至 2026-09-19）
 
 **已实现（V1.0 核心）**：
-- **前端按角色收口 + 补齐三项后端遗留（会话吊销 / 登录 Origin 校验 / 生成数量 0 边界，2026-09-19）**：用户指出"后端安全了，但 viewer 还能看见操作入口、点了才吃 403"。**① 前端收口（11 个文件）**：`useUser()` 新增 `canWrite`（非 viewer）与 `canManageUsers`（platform_admin/enterprise_admin），与后端守卫白名单逐条对齐；侧栏菜单给追溯码生成/上传打 `writeOnly` 标记、只读账号整条隐藏，内容区加只读提示条；8 个业务页约 40 处写入口（表头新增、行内编辑/删除/冻结/作废/修正/绑定/处理/标为已读、各弹窗确认按钮、文件选择与解析/导入/生成）加 `v-if="canWrite"`；系统设置 Tab 改 computed——用户权限仅 `canManageUsers`、数据备份仅 `isPlatformAdmin` 可见，企业信息保存按钮同步收口并给出角色说明。**② 会话吊销**：`user.session_epoch` 新增列（DDL + 幂等迁移）+ token 升级三段 `userId.expiry.issuedAt`，登出与重置密码刷新 epoch → 旧 token 立即失效（此前只清 cookie，token 7 天内照用）。**③ 登录 Origin 校验**：补 `assertSameOrigin` 的同时**修掉一个真漏洞**——旧实现 `origin.startsWith('http://'+host)` 前缀比较，`https://www.nz315.cn.evil.com` 可绕过，已改为 `x-forwarded-host || host` 的完整 origin 精确比对。**④ 生成数量 0**：`Number(body.quantity || 100)` 把 0 当 falsy 吞成 100，改为仅 `undefined/null/''` 落默认。**验证**：后端回归 **27/27 PASS**（含登出/改密后旧 token 401、旧两段 token 401、前缀伪造 403、quantity 0→400/3→3/缺省→100）· 生产构建 **EXIT=0** · **真浏览器（Edge headless + CDP）双角色实测**——`/admin/codes` viewer 侧栏 9 项/行内只剩【详细】，platform_admin 侧栏 11 项/按钮齐全；`/admin/settings` viewer 只剩【企业信息】【操作日志】且无保存按钮，总部四 Tab 齐全。**⚠️ 未部署服务器**；⚠️ 部署后**所有在线用户需重新登录一次**（旧 token 格式被主动拒绝），且**须先跑 `db-init.mjs` 补 `session_epoch` 列**，否则吊销静默失效。
+- **前端按角色收口 + 补齐三项后端遗留（会话吊销 / 登录 Origin 校验 / 生成数量 0 边界，2026-09-19）**：用户指出"后端安全了，但 viewer 还能看见操作入口、点了才吃 403"。**① 前端收口（11 个文件）**：`useUser()` 新增 `canWrite`（非 viewer）与 `canManageUsers`（platform_admin/enterprise_admin），与后端守卫白名单逐条对齐；侧栏菜单给追溯码生成/上传打 `writeOnly` 标记、只读账号整条隐藏，内容区加只读提示条；8 个业务页约 40 处写入口（表头新增、行内编辑/删除/冻结/作废/修正/绑定/处理/标为已读、各弹窗确认按钮、文件选择与解析/导入/生成）加 `v-if="canWrite"`；系统设置 Tab 改 computed——用户权限仅 `canManageUsers`、数据备份仅 `isPlatformAdmin` 可见，企业信息保存按钮同步收口并给出角色说明。**② 会话吊销**：`user.session_epoch` 新增列（DDL + 幂等迁移）+ token 升级三段 `userId.expiry.issuedAt`，登出与重置密码刷新 epoch → 旧 token 立即失效（此前只清 cookie，token 7 天内照用）。**③ 登录 Origin 校验**：补 `assertSameOrigin` 的同时**修掉一个真漏洞**——旧实现 `origin.startsWith('http://'+host)` 前缀比较，`https://www.nz315.cn.evil.com` 可绕过，已改为 `x-forwarded-host || host` 的完整 origin 精确比对。**④ 生成数量 0**：`Number(body.quantity || 100)` 把 0 当 falsy 吞成 100，改为仅 `undefined/null/''` 落默认。**验证**：后端回归 **27/27 PASS**（含登出/改密后旧 token 401、旧两段 token 401、前缀伪造 403、quantity 0→400/3→3/缺省→100）· 生产构建 **EXIT=0** · **真浏览器（Edge headless + CDP）双角色实测**——`/admin/codes` viewer 侧栏 9 项/行内只剩【详细】，platform_admin 侧栏 11 项/按钮齐全；`/admin/settings` viewer 只剩【企业信息】【操作日志】且无保存按钮，总部四 Tab 齐全。**⚠️ 未部署服务器**；⚠️ 部署后**所有在线用户需重新登录一次**（旧 token 格式被主动拒绝），且**须先跑 `node scripts/db-init.mjs --migrate-only` 补 `session_epoch` 列**（**`--migrate-only` 不可省**，否则 seed 会往真实库灌演示数据与 `admin123` 演示账号——详见本文件顶部「待部署的安全加固」块），否则吊销静默失效。
+- **`db-init.mjs` 补出 `--migrate-only` 参数（安全加固，2026-09-19 同日追加）**：发现「部署须补 `session_epoch` 列」与交接文档 13 号「**绝对不要在生产库跑 db-init**」两条既有指令**直接冲突**——根因是 `main()` 里 `seed()` 与 `backfillUploadBatches()` 是**无条件执行**的，而 `seed()` 的保护只是"按名字/证号查存在才插"的幂等写法，**真实库里名字对不上就会实打实插进去**（演示企业「山东绿丰生物科技有限公司」、4 条 `1230101*` 演示码含冻结/作废、演示产品与批次、3 个 `admin123` 演示账号）。**本机库现存 enterprise id=2 与那 4 条码就是 seed 的产物，构成活证据。** 补参数后**实测零写入**：15 张表行数全等、`MAX(id)` 自增位未推进、企业名单/账号（含 `session_epoch`）/追溯码前 30 条快照全等 → **PASS**；列已存在时 `migrate()` 全 no-op（日志无任何「迁移：」行）→ 幂等成立。另在 seed 前主动打印「⚠️ 即将写入演示数据…」提示，降低误跑概率。
 - **修复 P0 提权漏洞 + P1 viewer 写守卫缺失（安全加固，2026-09-19）**：全量安全测试发现两类权限缺陷，均已修复并回归。**P0**：`users` 三件套（新增/编辑/重置密码）的角色判断此前只拦 `enterprise_admin`，**码管理员与只读账号直接穿透**——实测 viewer 可重置厂家主账号密码并登录接管、可禁用主账号、可自建 code_admin 账号（完整提权闭环）；**P1**：20 个写接口仅用 `requireBackendUser`（登录即可），viewer 可建生产批次、处理风险预警、**作废/删除追溯码**、改企业信息。**修复**：17 个写接口守卫统一为 `requireWritableUser`；`users` 三件套补齐角色判断（仅 `platform_admin`/`enterprise_admin`，其余 403）；企业信息编辑同步收紧为主账号及以上；`codes/parse`（纯解析预览，不写库）保持放行。**回归 46/46 通过**：viewer × 23 个写接口全 403、读能力保留、code_admin 业务写未误伤、enterprise_admin 与 platform_admin 正常路径通畅、未登录仍 401；生产构建通过。**⚠️ 未部署服务器**——线上仍是旧版本，待部署窗口执行。
 - **功能+安全全量测试出具报告（2026-09-19）**：65 项用例 + 9 项复核，报告在 `docs/测试报告-2026-09-19-功能与安全测试.md`（**含漏洞复现细节，勿推公开仓库**）。通过面：会话防伪（篡改/伪造/过期 token 全 401）、登录限速（5 次/分锁 15 分）、CSRF Origin 拦截、多租户隔离、码状态机（作废终态）、SQL 注入/XSS 全拦、1049 六项数据齐全。**遗留项（同日已全部修复，详见下一条）**：generate `quantity:0` 被 `|| 100` 吞成 100；登出无服务端会话吊销；登录接口无 Origin 校验；前端未按角色隐藏操作入口（viewer 可见按钮但点击 403）——原始记录保留在报告中，修复详情见本日「前端按角色收口 + 补齐三项后端遗留」条目。
 - **阿里云 HTTPS 配好并通过公网验证（公众端摄像头前置条件达成）**（2026-09-18）：用户在宝塔终端执行「阿里云免费证书 → 证书落位 → 改 `nz315.conf`（80 跳 301 + 443 反代 3100）→ `nginx -t && nginx -s reload`」四步，脚本零改动、零构建、零 PM2 重启。**本机公网侧独立复测**（node 直连，非服务器回环）：① 443 证书 `authorized: true` · `subject=CN=www.nz315.cn` · `SAN=DNS:www.nz315.cn, DNS:nz315.cn` · issuer **DigiCert** · 到期 **2026-12-16**；② `https://www.nz315.cn/` **200**（标题「农资315 - 农药追溯查询」，**不再是 cynx**）、`/login` **200**、**`/scan` 200**（标题「扫码查询 - 农资315」）；③ `http://www.nz315.cn/` **301** 且 `Location: https://www.nz315.cn/`；④ `https://www.cynx.cn/` 200 标题正常 → **正式站未受影响**；⑤ PM2 里 **cynx 与 nz315 均 online**。**混合内容预检**：全仓库 `*.ts/*.vue/*.json/*.cjs/*.mjs` grep `http://`（排除 localhost/127.0.0.1）**零命中** → HTTPS 下不会拦资源。**两条实测更正**：① **阿里云免费证书并非单域名**——本次证书 SAN 含裸域名 `nz315.cn`，故「不能加裸域名 443 块」的旧结论作废（14 号文档 §2.3 已就地更正）；② 裸域名 https 现状 **证书不匹配**（落到 cynx 的 server 块，`ERR_TLS_CERT_ALTNAME_INVALID`），**修法已给出但尚未执行**（补 `server_name nz315.cn` 的 443 `return 301` 块，精确匹配、不写 `default_server`，安全）。**仍未完成**：`/MP_verify_OUOoNSqTrpZkfWli.txt` 在 https 侧仍 **404**（nginx location 已就位，缺 `/www/server/nginx/html/` 下的文件）→ 微信「网页授权域名」尚未配；公安联网备案未做。

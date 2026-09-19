@@ -1,4 +1,22 @@
 ## 变更记录
+### 2026-09-19 | 堵住「部署须补列」指令的生产库污染雷（`db-init` 补 `--migrate-only`）+ 16 号交接文档
+- **结果一句话**：给 `scripts/db-init.mjs` 补出 **`--migrate-only`** 参数（只建表 + 增量迁移，跳过演示数据），**实测零写入 PASS**；修正 3 处文档中由我本人写下的**危险部署指令**；新增 `docs/handover/16-交接手册-安全加固收尾与新对话接续.md`（自包含交接文档）。**未部署服务器**。
+- **怎么发现的**：写交接文档时核对"部署前先跑 `node scripts/db-init.mjs` 补 `session_epoch` 列"这条指令 —— 翻源码发现 `main()` **无条件执行 `seed()` 与 `backfillUploadBatches()`**，而交接文档 13 号原本明写「本次部署零数据库变更，**绝对不要在生产库跑 db-init**」。**两条既有指令正面冲突，且错在我这一侧。**
+- **为什么 seed 危险（不是"幂等可重跑"就安全）**：`seed()` 的保护只是「按名字/证号查存在才插」：
+  | seed 内容 | 真实库后果 |
+  |---|---|
+  | 演示企业「山东绿丰生物科技有限公司」（按 `name` 查） | 真实库企业名对不上 → **实打实新建** |
+  | 4 条演示追溯码 `1230101*`（含已冻结 / 已作废） | **插进 `trace_code` 核心业务表** |
+  | 演示规格 / 产品 / 原药 / 批次 | 按证号查存在才插，不存在则插入 |
+  | `admin` / `lvfeng` / `codeop` 三个 `admin123` 账号 | 已存在则不插；**线上若已按安全清单删过 → 以 `admin123` 重建** |
+
+  **活证据（本机库实测）**：`enterprise` id=1「山东绿丰农药有限公司」（真实业务，2026-08-31 建）与 **id=2「山东绿丰生物科技有限公司」（seed 建，2026-09-03）** 并存；4 条 `1230101*` 码 `enterprise_id=2`、`created_at` 全为 09-05 → **确属 seed 写入**。
+- **修复**：`--migrate-only` 跳过 `seed()` 与 `backfillUploadBatches()`；顶部注释写明红线与本次事故背景；seed 执行前主动打印「⚠️ 即将写入演示数据…（生产/真实库请改用 `--migrate-only`）」。另新增常驻脚本 `scripts/verify-db-migration.mjs` 作为「零写入」的客观留证手段。
+- **验证（实测 PASS）**：新增**常驻校验脚本 `scripts/verify-db-migration.mjs`**（`dump` 记基线 → 跑迁移 → `compare` 逐表比对；三明治用法，真实库部署时同样适用），在跑迁移前后比对 —— **15 张表行数全等**（含 `trace_code` 104、`pesticide_reg` 97,471、`user` 6）· **`MAX(id)` 自增位未推进**（ent/usr/code/ub/prod/spec/batch/orig 八项全等）· **企业名单 / 账号（含 `session_epoch`）/ 追溯码前 30 条快照全等** → **PASS（业务数据零变化）**；运行日志确认无任何「迁移：」行（列已存在时 `migrate()` 全 no-op）→ **幂等成立**。
+- **文档修正（3 处，均为修正我本人上午写下的字）**：`AGENTS.md`（顶部「待部署的安全加固」块 → 明确 `--migrate-only` 不可省 + 常用命令表新增一行 + 进度段）；`PROJECT_LOG.md`（09-19 前端收口条目下的「数据库依赖」追述）；`.workbuddy/memory/2026-09-19.md`。
+- **新增交接文档**：`docs/handover/16-交接手册-安全加固收尾与新对话接续.md` —— 60 秒必读 / 三提交因果链 / 本机与服务器状态 / **三条机制的边界说明**（为何 `issuedAt <` 用严格小于、为何旧两段 token 必须拒、为何 Origin 必须精确比对）/ 本机验证清单 / **部署动作清单**（补列 → 构建 → `pm2 reload`，含 §5.1 的零脚本 SQL 备选）/ 7 条铁律 / 踩坑与可复用配方 / 待办 / 文档索引。`docs/handover/README.md` 索引同步：16 号标为最新，13 号降为「服务器事实仍有效」。
+- **给下一个 Agent 的提示**：① **`db-init` 这类"初始化 + 演示数据"混合脚本，需要"只做结构变更"时先读源码确认 `seed` 是否受控**——文档写"幂等可重跑"不等于安全，**幂等 ≠ 无害**，「查存在才插」在**另一个数据集**上等价于「无条件插」；② 部署补列用 **`node scripts/db-init.mjs --migrate-only`**，或走 16 号文档 §5.1 的幂等 SQL（零脚本执行）；③ 判断"某条命令能不能在生产库跑"**不能只看文档，要看它调用的函数**——本轮就是文档对文档打架；④ 本次修复**尚未部署服务器**。
+
 ### 2026-09-19 | 前端按角色收口 + 补齐三项后端遗留（会话吊销 / 登录 Origin 校验 / 生成数量 0 边界）
 - **结果一句话**：改动 17 个文件（后端 5 · 数据库迁移 1 · 前端 11）——**登录/登出补上服务端会话吊销 + 跨站校验**、**登录接口补 Origin 校验（并顺手修掉一个前缀绕过漏洞）**、**生成数量 0 不再被吞成 100**、**前端按角色隐藏全部写入口**（菜单/按钮/面板/页头入口 + 只读提示条）；**后端回归 27/27 PASS**、**生产构建 EXIT=0**、**真浏览器（Edge headless + CDP）双角色截图实测通过**；**未部署服务器**（线上仍为旧版本，待部署窗口）。
 - **来源**：同日安全测试报告 `docs/测试报告-2026-09-19-功能与安全测试.md` 登记的四项遗留（前三项本条目修复，第四项「前端未按角色隐藏入口」即本轮主任务）。用户原话：「前端还没按角色藏按钮 …… 属已登记的遗留项（连同 quantity:0 被吞、登出无吊销、登录无 Origin 校验，这些你也补齐吧」。
@@ -18,7 +36,9 @@
 - **数据卫生**：验证用的临时 viewer 账号（`tmpviewer`）已删除（复核残留 0，账号表回到 5 个原账号）；临时脚本、日志、浏览器 profile 全部清理。
 - **修改文件**：`server/utils/auth.ts` · `server/api/auth/login.post.ts` · `server/api/auth/logout.post.ts` · `server/api/admin/users/[id]/reset-password.post.ts` · `server/api/admin/codes/generate.post.ts` · `scripts/db-init.mjs` · `app/composables/useUser.ts` · `app/layouts/admin.vue` · `app/pages/admin/{alerts,batches,codes,collection,generator,messages,products,settings,specs}/index.vue` · `AGENTS.md` · 本条目 · `.workbuddy/memory/2026-09-19.md`。
 - **⚠️ 升级副作用（部署时必须知道）**：token 格式由两段改三段，`verifySessionToken` **主动拒绝旧格式**（旧 token 无法承载签发时间，服务端无从判断其是否已被吊销，只能一律作废）→ **部署后所有在线用户需重新登录一次**，属预期行为，不是故障。
-- **⚠️ 数据库依赖**：`user.session_epoch` 是**新增列**，服务器库需跑一次 `node scripts/db-init.mjs`（幂等）把列补上；**漏跑则登出/改密吊销静默失效**（`Number(undefined||0)=0`，判定恒不成立）。
+- **⚠️ 数据库依赖**：`user.session_epoch` 是**新增列**，服务器库需跑一次 **`node scripts/db-init.mjs --migrate-only`** 把列补上；**漏跑则登出/改密吊销静默失效**（`Number(undefined||0)=0`，判定恒不成立）。
+  - 🔴 **`--migrate-only` 这个参数是本条目的同日追加修正（同日第二次提交）**：原先只写「跑 db-init」，但 `db-init.mjs` 的 `main()` **无条件执行 `seed()`** —— 演示企业「山东绿丰生物科技有限公司」（**按名字查存在才插**，真实库名字对不上就**新建**）、4 条演示追溯码（含冻结/作废码，插进 `trace_code` 核心业务表）、演示产品/批次、以及 3 个 `admin123` 演示账号。**本机库现存的企业 id=2 与 4 条 `1230101*` 码即为 seed 产物，是活证据。** 而交接文档 13 号原本明写「本次部署零数据库变更，**绝对不要跑 db-init**」——两条指令直接对撞。故给脚本补出 `--migrate-only`（只建表 + 增量迁移，跳过 seed 与历史码归档），并**实测验证零写入**：15 张表行数全部一致、`MAX(id)` 自增位未推进、企业名单/账号（含 `session_epoch`）/追溯码前 30 条快照全等 → **PASS**。
+  - 备选（零脚本执行）路径：直接在服务器 MySQL 执行一条幂等 ALTER，见 `docs/handover/16-交接手册-安全加固收尾与新对话接续.md` §5.1。
 - **给下一个 Agent 的提示**：① **新增写接口一律 `requireWritableUser`**，同步在页面按钮上加 `v-if="canWrite"`——**后端拦得住不等于体验收得干净**，本轮之前 viewer 是"看得见按钮、点了吃 403"；② 任何"能改变他人凭证状态"的写操作（改密、改角色、禁用）都要**顺带 `revokeUserSessions`**，否则旧会话在 TTL 内继续有效；③ 判断 Origin 一律**完整比对**，别用 `startsWith`（本轮实测可被同前缀域名绕过）；④ 前端新增"按角色可见"的入口时，去 `useUser()` 取 `canWrite`/`canManageUsers`，**别再直接比 `role === 'viewer'`**（散落判断迟早与后端白名单漂移）；⑤ 本次修复**尚未部署服务器**。
 
 ### 2026-09-19 | 修复 P0 提权漏洞与 P1 viewer 写守卫缺失（安全加固）

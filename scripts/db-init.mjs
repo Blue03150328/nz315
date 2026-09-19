@@ -1,5 +1,15 @@
-// 数据库初始化脚本：按 PRD 第七章创建 11 张表 + 演示数据
-// 用法：node scripts/db-init.mjs
+// 数据库初始化脚本：按 PRD 第七章创建 14 张表 + 增量迁移 + 演示数据
+// 用法：
+//   node scripts/db-init.mjs                 本机开发用——建库建表 + 增量迁移 + **写入演示数据**
+//   node scripts/db-init.mjs --migrate-only  只建表 + 增量迁移，**跳过演示数据与历史码归档**
+//
+// 🔴 生产库/真实库补列补索引**必须加 `--migrate-only`**（2026-09-19）：
+//    seed() 会无条件写入演示企业/规格/产品/批次/4 条演示追溯码/3 个 admin123 演示账号，
+//    且 backfillUploadBatches() 会新建「历史数据」upload_batch 行并 UPDATE 存量码归属。
+//    这些保护都是"按名字/证号查存在才插"的幂等写法，**只在同名数据已存在时才不插**——
+//    真实库里名字对不上就会实打实插进去，等于污染生产数据。
+//    历史教训：交接文档 13 号明确写过「本次部署零数据库变更，绝对不要跑 db-init」，
+//    而 09-19 的会话撤销功能需要补 user.session_epoch 列，两句话直接对撞——故补出本参数。
 'use strict';
 import mysql from 'mysql2/promise';
 import bcrypt from 'bcryptjs';
@@ -498,6 +508,9 @@ async function seed(conn) {
 }
 
 async function main() {
+  // --migrate-only：只建表 + 增量迁移，跳过 seed() 与 backfillUploadBatches()（2026-09-19）
+  const migrateOnly = process.argv.includes('--migrate-only')
+
   // 1) 连接（无库）并创建数据库
   const adminConn = await mysql.createConnection({ host: DB.host, port: DB.port, user: DB.user, password: DB.password });
   await adminConn.query(`CREATE DATABASE IF NOT EXISTS \`${DB.database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`);
@@ -514,13 +527,20 @@ async function main() {
   // 3) 增量迁移（历史库补列/补索引）
   await migrate(conn);
 
-  // 4) seed
-  await seed(conn);
+  if (migrateOnly) {
+    console.log('[db] --migrate-only：已跳过演示数据（seed）与历史码归档（backfillUploadBatches）');
+  } else {
+    // 4) seed —— 会写入演示数据，运行前把「将要写什么」显式打出来，避免在真实库上误跑
+    console.log('[db] ⚠️ 即将写入演示数据：演示企业/规格/产品/原药/批次 + 4 条演示追溯码 + 3 个 admin123 演示账号'
+      + '（生产/真实库请改用 --migrate-only）');
+    await seed(conn);
 
-  // 5) 历史码兜底归档（upload_batch 聚合维度，幂等）
-  await backfillUploadBatches(conn);
+    // 5) 历史码兜底归档（upload_batch 聚合维度，幂等）
+    await backfillUploadBatches(conn);
+  }
+
   await conn.end();
-  console.log('[db] 初始化完成');
+  console.log('[db] 初始化完成（' + (migrateOnly ? '仅迁移' : '含演示数据') + '）');
 }
 
 main().catch((e) => {
