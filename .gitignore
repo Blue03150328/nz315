@@ -47,6 +47,11 @@ Thumbs.db
 # 放 public/tools/ 由本机磁盘直接提供下载，部署时需单独拷贝该目录到服务器）
 public/tools/*.exe
 public/tools/*.zip
+# 便携版离线工具运行时会自动在 **exe 同目录** 建 app-data/（Chromium userData：Cache / GPUCache /
+# Local Storage / Local State / data.json…，约 5MB / 50 个文件）。
+# ⚠️ 因此**别在 public/tools/ 里直接双击运行该 exe** —— 生成的缓存落在 public/ 下，会被 `nuxt build`
+# 复制进网站公网目录（2026-09-19 实际发生过一次，已清理）。要试工具请去 app/dist/ 运行，或先把 exe 拷到别处。
+public/tools/app-data/
 # 本机诊断/临时输出（排查时把命令输出落盘成 _xxx.txt 再读；2026-09-19 起根目录也纳入）
 # 起因：一天内两次被 `git add -A` 扫进仓库 —— 与其靠人记，不如让 git 直接看不见
 /_*.txt
