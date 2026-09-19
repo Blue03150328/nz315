@@ -176,16 +176,20 @@ const doStockIn = async () => {
 // ========== 二维码图片输出：官方离线工具（合规第一条：QR/DM 码制，供印刷厂赋码） ==========
 // 2026-09-15 改造：原「服务端渲染 PNG + zip 打包下载」整体下线，改为下载官方离线工具在本机生成——
 // 万张级批量不再受服务器与网络限制，印刷厂/生产车间可离线自行出图；码内容口径与平台一致（完整扫码 URL）。
+// 2026-09-19 升级 v1.2.0：工具改为「导入本平台生成的码文件 → 只出图」的纯生图定位——
+//   此前工具自己也能造码（内置数据快照 + 不同算法，无 MD5 校验位），导致与平台生成的码对不上、还要再录入一遍；
+//   现在码统一由平台产出（可入库留档、可被生产采集绑定），工具只负责渲染成图。
+//   工具仍保留「离线应急生成」但不推荐；导入出图不依赖工具内置数据，故厂商无需再为数据更新重发工具包。
 // 工具发布件放 public/tools/；版本号/size/SHA256 在此维护并展示，便于客户核对拿到的是否为官方发布件
 const OFFLINE_TOOL = {
-  name: '农药追溯码生成工具',
-  version: 'v1.1.0（便携版）',
+  name: '农药追溯码生图工具',
+  version: 'v1.2.0（便携版）',
   platform: 'Windows 10/11',
-  size: '90.6 MB',
-  fileName: '农药追溯码生成工具-v1.1.0-便携版.exe',
-  url: '/tools/nz315-qr-tool-v1.1.0.exe',
+  size: '90.63 MB',
+  fileName: '农药追溯码生成工具-v1.2.0-便携版.exe',
+  url: '/tools/nz315-qr-tool-v1.2.0.exe',
   // 发布件校验值：客户下载后可用 `certutil -hashfile 文件名 SHA256` 核对，确认拿到的是官方发布件、未被替换
-  sha256: 'df9cd9ea79cd67d545ee3f4161d1175c1197344c2dba3509e5b27a46347f59a7',
+  sha256: '04373ae1dc21752636f1b68945edb2dca8cff19c8b005b2ace1070cbc0a72fe8',
 }
 const toolDownloading = ref(false)
 
@@ -217,7 +221,7 @@ const downloadOfflineTool = async () => {
     <div class="flex items-center justify-between">
       <div>
         <h1 class="b-page-title">追溯码生成</h1>
-        <p class="b-page-desc">按 1049 号公告结构批量生成 32 位追溯码（生成不入库，导出后经生产采集导入；二维码图片由官方离线工具在本机生成）</p>
+        <p class="b-page-desc">按 1049 号公告结构批量生成 32 位追溯码（生成不入库，导出后经生产采集导入；二维码图片由官方离线工具导入 urls.txt 在本机生成）</p>
       </div>
       <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetPage">重置</UButton>
     </div>
@@ -402,12 +406,14 @@ const downloadOfflineTool = async () => {
       <div class="b-card-body space-y-3">
         <div class="b-note">
           <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
-          <p class="b-note-text">二维码图片改由官方<strong>离线工具</strong>在本机生成，不再经过服务器：万张级批量不受网络与服务器限制，印刷厂、生产车间均可离线自行出图。码内容口径与平台一致，为完整扫码地址（<span class="font-code">{{ traceBaseUrl }}32位码</span>）。</p>
+          <p class="b-note-text">二维码图片改由官方<strong>离线工具</strong>在本机生成，不再经过服务器：万张级批量不受网络与服务器限制，印刷厂、生产车间均可离线自行出图。<strong>码值统一由本平台生成</strong>（可入库留档、可被生产采集绑定），工具只负责把码渲染成 PNG —— 两边不会再出现规格码或码结构对不上的情况。码内容为完整扫码地址（<span class="font-code">{{ traceBaseUrl }}32位码</span>）。</p>
         </div>
         <ol class="space-y-1.5 text-[13px] leading-6 text-[var(--b-text-muted)]">
-          <li>① 在上方「生成结果」区点【导出 urls.txt】，得到每行一个完整扫码地址的码文件。</li>
+          <li>① 在上方「生成结果」区点【导出 urls.txt】，得到每行一个完整扫码地址的码文件（也可用【导出 TXT】或 sn 清单 CSV，工具三种都能识别）。</li>
           <li>② 下载并双击运行离线工具（便携版，免安装、无需联网）。</li>
-          <li>③ 在工具内导入该码文件，设置码制、模块大小、静区白边等参数，导出 PNG 图片包。</li>
+          <li>③ 在工具「第 1 步」把码文件拖进去 —— <strong>可一次拖入多个文件自动合并去重</strong>；单批超过 1 万条时，把多次生成导出的文件一起拖入即可。</li>
+          <li>④ 在工具「第 2 步」设置码制（QR / DataMatrix）、模块大小（<strong>DataMatrix 建议 ≥4 像素/格</strong>）、静区白边（<strong>务必 ≥2</strong>），选好输出文件夹后导出 PNG。</li>
+          <li>⑤ 印刷前务必用微信扫一扫验证前几张图，确认能打开本平台追溯查询页且产品信息正确。</li>
         </ol>
         <div class="b-note">
           <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />

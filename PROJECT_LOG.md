@@ -1,4 +1,23 @@
 ## 变更记录
+### 2026-09-19 | 离线工具改造 v1.2.0：从「自己造码」改为「导入平台码文件 → 只出图」
+- **结果一句话**：用户提出「当前离线工具自己生成追溯码，与网站生成的码规格对不上，出图后还得再录入网站，数据一更新又要重发工具」，要求改成**纯生图工具**。已完成改造并打包 **v1.2.0**（`95,035,957` 字节 / SHA256 `04373ae1dc21752636f1b68945edb2dca8cff19c8b005b2ace1070cbc0a72fe8`），工具侧三套测试 **33 项全绿**；网站生成页已接入新包并改写操作说明。**EXE 为 gitignored，上线须单独上传。**
+- **为什么不是重做（技术底牌）**：`app/main.js` 的 `ipcMain.handle('qr-generate')` 入参本就是 `config.items`（**码 / URL 字符串数组**）——**出图引擎天生与「码从哪来」解耦**，renderer 只是喂了本地生成的码。故只需把码来源换成「导入文件解析结果」，出图链路 / 进度条 / 停止 / 前 3 张预览 / 文件命名全部原样复用，**`main.js` 一行未改**。
+- **挖出「规格对不上」的两个真根因**：① **两边码算法不同** —— 工具为 `前11位 + 毫秒时间戳13位 + 纯随机8位`（**无校验位**），平台为 `前11位 + [时间戳+6位随机+2位校验]截19位 + 前30位的 MD5 末2位`（**有校验位**），同一产品两边出的码根本不同；② **规格码数据源不同** —— 工具用内置快照 `data.json`（2025-06-01），平台用 `product_spec` 活数据。纯生图改造后**两者同时消失**（码统一由平台产出，工具只当打印机）。
+- **顺手修掉一处既有 bug**：工具「追溯查询地址」默认值是 `https://www.cynx.cn/pesticide.php?sn=` —— **指着旧站且参数名是 `?sn=`** 而非平台的 `?code=`，即工具出的图本来就扫不到 nz315。已改为 `https://www.nz315.cn/trace?code=`。
+- **工具侧改动**（工程目录 `E:\wokeplace\二维码生成离线软件`，**独立于本仓库，且非 git 仓库**）：
+  | 文件 | 改动 |
+  |---|---|
+  | `app/renderer/parse-codes.js` | **新增**：码文件解析器（独立文件便于单测）—— 剥离 BOM、兼容 CRLF、识别 urls.txt / 纯码 TXT / sn 清单 CSV / 多列粘贴文本、跨文件去重、CSV 表头跳过、无前缀时拒收纯码 |
+  | `app/renderer/app.js` | 新增导入模块（拖拽 + 多选合并 + 统计 + 前 5 条预览 + 清空）；码源改为「导入优先，否则离线应急」；文件名前缀默认取导入文件名；补 `'use strict'` |
+  | `app/renderer/index.html` | 重排为 **① 导入码文件（主流程）→ ② 输出二维码图片 → ③ 更新与设置**；原「企业 / 证号 / 规格 / 生成 / 导出」五步**折叠为「离线应急生成」**；模块大小提示改为 DataMatrix 建议 ≥4 |
+  | `app/package.json` | 版本 → `1.2.0`，描述改写 |
+  | `test/test-parse-codes.js` · `test/test-electron-import.js` · `test/verify-qr-output.js` | **新增**三套测试 |
+- **验证（33 项全绿）**：① 解析器单测 **10/10**；② **真实 Electron 端到端 18/18**（拖入带 BOM 的 urls.txt + 纯码 CRLF 文本 → 断言解析条数 / 跨文件去重 / 首条无 BOM 残留 / 前缀自动识别与回填 / 出图入参 / 数量超限夹取 / 清空复位）；③ 出图可解码性 **5/5**（生成的 PNG 用 zxing 读回原文，QR 3/4/6px 与 DM 4/6px 内容全部一致）。
+- **两个实测发现（已固化进文档）**：① **DataMatrix 模块 3px 时 zxing 解不出**（`FormatException`），4px 起稳定 → 界面提示已改为「DataMatrix 建议 ≥4」；② **环境坑**：沙箱注入的 `ELECTRON_RUN_AS_NODE=1` 会把 Electron 降级成纯 Node（`require('electron')` 报 MODULE_NOT_FOUND、`--no-sandbox` 报 bad option）→ 必须 `unset`（**设空值无效**，Electron 判的是"变量是否存在"）并加 `--no-sandbox`；且**托管 Node 22 跑 electron-builder 会在「PNG→ICO」步骤 V8 OOM 崩**（exit `2147483651`），**换系统 Node 24 打包即通过**。
+- **网站侧改动**：`app/pages/admin/generator/index.vue` —— `OFFLINE_TOOL` 常量更新为 v1.2.0（新 size / SHA256 / URL / 名称）、操作说明改为 5 步（含「可一次拖入多个文件自动合并去重」「DataMatrix 建议 ≥4」「印刷前微信扫验」）、页头描述同步；新包落位 `public/tools/nz315-qr-tool-v1.2.0.exe`（SHA256 与打包源文件逐字节一致）。SFC 编译校验通过（解析 / 模板 / script 三处零错误）。
+- **给下一个 Agent 的提示**：① **`public/tools/*.exe` 是 gitignored**（`.gitignore` 已注明"部署时需单独拷贝该目录到服务器"）→ 本次上线**必须单独上传 90MB 的 v1.2.0 包**，否则生成页下载按钮 404；② `public/tools/` 里旧的 `nz315-qr-tool-v1.1.0.exe` **暂未删除**（建议删，但等用户确认）；③ 工具源码目录**不是 git 仓库**，本次改动无法用版本控制回溯，建议尽快 `git init`。
+- **修改文件**：`E:\wokeplace\二维码生成离线软件\{README.md, 数据更新操作指南.md, app/package.json, app/renderer/index.html, app/renderer/app.js, app/renderer/parse-codes.js, test/test-parse-codes.js, test/test-electron-import.js, test/verify-qr-output.js}` · `E:\二维码管理\{app/pages/admin/generator/index.vue, public/tools/nz315-qr-tool-v1.2.0.exe}` · 本条目 · `.workbuddy/memory/2026-09-19.md`。
+
 ### 2026-09-19 | 部署前复核：迁移校验脚本三处「只在生产才暴露」的缺陷 + 17 号部署执行单 + 代码包就绪
 - **结果一句话**：准备本次部署（用户要求「部署新版本到线上服务器」）时，按"每条命令都要有证据"的规矩复核 `scripts/verify-db-migration.mjs`，发现**它在真实生产库上第一步就会崩**——连同另外两处「只在生产条件下才暴露」的判据缺陷一并修掉（提交 `f379264`）；生成上线代码包 `nz315-master-f379264.tar.gz`（**694,642 字节 / SHA256 `2a21dcea…6243`**，169 文件，已逐条与 `git ls-tree` 核对）；新增 **`docs/handover/17-部署执行单-安全加固上线.md`**（逐条命令 + 期望输出 + 回滚 + 卡点速查）。**部署尚未执行**（服务器操作由用户在宝塔终端逐条粘贴，SSH 在我这边不可用）。
 - **缺陷 ①（致命，会当场卡住部署）**：`snapshot()` 里 `SELECT id, username, role, status, session_epoch FROM user` —— 而 **`session_epoch` 正是本次要补的新列，补列前它不存在**。三明治用法的第一步 `dump` 是「补列**之前**」跑的，于是在生产库上必然以 `ER_BAD_FIELD_ERROR: Unknown column 'session_epoch' in 'field list'` 中止。**本机库该列已在位（09-19 下午已跑过 migrate），所以这条分支在本机永远走不到 —— 典型的"本地全绿、上线必炸"。** 修法：先查 `information_schema.COLUMNS` 探测列存在性，缺失时用 `CAST(0 AS SIGNED) AS session_epoch` 兜底（与 ALTER 的 `DEFAULT 0` 对齐，保证迁移前后账号维度仍可逐字段比对）。
