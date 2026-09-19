@@ -47,5 +47,11 @@ Thumbs.db
 # 放 public/tools/ 由本机磁盘直接提供下载，部署时需单独拷贝该目录到服务器）
 public/tools/*.exe
 public/tools/*.zip
+# 本机诊断/临时输出（排查时把命令输出落盘成 _xxx.txt 再读；2026-09-19 起根目录也纳入）
+# 起因：一天内两次被 `git add -A` 扫进仓库 —— 与其靠人记，不如让 git 直接看不见
+/_*.txt
+/_*.log
+/_*.json
+
 # Added by code-review-graph
 .code-review-graph/
