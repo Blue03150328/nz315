@@ -1,4 +1,20 @@
 ## 变更记录
+### 2026-09-19 | 部署前复核：迁移校验脚本三处「只在生产才暴露」的缺陷 + 17 号部署执行单 + 代码包就绪
+- **结果一句话**：准备本次部署（用户要求「部署新版本到线上服务器」）时，按"每条命令都要有证据"的规矩复核 `scripts/verify-db-migration.mjs`，发现**它在真实生产库上第一步就会崩**——连同另外两处「只在生产条件下才暴露」的判据缺陷一并修掉（提交 `f379264`）；生成上线代码包 `nz315-master-f379264.tar.gz`（**694,642 字节 / SHA256 `2a21dcea…6243`**，169 文件，已逐条与 `git ls-tree` 核对）；新增 **`docs/handover/17-部署执行单-安全加固上线.md`**（逐条命令 + 期望输出 + 回滚 + 卡点速查）。**部署尚未执行**（服务器操作由用户在宝塔终端逐条粘贴，SSH 在我这边不可用）。
+- **缺陷 ①（致命，会当场卡住部署）**：`snapshot()` 里 `SELECT id, username, role, status, session_epoch FROM user` —— 而 **`session_epoch` 正是本次要补的新列，补列前它不存在**。三明治用法的第一步 `dump` 是「补列**之前**」跑的，于是在生产库上必然以 `ER_BAD_FIELD_ERROR: Unknown column 'session_epoch' in 'field list'` 中止。**本机库该列已在位（09-19 下午已跑过 migrate），所以这条分支在本机永远走不到 —— 典型的"本地全绿、上线必炸"。** 修法：先查 `information_schema.COLUMNS` 探测列存在性，缺失时用 `CAST(0 AS SIGNED) AS session_epoch` 兜底（与 ALTER 的 `DEFAULT 0` 对齐，保证迁移前后账号维度仍可逐字段比对）。
+- **缺陷 ②（假 FAIL，会盖掉真红字）**：原比对要求**全部表**行数严格相等。但 `scan_log` / `operation_log` 是**纯追加日志**——线上真实消费者扫码、管理员登录都会写它们。部署窗口期（几分钟）内只要有一个真人在用，`compare` 就报 FAIL，而人会看到"数据被污染了"的红字指向一张日志表。修法：区分「业务主数据（严格相等）」与「活跃日志表（只增不减，打印 `注意`，不计入 FAIL）」。业务主数据表仍是严格要求——`seed()` 若被误跑，`enterprise`/`trace_code`/`product`/`batch`/`upload_batch`/`product_spec`/`product_original` 必被命中，一个都跑不掉。
+- **缺陷 ③（同类假 FAIL）**：`session_epoch` 被纳入账号维度严格比对——它随**登出 / 改密 / 重置密码**正常变化，部署窗口里任何人登出一次就会变。修法：账号维度只比 `id/username/role/status`，`session_epoch` 降级为**留证打印**（`基线非零账号 / 现在非零账号`）。
+- **另加一道防线**：基线文件带 `scriptVersion`，结构一变即**拒绝比对**并提示重新 `dump`，避免拿过期基线当证据（此前只能靠人记住"别把过期基线当证据"）。
+- **验证（四条，均本机实跑）**：
+  1. 本机真实库 `dump → compare` → **PASS**（15 张表、`MAX(id)` 八项全等、企业/账号/追溯码快照全等）。
+  2. **人为下调基线模拟两类场景**：把 `scan_log` / `operation_log` 各 −1 → 仅打印 `注意 …（活跃表，允许正常增长）`、**exit 0**；把 `trace_code` −1 → **`FAIL  trace_code  103 -> 104`、exit 1** → **证明"放宽"只放宽了日志表，核心表判据没有松**。
+  3. **独立临时库完整演练生产补列场景**（建表 → 人为 `DROP COLUMN session_epoch` 造出"线上库形态" → 再跑 `--migrate-only`）：脚本正确输出 `[db] 迁移：user 补充列 session_epoch（会话吊销）`、列被补回（`bigint / NOT NULL / DEFAULT 0 / 第 12 位`），且 `enterprise`/`user`/`trace_code`/`upload_batch`/`product`/`product_spec`/`batch`/`product_original` **八张表行数全为 0 → 零业务写入**；演练用临时库与 `.env` 改动均已还原（复核 `DB_NAME=nz315`）。
+  4. 兜底 SQL 形态验证：探测真实列返回 1 行、探测不存在列返回 0 行；`CAST(0 AS SIGNED)` 与真实列读出的值类型均为 `number`，JSON 序列化可比对。
+- **上线产物**：`nz315-master-f379264.tar.gz`（`git archive` 打包，天然不含 `.env` / `.output` / `node_modules` / 90MB 离线工具 EXE）；**依赖零变化**（`package.json`/`package-lock.json` 自 09-16 部署以来未改，服务器无需装新依赖）。
+- **17 号文档要点**：7 步执行单（体检 → 备份代码+库 → 上传校验 sha256 → 解包并**把 PM2 配置换回服务器修正版** → **补列三明治** → 构建+`pm2 reload` → 验证+写部署标记）；含**误判对照表**（活跃表"注意"≠污染、业务表 `FAIL` 才停手）、**`db-init` 权限报错的 SQL 备选**（应用账号无 `CREATE DATABASE` 权限时走同一句 ALTER）、回滚两条路、卡点速查。**17 号是执行口径的唯一来源**（16 号 §5.1 的旧比对口径已就地标注推翻）。
+- **两处口径需下一个 Agent 注意**：① **`viewer/admin123` 只存在于本机库**，线上没有该账号 → 想在线上验收"只读收口"须先在线上建一个 viewer（系统设置 → 用户权限 → 新增用户 → 只读账号），**验完删掉**（已写进 `AGENTS.md` 与 17 号）；② `deploy/ecosystem.config.cjs` 在仓库里仍是**未修正的原始版**（`PORT: 3000`、无 `interpreter`），每次解包都会盖掉服务器那份修正版 —— 17 号第 3 步已把它列为**必做动作**，长期方案应是把修正版直接入库（本轮未做，避免动部署面）。
+- **修改文件**：`scripts/verify-db-migration.mjs` · 新增 `docs/handover/17-部署执行单-安全加固上线.md` · `docs/handover/16-…`（§5.1 口径修正 + 指向 17 号）· `docs/handover/README.md`（索引）· `AGENTS.md`（部署块 + 常用命令表）· 本条目 · `.workbuddy/memory/2026-09-19.md`。
+
 ### 2026-09-19 | 堵住「部署须补列」指令的生产库污染雷（`db-init` 补 `--migrate-only`）+ 16 号交接文档
 - **结果一句话**：给 `scripts/db-init.mjs` 补出 **`--migrate-only`** 参数（只建表 + 增量迁移，跳过演示数据），**实测零写入 PASS**；修正 3 处文档中由我本人写下的**危险部署指令**；新增 `docs/handover/16-交接手册-安全加固收尾与新对话接续.md`（自包含交接文档）。**未部署服务器**。
 - **怎么发现的**：写交接文档时核对"部署前先跑 `node scripts/db-init.mjs` 补 `session_epoch` 列"这条指令 —— 翻源码发现 `main()` **无条件执行 `seed()` 与 `backfillUploadBatches()`**，而交接文档 13 号原本明写「本次部署零数据库变更，**绝对不要在生产库跑 db-init**」。**两条既有指令正面冲突，且错在我这一侧。**
