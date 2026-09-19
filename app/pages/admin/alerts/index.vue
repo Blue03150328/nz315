@@ -1,6 +1,9 @@
 <script setup lang="ts">
 // 风险预警中心（PRD 5.9：8 类异常后台预警的处理与统计）
 // Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
+// 只读账号（viewer）在模板中隐藏全部写操作入口
+const { canWrite } = useUser()
+
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '风险预警' })
 
@@ -188,7 +191,7 @@ const resetSearch = () => { filters.keyword = ''; filters.alertType = undefined;
               </td>
               <td>
                 <div class="b-actions">
-                  <UButton v-if="Number(r.handle_status) === 0" variant="link" color="neutral" size="xs" @click="openHandle(r)">
+                  <UButton v-if="canWrite && Number(r.handle_status) === 0" variant="link" color="neutral" size="xs" @click="openHandle(r)">
                     处理
                   </UButton>
                   <span v-else class="text-xs text-[var(--b-text-muted)]">{{ r.handler_name || '-' }}</span>
@@ -261,7 +264,7 @@ const resetSearch = () => { filters.keyword = ''; filters.alertType = undefined;
         </div>
         <div class="b-modal-foot">
           <UButton variant="outline" color="neutral" @click="showHandle = false">取消</UButton>
-          <UButton color="neutral" variant="solid" :loading="handling" @click="submitHandle">确认处理</UButton>
+          <UButton v-if="canWrite" color="neutral" variant="solid" :loading="handling" @click="submitHandle">确认处理</UButton>
         </div>
       </div>
       </template>

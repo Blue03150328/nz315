@@ -155,6 +155,7 @@ const DDL = [
     status TINYINT NOT NULL DEFAULT 1 COMMENT '0禁用 1启用',
     last_login_at DATETIME NULL,
     last_login_ip VARCHAR(50) NULL,
+    session_epoch BIGINT NOT NULL DEFAULT 0 COMMENT '会话吊销时间戳（毫秒）：签发时间早于此值的 token 一律失效（登出/改密时刷新）',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_username (username),
     KEY idx_enterprise (enterprise_id)
@@ -325,6 +326,13 @@ async function migrate(conn) {
   if (!(await hasColumn('enterprise', 'renew_expire'))) {
     await conn.query("ALTER TABLE enterprise ADD COLUMN renew_expire DATE NULL COMMENT '续费到期日（NULL 或早于今天=到期未续费，禁止登录）' AFTER qualification_expire");
     console.log('[db] 迁移：enterprise 补充列 renew_expire（续费到期日）');
+  }
+
+  // user.session_epoch：会话吊销时间戳（2026-09-19 新增）——登出/改密时刷新为当前毫秒，
+  // 签发时间早于该值的会话 token 立即失效；默认 0 表示历史会话不受影响（等自然过期）
+  if (!(await hasColumn('user', 'session_epoch'))) {
+    await conn.query("ALTER TABLE `user` ADD COLUMN session_epoch BIGINT NOT NULL DEFAULT 0 COMMENT '会话吊销时间戳（毫秒）：签发时间早于此值的 token 一律失效（登出/改密时刷新）' AFTER last_login_ip");
+    console.log('[db] 迁移：user 补充列 session_epoch（会话吊销）');
   }
 
   // product_spec.dosage_forms：适用剂型字段已下线（2026-09-03 用户决策：规格不限定剂型），历史库清理（幂等）

@@ -3,6 +3,9 @@
 // 自定义段配置对齐 PRD 3.2：时间戳段 + 随机数字段 + 校验位段；导出命名对齐 PRD 5.5.1 强制命名规范
 // 二维码图片输出对齐合规第一条（QR/DM 码制，供印刷厂赋码）：2026-09-15 起改为「下载官方离线工具、本机生成」，服务端不再渲染 PNG
 // Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
+// 只读账号（viewer）在模板中隐藏全部写操作入口
+const { canWrite } = useUser()
+
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '追溯码生成' })
 
@@ -282,7 +285,7 @@ const downloadOfflineTool = async () => {
 
         <div class="b-card-foot">
           <span class="b-card-extra">生成结果不入库，导出文件后经「生产采集」导入</span>
-          <UButton color="neutral" variant="solid" icon="i-lucide-wand-2" :loading="generating" @click="doGenerate">
+          <UButton v-if="canWrite" color="neutral" variant="solid" icon="i-lucide-wand-2" :loading="generating" @click="doGenerate">
             生成追溯码
           </UButton>
         </div>
@@ -376,7 +379,7 @@ const downloadOfflineTool = async () => {
           <UButton variant="outline" color="neutral" icon="i-lucide-link" @click="exportUrls">导出 urls.txt（离线工具输入）</UButton>
           <UButton color="neutral" variant="solid" icon="i-lucide-file-spreadsheet" @click="exportCsv">导出 CSV</UButton>
           <span class="b-sep" />
-          <UButton
+          <UButton v-if="canWrite"
             color="neutral"
             :variant="stocked ? 'soft' : 'solid'"
             icon="i-lucide-archive"

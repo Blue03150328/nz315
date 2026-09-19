@@ -1,4 +1,26 @@
 ## 变更记录
+### 2026-09-19 | 前端按角色收口 + 补齐三项后端遗留（会话吊销 / 登录 Origin 校验 / 生成数量 0 边界）
+- **结果一句话**：改动 17 个文件（后端 5 · 数据库迁移 1 · 前端 11）——**登录/登出补上服务端会话吊销 + 跨站校验**、**登录接口补 Origin 校验（并顺手修掉一个前缀绕过漏洞）**、**生成数量 0 不再被吞成 100**、**前端按角色隐藏全部写入口**（菜单/按钮/面板/页头入口 + 只读提示条）；**后端回归 27/27 PASS**、**生产构建 EXIT=0**、**真浏览器（Edge headless + CDP）双角色截图实测通过**；**未部署服务器**（线上仍为旧版本，待部署窗口）。
+- **来源**：同日安全测试报告 `docs/测试报告-2026-09-19-功能与安全测试.md` 登记的四项遗留（前三项本条目修复，第四项「前端未按角色隐藏入口」即本轮主任务）。用户原话：「前端还没按角色藏按钮 …… 属已登记的遗留项（连同 quantity:0 被吞、登出无吊销、登录无 Origin 校验，这些你也补齐吧」。
+- **① 会话吊销（登出/改密即失效）**：原实现只清客户端 cookie——**token 本身仍在 7 天有效期内，被复制后依旧可用**，改密码也踢不掉已经登录的会话（账号被盗场景形同虚设）。修法：`user` 表新增 **`session_epoch BIGINT`** 列（`scripts/db-init.mjs` DDL + 幂等 `migrate()` 双写，本机已跑通），token payload 由两段 `userId.expiry` 升级为**三段 `userId.expiry.issuedAt`**；`getCurrentUser` 增加判定 **`issuedAt < session_epoch` → 视为未登录**。登出（`logout.post.ts`）与重置密码（`users/[id]/reset-password.post.ts`）都会把 `session_epoch` 刷到当前毫秒。判定用**严格小于**，避免同毫秒内「登出 → 立刻重登」被误杀。
+- **② 登录接口补跨站校验（顺带修掉一个真漏洞）**：`login.post.ts` 此前完全不校验 Origin（登录 CSRF 面）。补上后**发现 `assertSameOrigin` 本身有缺陷**——旧写法是 `origin.startsWith('http://' + host)`，**前缀比较**：`https://www.nz315.cn.evil.com` 可以穿过（攻击者注册同前缀域名即可绕过全部写接口的 CSRF 防护）；且 `http`/`https` 混用时（反代终结 TLS）会**误拒同站请求**。已改为**取 `x-forwarded-host || host` 后做完整 origin 精确比对**。无 Origin 的请求（curl / 服务端调用 / Node fetch）照旧放行，不影响 API 客户端。
+- **③ 生成数量 0 边界**：`codes/generate.post.ts` 原写 `Number(body.quantity || 100)`——**`0` 是 falsy，传 0 反而生成 100 个码**（一个"静默放大请求"的坑）。改为仅 `undefined/null/''` 落默认 100，其余一律进 1–10000 区间校验；`0`/负数/非数字现在稳定 **400**。
+- **④ 前端按角色收口（本轮主任务）**：`useUser()` 新增 **`canWrite`（非 viewer）** 与 **`canManageUsers`（platform_admin / enterprise_admin）** 两个 computed，与后端 `requireWritableUser` / `users` 三件套白名单**逐条对齐**，共改 11 个前端文件：
+  | 位置 | 收口方式 |
+  |---|---|
+  | `app/layouts/admin.vue` | 侧栏菜单带 `writeOnly` 标记（追溯码生成 / 追溯码上传），只读账号**整条隐藏**（进去只剩空白页，没必要给）；内容区顶部加只读**提示条**，避免用户以为"功能丢了" |
+  | 8 个业务页（alerts/batches/codes/collection/generator/messages/products/specs） | 表头【新增】、行内【编辑/删除/冻结/作废/修正/绑定/恢复正常/处理/标为已读】、各确认弹窗的**确认按钮**、文件选择与【解析校验】【导入】【生成追溯码】等约 40 处 `v-if="canWrite && …"` |
+  | `app/pages/admin/settings/index.vue` | Tab 列表改 `settingsTabs` computed——**用户权限**仅 `canManageUsers` 可见、**数据备份**仅 `isPlatformAdmin` 可见；企业信息保存按钮按 `canManageUsers` 隐藏并给出"当前角色不可修改"说明 |
+- **验证证据（三层，均本机实跑）**：
+  1. **后端回归 27/27 PASS**：三段 token 正常登录/鉴权；**旧两段 token 一律 401**；登出后旧 token **401**；重置密码后旧 token **401**；`quantity:0`→**400**、`quantity:3`→**3 个码**、不传→**100**；同站 Origin 登录 **200**；`http://127.0.0.1:3100.evil.com` 与写接口前缀伪造 **403**；无 Origin / 跨主机请求按预期放行。
+  2. **生产构建 `nuxt build` EXIT=0**。
+  3. **真浏览器（Edge headless + CDP）双角色实测**（同一页面同一次会话，仅换身份）：`/admin/codes` → viewer 侧栏 **9 项**（无追溯码生成/上传）、行内按钮**只剩【详细】**；platform_admin 侧栏 **11 项**、行内按钮 **详细/冻结/新建批次并绑定/修正/删除**齐全、无只读提示条。`/admin/settings` → viewer Tab **只剩【企业信息】【操作日志】**且无【保存企业信息】；platform_admin **四个 Tab 齐全**。
+- **数据卫生**：验证用的临时 viewer 账号（`tmpviewer`）已删除（复核残留 0，账号表回到 5 个原账号）；临时脚本、日志、浏览器 profile 全部清理。
+- **修改文件**：`server/utils/auth.ts` · `server/api/auth/login.post.ts` · `server/api/auth/logout.post.ts` · `server/api/admin/users/[id]/reset-password.post.ts` · `server/api/admin/codes/generate.post.ts` · `scripts/db-init.mjs` · `app/composables/useUser.ts` · `app/layouts/admin.vue` · `app/pages/admin/{alerts,batches,codes,collection,generator,messages,products,settings,specs}/index.vue` · `AGENTS.md` · 本条目 · `.workbuddy/memory/2026-09-19.md`。
+- **⚠️ 升级副作用（部署时必须知道）**：token 格式由两段改三段，`verifySessionToken` **主动拒绝旧格式**（旧 token 无法承载签发时间，服务端无从判断其是否已被吊销，只能一律作废）→ **部署后所有在线用户需重新登录一次**，属预期行为，不是故障。
+- **⚠️ 数据库依赖**：`user.session_epoch` 是**新增列**，服务器库需跑一次 `node scripts/db-init.mjs`（幂等）把列补上；**漏跑则登出/改密吊销静默失效**（`Number(undefined||0)=0`，判定恒不成立）。
+- **给下一个 Agent 的提示**：① **新增写接口一律 `requireWritableUser`**，同步在页面按钮上加 `v-if="canWrite"`——**后端拦得住不等于体验收得干净**，本轮之前 viewer 是"看得见按钮、点了吃 403"；② 任何"能改变他人凭证状态"的写操作（改密、改角色、禁用）都要**顺带 `revokeUserSessions`**，否则旧会话在 TTL 内继续有效；③ 判断 Origin 一律**完整比对**，别用 `startsWith`（本轮实测可被同前缀域名绕过）；④ 前端新增"按角色可见"的入口时，去 `useUser()` 取 `canWrite`/`canManageUsers`，**别再直接比 `role === 'viewer'`**（散落判断迟早与后端白名单漂移）；⑤ 本次修复**尚未部署服务器**。
+
 ### 2026-09-19 | 修复 P0 提权漏洞与 P1 viewer 写守卫缺失（安全加固）
 - **结果一句话**：改动 20 个后端文件——17 个写接口守卫 `requireBackendUser` → `requireWritableUser`，`users` 三件套补齐角色判断；**权限回归 46/46 通过**、生产构建通过；**未部署服务器**（线上仍为旧版本，待部署窗口）。
 - **来源**：同日全量安全测试（报告 `docs/测试报告-2026-09-19-功能与安全测试.md`，**含复现细节勿推公开仓库**）。

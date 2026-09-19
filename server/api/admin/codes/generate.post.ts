@@ -14,7 +14,11 @@ export default defineEventHandler(async (event) => {
   const body = await readBody(event) || {}
 
   const productId = Number(body.productId)
-  const quantity = Number(body.quantity || 100)
+  // 数量默认 100；显式传 0/负数/非数字一律进入下方区间校验并 400——
+  // 原写法 `Number(body.quantity || 100)` 会把 0 当 falsy 吞成 100，传 0 反而生成 100 个码（2026-09-19 修复）
+  const quantity = body.quantity === undefined || body.quantity === null || body.quantity === ''
+    ? 100
+    : Number(body.quantity)
   if (!Number.isInteger(productId) || productId <= 0) throw createError({ statusCode: 400, statusMessage: '请选择产品' })
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10000) {
     throw createError({ statusCode: 400, statusMessage: '生成数量须为 1-10000' })

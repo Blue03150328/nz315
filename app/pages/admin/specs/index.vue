@@ -25,7 +25,7 @@ const { data, pending, refresh, error } = await useFetch<any>('/api/admin/specs'
 })
 
 // ===== 批量导入（2026-09-07：右上角按钮 + 弹窗；模板 public/templates/spec-import-template.xlsx）=====
-const { isPlatformAdmin } = useUser()
+const { isPlatformAdmin, canWrite } = useUser()
 const showImportModal = ref(false)
 const importing = ref(false)
 const importFile = ref<File | null>(null)
@@ -182,8 +182,8 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
         <p class="b-page-desc">企业规格主数据 · 规格码对应 32 位追溯码第 9-11 位</p>
       </div>
       <div class="flex items-center gap-2">
-        <UButton color="neutral" variant="solid" icon="i-lucide-plus" @click="openCreate">新增规格</UButton>
-        <UButton color="neutral" variant="outline" icon="i-lucide-file-up" @click="openImport">批量导入</UButton>
+        <UButton v-if="canWrite" color="neutral" variant="solid" icon="i-lucide-plus" @click="openCreate">新增规格</UButton>
+        <UButton v-if="canWrite" color="neutral" variant="outline" icon="i-lucide-file-up" @click="openImport">批量导入</UButton>
       </div>
     </div>
 
@@ -251,13 +251,13 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
               </td>
               <td>
                 <div class="b-actions">
-                  <UButton variant="link" color="neutral" size="xs" @click="openEdit(r)">编辑</UButton>
+                  <UButton v-if="canWrite" variant="link" color="neutral" size="xs" @click="openEdit(r)">编辑</UButton>
                   <span class="b-sep" />
                   <!-- 被引用 > 0：删除置灰并提示原因（disabled 按钮自身不触发 title，由外层 span 承载）；= 0 可正常点击 -->
-                  <span v-if="Number(r.ref_count) > 0" :title="'已被 ' + r.ref_count + ' 个产品引用，不可删除'">
+                  <span v-if="canWrite && Number(r.ref_count) > 0" :title="'已被 ' + r.ref_count + ' 个产品引用，不可删除'">
                     <UButton variant="link" color="neutral" size="xs" disabled>删除</UButton>
                   </span>
-                  <UButton v-else variant="link" color="neutral" size="xs" @click="askDelete(r)">删除</UButton>
+                  <UButton v-else-if="canWrite" variant="link" color="neutral" size="xs" @click="askDelete(r)">删除</UButton>
                 </div>
               </td>
             </tr>
@@ -326,7 +326,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
           </div>
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showModal = false">取消</UButton>
-            <UButton color="neutral" variant="solid" :loading="saving" @click="save">保存</UButton>
+            <UButton v-if="canWrite" color="neutral" variant="solid" :loading="saving" @click="save">保存</UButton>
           </div>
         </div>
       </template>
@@ -355,7 +355,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
           </div>
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="delOpen = false">取消</UButton>
-            <UButton color="error" variant="solid" :loading="deleting" @click="confirmDelete">确认删除</UButton>
+            <UButton v-if="canWrite" color="error" variant="solid" :loading="deleting" @click="confirmDelete">确认删除</UButton>
           </div>
         </div>
       </template>
@@ -402,7 +402,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
               <label class="b-label-lg">Excel 文件 <span class="b-required">*</span></label>
               <div class="flex items-center gap-3">
                 <input ref="importFileInput" type="file" accept=".xlsx,.xls" class="hidden" @change="onImportFile" />
-                <UButton variant="outline" color="neutral" icon="i-lucide-folder-open" @click="importFileInput?.click()">选择文件</UButton>
+                <UButton v-if="canWrite" variant="outline" color="neutral" icon="i-lucide-folder-open" @click="importFileInput?.click()">选择文件</UButton>
                 <span class="text-sm" :class="importFileName ? 'text-[var(--b-text-regular)]' : 'text-[var(--b-text-muted)]'">
                   {{ importFileName || '未选择文件（仅支持 .xlsx / .xls）' }}
                 </span>
@@ -436,7 +436,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
           </div>
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showImportModal = false">关闭</UButton>
-            <UButton color="neutral" variant="solid" :loading="importing" :disabled="!importFile" @click="doImport">开始导入</UButton>
+            <UButton v-if="canWrite" color="neutral" variant="solid" :loading="importing" :disabled="!importFile" @click="doImport">开始导入</UButton>
           </div>
         </div>
       </template>

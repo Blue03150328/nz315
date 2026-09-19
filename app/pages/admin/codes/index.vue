@@ -6,6 +6,9 @@ import { isInputDate } from '#shared/utils/input-date'
 //         【冻结】确认后整批冻结、【修正】整批修正（复用批量修正表单字段，作用域=本批次全部码）。
 // 原单条追溯码业务逻辑与接口不变（明细弹窗复用 /api/admin/codes 加 uploadBatchId 过滤）。
 // Keep-Alive 页面缓存：菜单切换保留页面状态；刷新/登出自动清空；【重置】恢复初始。
+// 只读账号（viewer）在模板中隐藏全部写操作入口
+const { canWrite } = useUser()
+
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '码库管理' })
 
@@ -467,7 +470,7 @@ const flagBadge = (f: number) => {
                 <div class="b-actions justify-end">
                   <UButton variant="link" color="neutral" size="xs" icon="i-lucide-eye" @click="openDetail(row)">详细</UButton>
                   <span class="b-sep" />
-                  <UButton
+                  <UButton v-if="canWrite"
                     variant="link"
                     color="neutral"
                     size="xs"
@@ -477,15 +480,15 @@ const flagBadge = (f: number) => {
                     @click="openFreeze(row)"
                   >冻结</UButton>
                   <span class="b-sep" />
-                  <UButton variant="link" color="neutral" size="xs" icon="i-lucide-link" :disabled="row.codeTotal <= row.boundCount" @click="openCorrect(row, true)">新建批次并绑定</UButton>
+                  <UButton v-if="canWrite" variant="link" color="neutral" size="xs" icon="i-lucide-link" :disabled="row.codeTotal <= row.boundCount" @click="openCorrect(row, true)">新建批次并绑定</UButton>
                   <span class="b-sep" />
-                  <UButton variant="link" color="neutral" size="xs" icon="i-lucide-wrench" @click="openCorrect(row)">修正</UButton>
+                  <UButton v-if="canWrite" variant="link" color="neutral" size="xs" icon="i-lucide-wrench" @click="openCorrect(row)">修正</UButton>
                   <span class="b-sep" />
                   <!-- 删除：批次内存在已绑定码时置灰不可点，hover 提示原因（disabled 按钮自身不触发 title，由外层 span 承载） -->
-                  <span v-if="!row.canDelete" :title="'该批次存在已绑定追溯码，无法删除（已绑定 ' + row.boundCount + ' 条）'">
+                  <span v-if="canWrite && !row.canDelete" :title="'该批次存在已绑定追溯码，无法删除（已绑定 ' + row.boundCount + ' 条）'">
                     <UButton variant="link" color="error" size="xs" icon="i-lucide-trash-2" disabled>删除</UButton>
                   </span>
-                  <UButton v-else variant="link" color="error" size="xs" icon="i-lucide-trash-2" @click="openDelete(row)">删除</UButton>
+                  <UButton v-else-if="canWrite" variant="link" color="error" size="xs" icon="i-lucide-trash-2" @click="openDelete(row)">删除</UButton>
                 </div>
               </td>
             </tr>
@@ -535,7 +538,7 @@ const flagBadge = (f: number) => {
           </div>
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showFreezeModal = false">取消</UButton>
-            <UButton color="neutral" variant="solid" :loading="freezing" @click="submitFreeze">确认冻结</UButton>
+            <UButton v-if="canWrite" color="neutral" variant="solid" :loading="freezing" @click="submitFreeze">确认冻结</UButton>
           </div>
         </div>
       </template>
@@ -616,7 +619,7 @@ const flagBadge = (f: number) => {
           </div>
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showCorrectModal = false">取消</UButton>
-            <UButton color="neutral" variant="solid" :loading="correcting" @click="submitCorrect">确认修正</UButton>
+            <UButton v-if="canWrite" color="neutral" variant="solid" :loading="correcting" @click="submitCorrect">确认修正</UButton>
           </div>
         </div>
       </template>
@@ -696,7 +699,7 @@ const flagBadge = (f: number) => {
           </div>
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showBindModal = false">取消</UButton>
-            <UButton color="neutral" variant="solid" :loading="correcting" @click="submitCorrect">确认绑定</UButton>
+            <UButton v-if="canWrite" color="neutral" variant="solid" :loading="correcting" @click="submitCorrect">确认绑定</UButton>
           </div>
         </div>
       </template>
@@ -725,7 +728,7 @@ const flagBadge = (f: number) => {
           </div>
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showDeleteModal = false">取消</UButton>
-            <UButton color="error" variant="solid" :loading="deleting" @click="submitDelete">确认删除</UButton>
+            <UButton v-if="canWrite" color="error" variant="solid" :loading="deleting" @click="submitDelete">确认删除</UButton>
           </div>
         </div>
       </template>
@@ -790,30 +793,30 @@ const flagBadge = (f: number) => {
                     <td>{{ r.batch_no || '-' }}</td>
                     <td>{{ String(r.created_at).slice(0, 16) }}</td>
                     <td>
-                      <div v-if="Number(r.abnormal_flag) === 0" class="b-actions justify-end">
-                        <UButton variant="link" color="neutral" size="xs" @click="openRowFlag('freeze', r)">冻结</UButton>
+                      <div v-if="canWrite && Number(r.abnormal_flag) === 0" class="b-actions justify-end">
+                        <UButton v-if="canWrite" variant="link" color="neutral" size="xs" @click="openRowFlag('freeze', r)">冻结</UButton>
                         <span class="b-sep" />
-                        <UButton variant="link" color="error" size="xs" @click="openRowFlag('void', r)">作废</UButton>
+                        <UButton v-if="canWrite" variant="link" color="error" size="xs" @click="openRowFlag('void', r)">作废</UButton>
                         <span class="b-sep" />
-                        <UButton variant="link" color="neutral" size="xs" @click="openRowEdit(r)">修改</UButton>
+                        <UButton v-if="canWrite" variant="link" color="neutral" size="xs" @click="openRowEdit(r)">修改</UButton>
                         <span class="b-sep" />
                         <!-- 删除：仅未绑定码可删（已绑定置灰，disabled 按钮自身不触发 title，由外层 span 承载 hover 提示） -->
-                        <span v-if="Number(r.status) === 2" :title="'该追溯码已绑定，不允许删除'">
+                        <span v-if="canWrite && Number(r.status) === 2" :title="'该追溯码已绑定，不允许删除'">
                           <UButton variant="link" color="error" size="xs" icon="i-lucide-trash-2" disabled>删除</UButton>
                         </span>
-                        <UButton v-else variant="link" color="error" size="xs" icon="i-lucide-trash-2" @click="openRowDelete(r)">删除</UButton>
+                        <UButton v-else-if="canWrite" variant="link" color="error" size="xs" icon="i-lucide-trash-2" @click="openRowDelete(r)">删除</UButton>
                       </div>
-                      <div v-else-if="Number(r.abnormal_flag) === 1" class="b-actions justify-end">
-                        <UButton variant="link" color="neutral" size="xs" @click="openRowFlag('restore', r)">恢复正常</UButton>
+                      <div v-else-if="canWrite && Number(r.abnormal_flag) === 1" class="b-actions justify-end">
+                        <UButton v-if="canWrite" variant="link" color="neutral" size="xs" @click="openRowFlag('restore', r)">恢复正常</UButton>
                         <span class="b-sep" />
-                        <UButton variant="link" color="neutral" size="xs" @click="openRowEdit(r)">修改</UButton>
+                        <UButton v-if="canWrite" variant="link" color="neutral" size="xs" @click="openRowEdit(r)">修改</UButton>
                         <span class="b-sep" />
-                        <span v-if="Number(r.status) === 2" :title="'该追溯码已绑定，不允许删除'">
+                        <span v-if="canWrite && Number(r.status) === 2" :title="'该追溯码已绑定，不允许删除'">
                           <UButton variant="link" color="error" size="xs" icon="i-lucide-trash-2" disabled>删除</UButton>
                         </span>
-                        <UButton v-else variant="link" color="error" size="xs" icon="i-lucide-trash-2" @click="openRowDelete(r)">删除</UButton>
+                        <UButton v-else-if="canWrite" variant="link" color="error" size="xs" icon="i-lucide-trash-2" @click="openRowDelete(r)">删除</UButton>
                       </div>
-                      <div v-else class="flex items-center justify-end gap-2">
+                      <div v-else-if="canWrite" class="flex items-center justify-end gap-2">
                         <UButton variant="link" color="neutral" size="xs" disabled title="已作废为终态，不可修改">修改</UButton>
                         <span class="b-card-extra text-xs">已终态</span>
                         <span v-if="Number(r.status) === 2" :title="'该追溯码已绑定，不允许删除'">
@@ -875,7 +878,7 @@ const flagBadge = (f: number) => {
           </div>
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showRowFlagModal = false">取消</UButton>
-            <UButton color="neutral" variant="solid" :loading="rowFlagging" @click="submitRowFlag">确认执行</UButton>
+            <UButton v-if="canWrite" color="neutral" variant="solid" :loading="rowFlagging" @click="submitRowFlag">确认执行</UButton>
           </div>
         </div>
       </template>
@@ -933,7 +936,7 @@ const flagBadge = (f: number) => {
           </div>
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showRowEditModal = false">取消</UButton>
-            <UButton color="neutral" variant="solid" :loading="rowEditing" @click="submitRowEdit">确认修改</UButton>
+            <UButton v-if="canWrite" color="neutral" variant="solid" :loading="rowEditing" @click="submitRowEdit">确认修改</UButton>
           </div>
         </div>
       </template>
@@ -960,7 +963,7 @@ const flagBadge = (f: number) => {
           </div>
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showRowDeleteModal = false">取消</UButton>
-            <UButton color="error" variant="solid" :loading="rowDeleting" @click="submitRowDelete">确认删除</UButton>
+            <UButton v-if="canWrite" color="error" variant="solid" :loading="rowDeleting" @click="submitRowDelete">确认删除</UButton>
           </div>
         </div>
       </template>

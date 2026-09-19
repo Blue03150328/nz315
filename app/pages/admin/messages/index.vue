@@ -1,6 +1,9 @@
 <script setup lang="ts">
 // 消息中心（PRD 5.11：风险预警/上传完成/库存预警等站内消息）
 // Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
+// 只读账号（viewer）在模板中隐藏全部写操作入口
+const { canWrite } = useUser()
+
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '消息中心' })
 
@@ -122,7 +125,7 @@ const resetSearch = () => { typeFilter.value = undefined; unreadOnly.value = fal
             <p v-if="r.content" class="mt-1 truncate text-xs text-[var(--b-text-regular)]">{{ r.content }}</p>
             <p class="mt-1 text-xs text-[var(--b-text-muted)]">{{ String(r.created_at).slice(0, 19) }}</p>
           </div>
-          <UButton v-if="Number(r.is_read) === 0" variant="link" color="neutral" size="xs" @click.stop="markRead(r)">标为已读</UButton>
+          <UButton v-if="canWrite && Number(r.is_read) === 0" variant="link" color="neutral" size="xs" @click.stop="markRead(r)">标为已读</UButton>
         </button>
         <div v-if="!pending && !data?.rows?.length" class="b-empty">
           <div class="b-empty-inner">

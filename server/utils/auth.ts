@@ -2,7 +2,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import { getCookie, setCookie, deleteCookie, getHeader, getMethod } from 'h3'
-import { query } from './db'
+import { query, execute } from './db'
 
 // 平台角色（PRD 1.3 / 7.6）
 export type PlatformRole = 'platform_admin' | 'enterprise_admin' | 'code_admin' | 'viewer'
@@ -46,16 +46,21 @@ export function signSessionPayload(payload: string): string {
   return sign(payload)
 }
 
-/** 生成签名会话 token：base64url(userId.expiry).signature（防伪造提权） */
+/** 生成签名会话 token：base64url(userId.expiry.issuedAt).signature
+ *  issuedAt（签发毫秒时间戳）用于与 user.session_epoch 比对，实现「登出即失效」的服务端吊销（2026-09-19） */
 export function createSessionToken(userId: number | string): string {
-  const exp = Date.now() + SESSION_TTL_MS
-  const payload = String(userId) + '.' + exp
+  const now = Date.now()
+  const exp = now + SESSION_TTL_MS
+  const payload = String(userId) + '.' + exp + '.' + now
   const sig = sign(payload)
   return Buffer.from(payload).toString('base64url') + '.' + sig
 }
 
-/** 验证签名 token，返回 userId；无效/过期返回 null */
-export function verifySessionToken(token: string): number | null {
+/** 会话校验结果：userId + 签发时间 */
+export interface SessionInfo { userId: number; issuedAt: number }
+
+/** 验证签名 token；无效/过期/旧格式（无签发时间）返回 null */
+export function verifySessionToken(token: string): SessionInfo | null {
   try {
     const [payloadB64, sig] = token.split('.')
     if (!payloadB64 || !sig) return null
@@ -64,30 +69,43 @@ export function verifySessionToken(token: string): number | null {
     const a = Buffer.from(sig)
     const b = Buffer.from(expected)
     if (a.length !== b.length || !timingSafeEqual(a, b)) return null
-    const dot = payload.lastIndexOf('.')
-    if (dot <= 0) return null
-    const userId = Number(payload.slice(0, dot))
-    const exp = Number(payload.slice(dot + 1))
+    // 仅接受三段新格式 userId.expiry.issuedAt；旧两段格式无法承载签发时间，
+    // 服务端无从判断其是否已被登出吊销 → 一律拒绝（升级后需重新登录一次，2026-09-19）
+    const parts = payload.split('.')
+    if (parts.length !== 3) return null
+    const userId = Number(parts[0])
+    const exp = Number(parts[1])
+    const issuedAt = Number(parts[2])
     if (!Number.isInteger(userId) || userId <= 0) return null
+    if (!Number.isFinite(exp) || !Number.isFinite(issuedAt)) return null
     if (Date.now() > exp) return null
-    return userId
+    return { userId, issuedAt }
   } catch {
     return null
   }
+}
+
+/** 吊销某用户此前签发的全部会话：把 session_epoch 刷新到当前毫秒（登出/重置密码时调用）。
+ *  校验侧规则为 issuedAt < session_epoch 即失效（严格小于，避免同毫秒内登出后又登录被误杀） */
+export async function revokeUserSessions(userId: number): Promise<void> {
+  await execute('UPDATE `user` SET session_epoch = ? WHERE id = ?', [Date.now(), userId])
 }
 
 /** 当前登录用户（未登录返回 null；账号禁用视为未登录） */
 export async function getCurrentUser(event: any): Promise<AuthUser | null> {
   const token = getCookie(event, 'nz315_user')
   if (!token) return null
-  const userId = verifySessionToken(token)
-  if (!userId) return null
+  const session = verifySessionToken(token)
+  if (!session) return null
   const rows = await query<any[]>(
-    'SELECT id, enterprise_id, username, name, phone, role, status FROM `user` WHERE id = ? LIMIT 1',
-    [userId],
+    'SELECT id, enterprise_id, username, name, phone, role, status, session_epoch FROM `user` WHERE id = ? LIMIT 1',
+    [session.userId],
   )
   const u = rows[0]
   if (!u || Number(u.status) !== 1) return null
+  // 服务端会话吊销（2026-09-19）：签发时间早于 session_epoch（登出/重置密码时刷新）的 token 一律失效，
+  // 修复「登出后旧 token 在 7 天有效期内仍可用」的缺陷
+  if (session.issuedAt < Number(u.session_epoch || 0)) return null
   // 挂到请求上下文：操作日志（audit.logOperation）由此取操作人与所属企业，
   // 否则所有业务操作日志的 user_id/enterprise_id 均为 NULL，违反 PRD 5.12.4 与 8.4 审计完整性要求
   event.context.authUser = u
@@ -150,15 +168,19 @@ export function clearAuthCookie(event: any) {
 }
 
 /** 跨站请求校验：非 GET 请求若携带 Origin 且与本站不符，拒绝（防 CSRF）
- * 无 Origin 的请求（curl/服务端调用/Node fetch）放行，保证开发与 API 客户端可用 */
+ * 无 Origin 的请求（curl/服务端调用/Node fetch）放行，保证开发与 API 客户端可用
+ * 2026-09-19 修正：由 startsWith 前缀比较改为「完整 origin 精确比对」——
+ * 旧写法下 `https://www.nz315.cn.evil.com` 能通过前缀校验（CSRF 绕过面），且 https/http 混用时会误拒同站请求 */
 export function assertSameOrigin(event: any) {
   const method = getMethod(event)
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return
   const origin = getHeader(event, 'origin')
   if (!origin) return
-  const host = getHeader(event, 'host') || ''
-  const allowed = origin.startsWith('http://' + host) || origin.startsWith('https://' + host)
-  if (!allowed) {
+  // 反代场景优先取 x-forwarded-host（宝塔 nginx 默认透传 Host，两者一致）
+  const host = String(getHeader(event, 'x-forwarded-host') || getHeader(event, 'host') || '')
+  if (!host) return
+  const normalized = origin.replace(/\/+$/, '')
+  if (normalized !== 'http://' + host && normalized !== 'https://' + host) {
     throw createError({ statusCode: 403, statusMessage: '跨站请求被拒绝' })
   }
 }

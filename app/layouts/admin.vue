@@ -6,15 +6,16 @@
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
-const { user, roleLabel, logout } = useUser()
+const { user, roleLabel, logout, canWrite } = useUser()
 
 // 已实现菜单（可点击）：展示顺序与文案按用户指定，路径/图标/权限不随排序改动
-const MENU_READY = [
+// writeOnly：纯写流程页面（只读账号看进去只剩空白，直接在菜单层隐藏，2026-09-19）
+const MENU_READY: { path: string; label: string; icon: string; writeOnly?: boolean }[] = [
   { path: '/admin', label: '数据概览', icon: 'i-lucide-layout-dashboard' },
   { path: '/admin/products', label: '产品管理', icon: 'i-lucide-package' },
   { path: '/admin/specs', label: '规格管理', icon: 'i-lucide-ruler' },
-  { path: '/admin/generator', label: '追溯码生成', icon: 'i-lucide-wand-2' },
-  { path: '/admin/collection', label: '追溯码上传', icon: 'i-lucide-factory' },
+  { path: '/admin/generator', label: '追溯码生成', icon: 'i-lucide-wand-2', writeOnly: true },
+  { path: '/admin/collection', label: '追溯码上传', icon: 'i-lucide-factory', writeOnly: true },
   { path: '/admin/codes', label: '码库管理', icon: 'i-lucide-qr-code' },
   { path: '/admin/batches', label: '效期预警', icon: 'i-lucide-boxes' },
   { path: '/admin/statistics', label: '扫码统计', icon: 'i-lucide-bar-chart-3' },
@@ -22,6 +23,9 @@ const MENU_READY = [
   { path: '/admin/messages', label: '消息中心', icon: 'i-lucide-bell' },
   { path: '/admin/settings', label: '系统设置', icon: 'i-lucide-settings' },
 ]
+
+/** 按角色可见菜单：只读账号隐藏纯写流程条目 */
+const visibleMenu = computed(() => MENU_READY.filter(item => canWrite.value || !item.writeOnly))
 
 // V1.0 规划菜单（模块建设中）
 const MENU_PLANNED: { label: string; icon: string }[] = []
@@ -52,7 +56,7 @@ const onLogout = async () => {
       </div>
 
       <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-        <div v-for="item in MENU_READY" :key="item.path" class="mb-1">
+        <div v-for="item in visibleMenu" :key="item.path" class="mb-1">
           <NuxtLink
             :to="item.path"
             class="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-colors"
@@ -104,6 +108,10 @@ const onLogout = async () => {
     <div class="ml-60 min-w-0 flex-1">
       <!-- 内容区：放宽容器适配 PC 大屏（企业后台信息密度），批量操作条吸底依赖此处 px-8 -->
       <main class="mx-auto max-w-[1600px] px-8 py-8">
+        <!-- 只读账号提示条（2026-09-19）：写入口已按角色全部隐藏，此处统一说明，避免用户以为"功能丢了" -->
+        <div v-if="!canWrite" class="mb-4 rounded-lg border border-border bg-warning-soft px-4 py-2.5 text-sm text-default">
+          当前为<strong>只读账号</strong>，仅可查看数据，新增/修改/删除等操作入口已隐藏。如需写权限，请联系厂家主账号或平台管理员开通。
+        </div>
         <slot />
       </main>
     </div>

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 // 生产批次管理（PRD 5.6：三要素 → 码状态"已绑定"）
 // Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
+// 只读账号（viewer）在模板中隐藏全部写操作入口
+const { canWrite } = useUser()
+
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '生产批次' })
 
@@ -204,9 +207,9 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
               </td>
               <td>
                 <div class="b-actions">
-                  <UButton variant="link" color="neutral" size="xs" @click="openEdit(r)">编辑</UButton>
+                  <UButton v-if="canWrite" variant="link" color="neutral" size="xs" @click="openEdit(r)">编辑</UButton>
                   <span class="b-sep" />
-                  <UButton variant="link" color="error" size="xs" @click="removeBatch(r)">删除</UButton>
+                  <UButton v-if="canWrite" variant="link" color="error" size="xs" @click="removeBatch(r)">删除</UButton>
                 </div>
               </td>
             </tr>

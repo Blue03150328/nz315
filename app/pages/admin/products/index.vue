@@ -8,7 +8,7 @@ definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true }
 useHead({ title: '产品管理' })
 
 const toast = useToast()
-const { user, isPlatformAdmin } = useUser()
+const { user, isPlatformAdmin, canWrite } = useUser()
 const filters = reactive({ keyword: '', category: undefined as string | undefined, status: undefined as string | undefined })
 const page = ref(1)
 const pageSize = 20
@@ -338,7 +338,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
         <h1 class="b-page-title">产品管理</h1>
         <p class="b-page-desc">产品 SKU 化 · 规格来自主数据下拉选择 · 登记信息可从登记数据源自动带出后修改 · 原药信息支持多行（复配多原药）</p>
       </div>
-      <UButton color="neutral" variant="solid" icon="i-lucide-plus" @click="openCreate">新增产品</UButton>
+      <UButton v-if="canWrite" color="neutral" variant="solid" icon="i-lucide-plus" @click="openCreate">新增产品</UButton>
     </div>
 
     <!-- 筛选查询区 -->
@@ -405,9 +405,9 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
               </td>
               <td>
                 <div class="b-actions">
-                  <UButton variant="link" color="neutral" size="xs" @click="openEdit(r)">编辑</UButton>
+                  <UButton v-if="canWrite" variant="link" color="neutral" size="xs" @click="openEdit(r)">编辑</UButton>
                   <span class="b-sep" />
-                  <UButton variant="link" color="neutral" size="xs" @click="toggleStatus(r)">
+                  <UButton v-if="canWrite" variant="link" color="neutral" size="xs" @click="toggleStatus(r)">
                     {{ Number(r.status) === 1 ? '停用' : '启用' }}
                   </UButton>
                 </div>
@@ -622,7 +622,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
           </div>
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showModal = false">取消</UButton>
-            <UButton color="neutral" variant="solid" :loading="saving" @click="save">保存</UButton>
+            <UButton v-if="canWrite" color="neutral" variant="solid" :loading="saving" @click="save">保存</UButton>
           </div>
         </div>
       </template>

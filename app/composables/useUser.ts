@@ -15,6 +15,12 @@ export function useUser() {
   const isLoggedIn = computed(() => !!user.value)
   const isBackendUser = computed(() => !!user.value && ['platform_admin', 'enterprise_admin', 'code_admin', 'viewer'].includes(user.value.role))
   const isPlatformAdmin = computed(() => user.value?.role === 'platform_admin')
+  const isEnterpriseAdmin = computed(() => user.value?.role === 'enterprise_admin')
+  // 写权限（2026-09-19 与后端 requireWritableUser 对齐）：只读账号（viewer）前端隐藏全部写入口，
+  // 避免"看得到按钮、点了吃 403"的割裂体验
+  const canWrite = computed(() => !!user.value && user.value.role !== 'viewer')
+  // 用户管理 / 企业信息编辑（与后端 users 三件套的角色白名单对齐）：仅总部管理员与厂家主账号
+  const canManageUsers = computed(() => !!user.value && ['platform_admin', 'enterprise_admin'].includes(user.value.role))
   const isPending = computed(() => pending.value)
 
   /** 角色中文名 */
@@ -63,5 +69,5 @@ export function useUser() {
     }
   }
 
-  return { user, isLoggedIn, isBackendUser, isPlatformAdmin, isPending, roleLabel, loginWithPassword, logout, refresh }
+  return { user, isLoggedIn, isBackendUser, isPlatformAdmin, isEnterpriseAdmin, canWrite, canManageUsers, isPending, roleLabel, loginWithPassword, logout, refresh }
 }

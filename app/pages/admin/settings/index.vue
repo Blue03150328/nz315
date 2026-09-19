@@ -6,7 +6,16 @@ useHead({ title: '系统设置' })
 
 const toast = useToast()
 const tab = ref('enterprise')
-const { user, isPlatformAdmin } = useUser()
+const { user, isPlatformAdmin, canManageUsers } = useUser()
+// 面板按角色收口（2026-09-19）：用户权限仅总部管理员与厂家主账号可见；数据备份仅总部管理员。
+// 后端对这两类接口已分别要求 enterprise_admin 及以上 / platform_admin，此处避免"看得到面板、点了吃 403"
+const settingsTabs = computed(() => {
+  const items = [{ label: '企业信息', icon: 'i-lucide-building-2', value: 'enterprise' }]
+  if (canManageUsers.value) items.push({ label: '用户权限', icon: 'i-lucide-users', value: 'users' })
+  items.push({ label: '操作日志', icon: 'i-lucide-scroll-text', value: 'logs' })
+  if (isPlatformAdmin.value) items.push({ label: '数据备份', icon: 'i-lucide-database-backup', value: 'backup' })
+  return items
+})
 
 // ============ 企业信息（PRD 5.12.1） ============
 // 企业信息表单字段（2026-09-08 精简：删 企业官网/注册地址/企业简介；单元识别码保留可空）
@@ -396,12 +405,8 @@ const deleteBackup = async (b: any) => {
     </div>
 
     <!-- Tab 切换：Nuxt UI v4 的 UTabs 必须显式给 value，否则回退为索引（'0'/'1'…），下方面板的 v-if 会全部落空导致内容空白 -->
-    <UTabs v-model="tab" :items="[
-      { label: '企业信息', icon: 'i-lucide-building-2', value: 'enterprise' },
-      { label: '用户权限', icon: 'i-lucide-users', value: 'users' },
-      { label: '操作日志', icon: 'i-lucide-scroll-text', value: 'logs' },
-      { label: '数据备份', icon: 'i-lucide-database-backup', value: 'backup' },
-    ]" />
+    <!-- 列表由 settingsTabs 计算：只读/码管理员看不到「用户权限」、非总部看不到「数据备份」 -->
+    <UTabs v-model="tab" :items="settingsTabs" />
 
     <!-- 企业信息（总部=入驻企业列表维护；厂家/码管理员=编辑本企业资料） -->
     <div v-if="tab === 'enterprise'" class="space-y-4">
@@ -528,6 +533,10 @@ const deleteBackup = async (b: any) => {
           <span class="b-card-title">企业基本信息</span>
           <span class="b-card-extra">1049 号公告主体信息，扫码页展示的企业资料以此为准</span>
         </div>
+        <!-- 只读账号/码管理员：可查看但不可修改（后端企业信息接口要求厂家主账号及以上） -->
+        <div v-if="!canManageUsers" class="mx-4 mt-3 rounded-md bg-warning-soft px-3 py-2 text-xs text-default">
+          当前角色（{{ user?.role === 'viewer' ? '只读账号' : '码管理员' }}）不可修改企业信息，如需变更请联系厂家主账号或平台。
+        </div>
         <div class="b-form-grid md:grid-cols-2">
           <div>
             <label class="b-label">企业名称 <span class="b-required">*</span></label>
@@ -565,7 +574,7 @@ const deleteBackup = async (b: any) => {
         </div>
         <div class="b-card-foot">
           <span class="b-card-extra">带 <span class="b-required">*</span> 的为必填项，保存后立即生效</span>
-          <UButton color="neutral" variant="solid" icon="i-lucide-save" :loading="entSaving" @click="saveEnterprise">保存企业信息</UButton>
+          <UButton v-if="canManageUsers" color="neutral" variant="solid" icon="i-lucide-save" :loading="entSaving" @click="saveEnterprise">保存企业信息</UButton>
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 // POST /api/auth/login —— 账号密码登录（PRD 5.1）
 import { query } from '../../utils/db'
-import { verifyPassword, setAuthCookie, getCurrentUser } from '../../utils/auth'
+import { verifyPassword, setAuthCookie, getCurrentUser, assertSameOrigin } from '../../utils/auth'
 import { clientIpOf } from '../../utils/audit'
 import { logLogin } from '../../utils/audit'
 
@@ -40,6 +40,9 @@ function clearFailures(key: string) {
 }
 
 export default defineEventHandler(async (event) => {
+  // 跨站校验（2026-09-19 补）：登录接口此前不做 Origin 校验，存在登录 CSRF 面；
+  // 无 Origin 的请求（curl / 服务端调用 / Node fetch）照旧放行，不影响 API 客户端
+  assertSameOrigin(event)
   const body = await readBody(event).catch(() => ({}))
   const username = String(body?.username || '').trim()
   const password = String(body?.password || '')

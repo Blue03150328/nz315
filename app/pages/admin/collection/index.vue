@@ -2,6 +2,9 @@
 // 生产采集：追溯码文件上传 → 校验 → 填写批次三要素入库（服务端自动创建/匹配批次 → 码置"已绑定"）
 // 2026-09-04 流程改造（用户决策 B）：批次三要素为必填，批次自动建档，生产批次页不再承担新建入口
 // Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
+// 只读账号（viewer）在模板中隐藏全部写操作入口
+const { canWrite } = useUser()
+
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '生产采集' })
 
@@ -166,7 +169,7 @@ const reasonChips = computed(() => {
         <!-- 文件选择：隐藏的原生 input 由按钮触发 -->
         <div class="flex flex-wrap items-center gap-2">
           <input ref="fileInput" type="file" accept=".txt,.csv" class="hidden" @change="handleFile" />
-          <UButton variant="outline" color="neutral" icon="i-lucide-folder-open" @click="fileInput?.click()">选择文件</UButton>
+          <UButton v-if="canWrite" variant="outline" color="neutral" icon="i-lucide-folder-open" @click="fileInput?.click()">选择文件</UButton>
           <span v-if="fileName" class="b-card-extra">已选择：{{ fileName }}</span>
         </div>
         <!-- 码文本：可由文件读入，也可直接粘贴 -->
@@ -188,7 +191,7 @@ const reasonChips = computed(() => {
       </div>
       <div class="b-card-foot">
         <span class="b-card-extra">解析仅做格式与查重校验，不会写入数据库</span>
-        <UButton color="neutral" variant="solid" :loading="parsing" @click="doParse">解析校验</UButton>
+        <UButton v-if="canWrite" color="neutral" variant="solid" :loading="parsing" @click="doParse">解析校验</UButton>
       </div>
     </div>
 
@@ -310,7 +313,7 @@ const reasonChips = computed(() => {
         </div>
         <div class="b-card-foot">
           <span class="b-card-extra">本次将写入 <span class="b-strong font-medium">{{ parseResult.validCount }}</span> 条有效码，校验失败的码不会入库</span>
-          <UButton color="neutral" variant="solid" :loading="importing" @click="doImport">
+          <UButton v-if="canWrite" color="neutral" variant="solid" :loading="importing" @click="doImport">
             导入 {{ parseResult.validCount }} 条有效码
           </UButton>
         </div>
