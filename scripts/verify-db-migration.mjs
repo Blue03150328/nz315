@@ -9,8 +9,20 @@
 //   node scripts/db-init.mjs --migrate-only        # ② 执行迁移（务必带 --migrate-only）
 //   node scripts/verify-db-migration.mjs compare   # ③ 迁移后：逐表比对，不一致则 exit 1
 //
-// 比对维度：全部表行数 · 关键表 MAX(id)（自增位是否被推进）· 企业名单 · 账号（含 session_epoch）· 追溯码前 30 条
+// 比对维度：全部表行数 · 关键表 MAX(id)（自增位是否被推进）· 企业名单 · 账号（id/username/role/status）· 追溯码前 30 条
+//   · `session_epoch` **只留证不判定**（它随登出/改密正常变化，纳入比对会产生假 FAIL）
 // 连接参数从项目根目录 .env 读取（DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME）
+//
+// 2026-09-19 修正（部署前实测暴露，两条都会让生产库部署当场卡住）：
+//   ① 原 `snapshot()` 硬查 `user.session_epoch` —— 而该列正是本次要补的新列，**补列前它不存在**，
+//      于是三明治的第一步 `dump` 在真实库上必然以 ER_BAD_FIELD_ERROR 崩掉。现改为先探测列存在性，
+//      缺失时按 0 记录（与 ALTER 的 DEFAULT 0 对齐）。
+//   ② 原比对把 `session_epoch` 一起纳入；部署窗口里任何人登出一次，值就变 → 报假 FAIL，
+//      反而盖掉真正的红字。现拆为「账号核心字段严格比对」+「session_epoch 留证打印」。
+//   另：基线带 `scriptVersion`，结构一变即拒绝比对，避免拿过期基线当证据。
+//   ③ 行数比对区分「业务主数据」与「活跃日志表」：scan_log / operation_log 是纯追加日志，
+//      线上真实消费者扫码、管理员登录都会让它们增长——那是活的业务，不是迁移污染。
+//      故对这两张放宽为「只增不减」，其余表仍严格相等（seed 若误跑必被业务表命中）。
 'use strict';
 import mysql from 'mysql2/promise';
 import fs from 'node:fs';
@@ -26,6 +38,9 @@ if (mode !== 'dump' && mode !== 'compare') {
   console.error('用法：node scripts/verify-db-migration.mjs dump|compare');
   process.exit(2);
 }
+
+// 快照结构版本：基线里的结构一变（字段增删），旧基线就不能再拿来当证据（脚本会拒绝比对）
+const SCRIPT_VERSION = 2;
 
 // 读取 .env（简易解析，无 dotenv 依赖）
 const env = {};
@@ -57,7 +72,29 @@ async function snapshot() {
     counts[t] = r[0].c;
   }
   const [ents] = await conn.query('SELECT id, name FROM enterprise ORDER BY id');
-  const [usrs] = await conn.query('SELECT id, username, role, status, session_epoch FROM `user` ORDER BY id');
+  // ⚠️ user.session_epoch 是 2026-09-19 才新增的列：真实/生产库在「补列之前」**没有这一列**，
+  //    而三明治用法要求「补列前先 dump 基线」——基线阶段若硬查这一列，会以
+  //    ER_BAD_FIELD_ERROR（Unknown column 'session_epoch' in 'field list'）直接崩掉，
+  //    部署第一步就卡死。故先探测列是否存在，缺失时按 0 记录（与 ALTER 的 DEFAULT 0 对齐，
+  //    这样「迁移前基线」与「迁移后快照」在账号维度上仍可逐字段比对）。
+  const [epochCol] = await conn.query(
+    'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1',
+    [DB.database, 'user', 'session_epoch'],
+  );
+  const hasSessionEpoch = epochCol.length > 0;
+  const [usrRows] = await conn.query(
+    'SELECT id, username, role, status, '
+    + (hasSessionEpoch ? 'session_epoch' : 'CAST(0 AS SIGNED) AS session_epoch')
+    + ' FROM `user` ORDER BY id',
+  );
+  // ⚠️ session_epoch **不参与严格比对**：它随「登出 / 改密 / 重置密码」正常变化，
+  //    部署窗口里只要有人登出一次就会变——那是预期行为，不是数据污染。
+  //    若把它纳入比对，会产出「假 FAIL」并诱导人忽略真正的红字。故账号只比 id/username/role/status，
+  //    session_epoch 仅作留证打印（本列存在与否见 hasSessionEpoch）。
+  const usrs = usrRows.map((u) => ({ id: u.id, username: u.username, role: u.role, status: u.status }));
+  const epochNonZero = usrRows
+    .filter((u) => Number(u.session_epoch) !== 0)
+    .map((u) => u.username + '=' + u.session_epoch);
   const [codes] = await conn.query('SELECT id, code, status, abnormal_flag FROM trace_code ORDER BY id LIMIT 30');
   const [maxIds] = await conn.query(`SELECT
     (SELECT IFNULL(MAX(id),0) FROM enterprise) AS ent,
@@ -69,7 +106,10 @@ async function snapshot() {
     (SELECT IFNULL(MAX(id),0) FROM batch) AS batch,
     (SELECT IFNULL(MAX(id),0) FROM product_original) AS orig`);
   await conn.end();
-  return { counts, ents, usrs, codes, maxIds: maxIds[0], tableCount: tables.length };
+  return {
+    scriptVersion: SCRIPT_VERSION,
+    counts, ents, usrs, codes, maxIds: maxIds[0], tableCount: tables.length, hasSessionEpoch, epochNonZero,
+  };
 }
 
 const snap = await snapshot();
@@ -80,6 +120,8 @@ if (mode === 'dump') {
   console.log('[verify] 基线已写入 ' + path.relative(ROOT, BASELINE));
   console.log('[verify] 表数=' + snap.tableCount + ' · 企业=' + snap.ents.length
     + ' · 账号=' + snap.usrs.length + ' · 追溯码=' + snap.counts.trace_code);
+  console.log('[verify] user.session_epoch 列：'
+    + (snap.hasSessionEpoch ? '已存在（本次迁移无需补列）' : '不存在（迁移前，按 0 记入基线）'));
   console.log('[verify] 下一步：node scripts/db-init.mjs --migrate-only');
   process.exit(0);
 }
@@ -90,17 +132,35 @@ if (!fs.existsSync(BASELINE)) {
   process.exit(2);
 }
 const base = JSON.parse(fs.readFileSync(BASELINE, 'utf8'));
+if (base.scriptVersion !== SCRIPT_VERSION) {
+  console.error('[verify] 基线结构版本不符（基线=' + (base.scriptVersion ?? '无')
+    + '，当前=' + SCRIPT_VERSION + '）：这份基线是旧版脚本写的，不能再当证据。');
+  console.error('[verify] 请重新执行：node scripts/verify-db-migration.mjs dump');
+  process.exit(2);
+}
 let bad = 0;
 const fail = (msg) => { bad++; console.log('FAIL  ' + msg); };
 const ok = (msg) => console.log('OK    ' + msg);
 
-console.log('--- 1) 逐表行数（迁移不应改变任何表的行数）---');
+// 活跃日志表：线上随时可能有真实业务在写（消费者扫码写 scan_log、管理员登录写 operation_log），
+// 部署窗口期（几分钟）内它们**正常增长不是污染证据**。判据放宽为「只增不减」，且不计入 FAIL。
+// ⚠️ 只有这两张是纯追加型日志表；业务主数据表一律严格相等——seed 若被误跑，
+//    enterprise / trace_code / product / batch / upload_batch / product_spec 必被命中，逃不掉。
+const ACTIVE_TABLES = ['scan_log', 'operation_log'];
+const grew = [];
+
+console.log('--- 1) 逐表行数（业务主数据必须严格相等；活跃日志表允许只增不减）---');
 for (const t of Object.keys(base.counts)) {
   const a = base.counts[t];
   const b = snap.counts[t];
+  const active = ACTIVE_TABLES.includes(t);
   if (a === b) ok(t.padEnd(18) + a);
-  else fail(t.padEnd(18) + a + ' -> ' + (b === undefined ? '(表不存在)' : b));
+  else if (active && b > a) {
+    grew.push(t + ' +' + (b - a));
+    console.log('注意  ' + t.padEnd(18) + a + ' -> ' + b + '（活跃表，允许正常增长，不计入 FAIL）');
+  } else fail(t.padEnd(18) + a + ' -> ' + (b === undefined ? '(表不存在)' : b));
 }
+if (grew.length) console.log('      ↑ 窗口期内的真实业务写入：' + grew.join('、') + '（与本次迁移无关）');
 const extra = Object.keys(snap.counts).filter((t) => !(t in base.counts));
 if (extra.length) fail('出现了基线中不存在的新表: ' + extra.join(', '));
 
@@ -110,16 +170,28 @@ for (const k of Object.keys(base.maxIds)) {
   else fail(k + ': ' + base.maxIds[k] + ' -> ' + snap.maxIds[k]);
 }
 
-console.log('--- 3) 明细快照 ---');
+console.log('--- 3) 本次迁移的列变化（仅留证，不参与判定）---');
+console.log('      user.session_epoch：' + (base.hasSessionEpoch ? '迁移前已存在' : '迁移前不存在')
+  + ' → ' + (snap.hasSessionEpoch ? '现在存在' : '现在仍不存在'));
+if (!base.hasSessionEpoch && !snap.hasSessionEpoch) {
+  fail('user.session_epoch 仍不存在 —— 迁移没补上列，会话吊销会静默失效（不报错、只是没生效），请立刻停手排查');
+}
+
+console.log('--- 4) 明细快照 ---');
 const rows = [
   ['企业名单', base.ents, snap.ents],
-  ['账号（含 session_epoch）', base.usrs, snap.usrs],
+  ['账号（id/username/role/status）', base.usrs, snap.usrs],
   ['追溯码前 30 条', base.codes, snap.codes],
 ];
 for (const [name, a, b] of rows) {
   if (JSON.stringify(a) === JSON.stringify(b)) ok(name);
   else fail(name + '\n        基线=' + JSON.stringify(a) + '\n        现在=' + JSON.stringify(b));
 }
+
+// session_epoch 留证（不参与判定）：登出/改密会让它变化，属正常
+console.log('--- 5) session_epoch 留证（不参与判定；登出/改密会让它变化，属正常）---');
+console.log('      基线非零账号：' + (base.epochNonZero?.length ? base.epochNonZero.join(', ') : '无（全为 0）'));
+console.log('      现在非零账号：' + (snap.epochNonZero?.length ? snap.epochNonZero.join(', ') : '无（全为 0）'));
 
 console.log('=== 结论：' + (bad === 0
   ? 'PASS —— 业务数据零变化（迁移安全）'
