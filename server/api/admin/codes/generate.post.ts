@@ -1,7 +1,7 @@
 // POST /api/admin/codes/generate —— 追溯码生成（PRD 5.5.1：离线生成工具 Web 版，不入库，导出后经生产采集导入）
 // 生成规则：第 1-11 位取产品/规格主数据（1049 强制结构），第 12 位后自定义段（PRD 3.2：时间戳段/随机段/校验位段）
 import { query } from '../../../utils/db'
-import { requireBackendUser } from '../../../utils/auth'
+import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
 import { generateBatch, segments, type GenerateConfig } from '../../../utils/code-generator'
 
@@ -10,7 +10,7 @@ import { generateBatch, segments, type GenerateConfig } from '../../../utils/cod
 const FIXED_CONFIG: GenerateConfig = { timestampType: 'ms', randomType: 'rand6c2', checksumType: 'md5' }
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const body = await readBody(event) || {}
 
   const productId = Number(body.productId)

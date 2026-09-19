@@ -5,11 +5,11 @@
 //   ② 冻结/恢复正常不动作废码（终态保护），仅作用于其余码；无操作对象时 400 提示；
 //   ③ 企业隔离：厂家/码管理员只能操作本企业上传批次（platform_admin 全量）。
 import { query, execute } from '../../../../../utils/db'
-import { requireBackendUser } from '../../../../../utils/auth'
+import { requireWritableUser } from '../../../../../utils/auth'
 import { logOperation } from '../../../../../utils/audit'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const ubId = Number(getRouterParam(event, 'id'))
   if (!Number.isInteger(ubId) || ubId <= 0) throw createError({ statusCode: 400, statusMessage: '无效的上传批次ID' })
 

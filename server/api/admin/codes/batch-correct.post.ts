@@ -3,11 +3,11 @@
 // - 关联批次：仅"已生成"码（绑定后三要素齐全自动置"已绑定"）
 // - 生产日期/有效期至/质检结果/合格证号：按码所属批次更新（同批码同步生效）；已绑定码修改属合规更正（记强日志）
 import { query, execute } from '../../../utils/db'
-import { requireBackendUser } from '../../../utils/auth'
+import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const body = await readBody(event) || {}
   const ids = Array.isArray(body.ids) ? body.ids.map((n: any) => Number(n)).filter((n: number) => Number.isInteger(n) && n > 0) : []
   if (ids.length === 0) throw createError({ statusCode: 400, statusMessage: '请选择追溯码' })

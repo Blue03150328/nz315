@@ -1,11 +1,16 @@
 // POST /api/admin/users —— 新增用户（PRD 5.12.3）
 import { query, execute } from '../../utils/db'
-import { requireBackendUser } from '../../utils/auth'
+import { requireWritableUser } from '../../utils/auth'
 import { logOperation } from '../../utils/audit'
 import bcrypt from 'bcryptjs'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
+  // 权限（2026-09-19 修复提权漏洞）：用户管理仅总部管理员与厂家主账号；
+  // 此前码管理员/只读账号可穿透角色判断（仅拦了 enterprise_admin）自行建号——viewer 建 code_admin 即成提权链，一律 403
+  if (user.role !== 'platform_admin' && user.role !== 'enterprise_admin') {
+    throw createError({ statusCode: 403, statusMessage: '需要厂家主账号权限' })
+  }
   const body = await readBody(event) || {}
 
   const username = String(body.username || '').trim()

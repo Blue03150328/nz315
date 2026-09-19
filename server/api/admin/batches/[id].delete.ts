@@ -1,9 +1,9 @@
 // DELETE /api/admin/batches/:id —— 删除批次（已关联码的批次拒绝删除）
 import { query, execute } from '../../../utils/db'
-import { requireBackendUser } from '../../../utils/auth'
+import { requireWritableUser } from '../../../utils/auth'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const id = Number(getRouterParam(event, 'id'))
   if (!Number.isInteger(id) || id <= 0) throw createError({ statusCode: 400, statusMessage: '无效的批次ID' })
 

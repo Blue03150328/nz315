@@ -1,14 +1,18 @@
 // PATCH /api/admin/settings/enterprise/:id —— 编辑企业信息（PRD 5.12.1）
 import { query, execute } from '../../../../utils/db'
-import { requireBackendUser } from '../../../../utils/auth'
+import { requireWritableUser } from '../../../../utils/auth'
 import { logOperation } from '../../../../utils/audit'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const id = Number(getRouterParam(event, 'id'))
   if (!Number.isInteger(id) || id <= 0) throw createError({ statusCode: 400, statusMessage: '无效的企业ID' })
 
-  // 权限：平台管理员可改任意；厂家仅可改本企业且不可改状态
+  // 权限（2026-09-19 收紧）：企业信息含法人/许可证号/资质到期日等合规字段，编辑仅总部管理员与厂家主账号；
+  // 平台管理员可改任意企业（含状态），厂家仅可改本企业且不可改状态；码管理员/只读账号由写守卫与角色判断双重拦截
+  if (user.role !== 'platform_admin' && user.role !== 'enterprise_admin') {
+    throw createError({ statusCode: 403, statusMessage: '需要厂家主账号权限' })
+  }
   if (user.role !== 'platform_admin' && user.enterprise_id !== id) {
     throw createError({ statusCode: 403, statusMessage: '无权修改其他企业信息' })
   }

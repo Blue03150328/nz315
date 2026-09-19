@@ -7,11 +7,11 @@
 //   ② 企业隔离：厂家/码管理员只能删除本企业码（platform_admin 全量）；
 //   ③ 生产批次（batch）与扫码历史（scan_log）不随删（独立概念，无外键约束）。
 import { query, execute } from '../../../utils/db'
-import { requireBackendUser } from '../../../utils/auth'
+import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const id = Number(getRouterParam(event, 'id'))
   if (!Number.isInteger(id) || id <= 0) throw createError({ statusCode: 400, statusMessage: '无效的追溯码ID' })
 

@@ -1,10 +1,10 @@
 // POST /api/admin/codes/batch-flag —— 批量异常标记（PRD 5.5.5：批量冻结/作废）
 import { query, execute } from '../../../utils/db'
-import { requireBackendUser } from '../../../utils/auth'
+import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const body = await readBody(event) || {}
   const ids = Array.isArray(body.ids) ? body.ids.map((n: any) => Number(n)).filter((n: number) => Number.isInteger(n) && n > 0) : []
   const flag = Number(body.flag)

@@ -8,11 +8,11 @@ import { isInputDate } from '#shared/utils/input-date'
 //   ③ 重新绑定批次时校验新批次产品与本上传批次产品一致；
 //   ④ 企业隔离：厂家/码管理员只能操作本企业上传批次。
 import { query, execute } from '../../../../../utils/db'
-import { requireBackendUser } from '../../../../../utils/auth'
+import { requireWritableUser } from '../../../../../utils/auth'
 import { logOperation } from '../../../../../utils/audit'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const ubId = Number(getRouterParam(event, 'id'))
   if (!Number.isInteger(ubId) || ubId <= 0) throw createError({ statusCode: 400, statusMessage: '无效的上传批次ID' })
 

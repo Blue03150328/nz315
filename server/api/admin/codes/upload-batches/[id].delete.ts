@@ -7,11 +7,11 @@
 //   ③ 企业隔离：厂家/码管理员只能删除本企业上传批次（platform_admin 全量）；
 //   ④ 生产批次（batch）与扫码历史（scan_log）不随删除——上传批次是文件维度，二者是独立概念。
 import { getPool, query } from '../../../../utils/db'
-import { requireBackendUser } from '../../../../utils/auth'
+import { requireWritableUser } from '../../../../utils/auth'
 import { logOperation } from '../../../../utils/audit'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const ubId = Number(getRouterParam(event, 'id'))
   if (!Number.isInteger(ubId) || ubId <= 0) throw createError({ statusCode: 400, statusMessage: '无效的上传批次ID' })
 

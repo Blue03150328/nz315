@@ -1,10 +1,10 @@
 // PATCH /api/admin/alerts/:id —— 处理预警（PRD 5.9：核实合规 / 确认违规→一键作废）
 import { query, execute } from '../../../utils/db'
-import { requireBackendUser } from '../../../utils/auth'
+import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const id = Number(getRouterParam(event, 'id'))
   const body = await readBody(event) || {}
   const status = Number(body.status)  // 1已核实合规 2已确认违规

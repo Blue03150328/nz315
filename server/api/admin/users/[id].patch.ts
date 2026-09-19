@@ -1,10 +1,10 @@
 // PATCH /api/admin/users/:id —— 编辑用户 / 禁用启用（PRD 5.12.3）
 import { query, execute } from '../../../utils/db'
-import { requireBackendUser } from '../../../utils/auth'
+import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const id = Number(getRouterParam(event, 'id'))
   if (!Number.isInteger(id) || id <= 0) throw createError({ statusCode: 400, statusMessage: '无效的用户ID' })
   if (id === user.id) throw createError({ statusCode: 400, statusMessage: '不能修改自己的账号' })
@@ -12,7 +12,12 @@ export default defineEventHandler(async (event) => {
   const [target] = await query<any[]>('SELECT * FROM \`user\` WHERE id = ?', [id])
   if (!target) throw createError({ statusCode: 404, statusMessage: '用户不存在' })
 
-  // 权限：platform_admin 可管理全部（除其他 platform_admin 外）；enterprise_admin 仅本企业非管理员账号
+  // 权限（2026-09-19 修复提权漏洞）：用户管理仅总部管理员与厂家主账号；
+  // 此前角色判断只拦 enterprise_admin，码管理员/只读账号穿透——viewer 可禁用厂家主账号，一律 403
+  if (user.role !== 'platform_admin' && user.role !== 'enterprise_admin') {
+    throw createError({ statusCode: 403, statusMessage: '需要厂家主账号权限' })
+  }
+  // platform_admin 可管理全部（除其他 platform_admin 外）；enterprise_admin 仅本企业非管理员账号
   if (user.role === 'enterprise_admin') {
     if (target.enterprise_id !== user.enterprise_id) throw createError({ statusCode: 403, statusMessage: '无权操作其他企业用户' })
     if (target.role === 'enterprise_admin' || target.role === 'platform_admin') throw createError({ statusCode: 403, statusMessage: '无权操作该账号' })

@@ -9,11 +9,11 @@
 //      绑定后码状态自动流转 status=2 已绑定（bound_at 刷新）——与「批次三要素」绑定规则一致；
 //   ④ 企业隔离：厂家/码管理员只能操作本企业码。
 import { query, execute } from '../../../../utils/db'
-import { requireBackendUser } from '../../../../utils/auth'
+import { requireWritableUser } from '../../../../utils/auth'
 import { logOperation } from '../../../../utils/audit'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const id = Number(getRouterParam(event, 'id'))
   if (!Number.isInteger(id) || id <= 0) throw createError({ statusCode: 400, statusMessage: '无效的码ID' })
 

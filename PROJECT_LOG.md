@@ -1,4 +1,15 @@
 ## 变更记录
+### 2026-09-19 | 修复 P0 提权漏洞与 P1 viewer 写守卫缺失（安全加固）
+- **结果一句话**：改动 20 个后端文件——17 个写接口守卫 `requireBackendUser` → `requireWritableUser`，`users` 三件套补齐角色判断；**权限回归 46/46 通过**、生产构建通过；**未部署服务器**（线上仍为旧版本，待部署窗口）。
+- **来源**：同日全量安全测试（报告 `docs/测试报告-2026-09-19-功能与安全测试.md`，**含复现细节勿推公开仓库**）。
+- **P0 根因**：`users.post.ts` / `users/[id].patch.ts` / `users/[id]/reset-password.post.ts` 三处角色判断均写作 `if (user.role === 'enterprise_admin')`，**code_admin / viewer 直接穿透**（仅剩"不能操作 platform_admin"兜底），且入口守卫是 `requireBackendUser`。**祭品账号实测证据链**：viewer 重置厂家主账号密码 → **200** → 用新密码登录主账号 → **200（接管闭环）** → viewer 禁用主账号 → **200** → viewer 自建 code_admin 账号 → **200**。
+- **P1 根因**：写守卫两套标准并存——`specs`/`products`/`backup` 用 `requireWritableUser`/`requirePlatformAdmin`（正确拦截 viewer），而 batches 全族、alerts/messages/settings patch、codes 全族共 17 个写接口只用 `requireBackendUser`。实测 viewer 建生产批次 → **200**、处理风险预警 → **200**、作废追溯码 → **200**。
+- **修复内容**：① 17 个写接口守卫脚本化精确替换（每处断言命中 1 次，防误改）；② `users` 三件套新增白名单判断——仅 `platform_admin`/`enterprise_admin`，其余 403「需要厂家主账号权限」；③ 企业信息编辑（`settings/enterprise/[id].patch`，涉法人/许可证号/资质到期日等合规字段）收紧为主账号及以上；④ 保留全部原有约束（厂家不能建主账号、不能操作总部账号、跨企业 404）；⑤ `codes/parse` 为纯解析预览不写库，保持放行。
+- **回归矩阵（46/46 PASS）**：viewer × 23 个写接口（batches 3 · alerts/messages/settings 3 · codes 12 · users 3 · products/specs/backup 3）**全 403**；viewer 读接口（codes/products/users 列表）仍 **200**；code_admin 用户管理与改企业信息 **403**、生成码/建批次/冻结码 **200**（未误伤）；enterprise_admin 建号/编辑/重置密码 **200**，建主账号 **400**、动总部账号 **403**；platform_admin 全通；未登录写接口 **401**。
+- **数据卫生**：测试账号、测试批次、一次性码全部删除；码 1522 复核 `status=1 flag=0 batch_id=null`（未被误改）。
+- **修改文件**：`server/api/admin/**` 20 个（batches 3 · alerts 1 · messages 1 · settings 1 · codes 12 · users 3 减去重复计）· `AGENTS.md`（守卫三级约定 + 进度段）· 本条目 · `.workbuddy/memory/2026-09-19.md`。
+- **给下一个 Agent 的提示**：① **新增写接口一律用 `requireWritableUser`**，用 `requireBackendUser` 等于对 viewer 敞开——本轮 17 处全是这么来的；总部专属才用 `requirePlatformAdmin`；② 角色判断**别只写 `=== 'enterprise_admin'` 分支**（code_admin/viewer 会穿透），正确写法是"白名单 + 提前 403"；③ 前端尚未按角色隐藏操作入口，viewer 能看到按钮但点击 403，属已登记遗留项；④ 本次修复**尚未部署服务器**。
+
 ### 2026-09-18 | 阿里云 HTTPS 配好并通过公网验证（公众端摄像头前置条件达成）
 - **结果一句话**：用户在宝塔终端执行「阿里云免费证书 → 证书落位 `/www/server/panel/vhost/cert/nz315/` → 改 `nz315.conf`（80 跳 301 + 443 反代 3100）→ `nginx -t && nginx -s reload`」，**零代码改动、零构建、零 PM2 重启**；本机从**公网侧**独立复测全部通过，`www.cynx.cn` 全程 online。
 - **动机**：公众端扫码页要用摄像头，而 `navigator.mediaDevices.getUserMedia` 只在**安全上下文**（https 或 localhost）下可用 —— `app/composables/useQrScanner.ts:222` 的 `window.isSecureContext` 预检会在 http 下直接报「扫码需在 HTTPS 安全页面使用」。**HTTPS 是摄像头功能的硬前置。**

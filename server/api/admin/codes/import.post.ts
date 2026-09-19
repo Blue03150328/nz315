@@ -14,7 +14,7 @@
 //   ⑤ 自动建批 + 批量插码在同一数据库事务内，失败整体回滚，不留孤儿批次。
 import { getPool, query } from '../../../utils/db'
 import { sendMessage } from '../../../utils/notify'
-import { requireBackendUser } from '../../../utils/auth'
+import { requireWritableUser } from '../../../utils/auth'
 import { cleanLine, validateCode } from '../../../utils/code-validator'
 
 // 日期入参格式（YYYY-MM-DD，与批次页 UInput type=date 口径一致）
@@ -23,7 +23,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const CHUNK = 5000
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const body = await readBody(event) || {}
   const codes: string[] = (Array.isArray(body.codes) ? body.codes : []).map((c: any) => String(c))
   const productId = Number(body.productId)

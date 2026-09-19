@@ -5,7 +5,7 @@
 // 与 import（生产采集，强制绑定）互为两条入库通道：import=绑定入库；stock-in=留档入库。
 // 同一事务：建 upload_batch 行（文件维度，file_name=「生成入库 时间」）+ 分块插码（status=1）。
 import { getPool, query } from '../../../utils/db'
-import { requireBackendUser } from '../../../utils/auth'
+import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
 import { cleanLine, validateCode } from '../../../utils/code-validator'
 
@@ -13,7 +13,7 @@ import { cleanLine, validateCode } from '../../../utils/code-validator'
 const CHUNK = 5000
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const body = await readBody(event) || {}
   const codes: string[] = (Array.isArray(body.codes) ? body.codes : []).map((c: any) => String(c))
   const productId = Number(body.productId)

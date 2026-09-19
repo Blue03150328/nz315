@@ -1,11 +1,11 @@
 // PATCH /api/admin/codes/:id —— 异常标记操作（PRD 5.5.5：正常/已冻结/已作废）
 // 作废为终态需原因 + 记录审计日志；冻结可解冻；已作废/已冻结码不可绑定与修改
 import { query, execute } from '../../../utils/db'
-import { requireBackendUser } from '../../../utils/auth'
+import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
 
 export default defineEventHandler(async (event) => {
-  const user = await requireBackendUser(event)
+  const user = await requireWritableUser(event)
   const id = Number(getRouterParam(event, 'id'))
   if (!Number.isInteger(id) || id <= 0) throw createError({ statusCode: 400, statusMessage: '无效的码ID' })
 
