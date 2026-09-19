@@ -1,0 +1,21 @@
+已删旧包: nz315-master-f379264.tar.gz
+包路径 = E:\software\workbuddy\文件存放处\2026-09-19-1611-安全加固部署\nz315-master-933a12a.tar.gz
+字节数 = 706853
+SHA256 = 4223d015a088c71863f8a777d148d429cdd8f271b8b3ece8e04c799d488173ae
+基线提交 = 933a12a fix: PM2 配置改回服务器专用端口与解释器（3100 + node22），终结「每次解包都要人肉还原」
+包内条目 227（文件 170 + 目录 57）· git 清单 170
+包内多出：无 ✅
+包内缺失：无 ✅
+OK    deploy/ecosystem.config.cjs (3677 字节)
+OK    scripts/verify-db-migration.mjs  (11373 字节)
+OK    scripts/db-init.mjs  (31612 字节)
+OK    server/utils/auth.ts  (8719 字节)
+OK    app/composables/useUser.ts  (3475 字节)
+OK    app/layouts/admin.vue  (6379 字节)
+OK    不含 node_modules/
+OK    不含 .output/
+OK    不含 public/tools/
+OK    不含 .nuxt/
+含 .env（非 example）：[]
+目录内现有包：nz315-master-933a12a.tar.gz
+exit=0
