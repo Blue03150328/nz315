@@ -40,6 +40,17 @@
 - 验收口径：**viewer 登录后页面不应存在任何可点的写操作**——"后端返回 403"与"用户看不到按钮"是两件事，必须分开验
   （前者靠接口回归，后者**只能靠真浏览器截图或 SSR 提取可见元素**）。
 
+## 数量上限约定（2026-09-21 起）
+
+- **追溯码的生成/写入上限一律从 `shared/utils/code-limits.ts` 取**（`MAX_CODES_PER_BATCH` / `MAX_CODES_PER_WRITE` = **50 万**、
+  `LARGE_BATCH_CONFIRM_THRESHOLD` = **20 万**、派生的错误与提示文案、`estimateCodesSizeMb` / `estimateGenerateMs`）。
+  **不要在页面或接口里就地写数字**——2026-09-21 之前同一个 `10000` 散在 5 处、`单次最多 10 万条码` 散在 3 处，改一处必漏，
+  表现为「前端放开、后端 400」或「生成完入不了库」。
+- 改上限前先看该文件顶部写明的四条硬边界：**响应体积**（50 万条 `allCodes` 全量回传**接口实测 19 MB**，urls.txt 31 MB、CSV 约 80 MB）、
+  **nginx `proxy_read_timeout 120s`**、**MySQL 占位符上限 65535**（`CHUNK=5000 × 11 列 = 55000` 已贴顶，**只能减不能加**）、
+  **浏览器内存**（50 万条堆增量约 +59 MB）。**引擎耗时 1.5s，不是瓶颈。**
+- 前端大数量（>20 万）必须保留二次确认弹窗；**离线工具不是瓶颈**（支持多文件合并，其 1000 万上限仅作用于「离线应急生成」模式）。
+
 ## 本机环境（易反复踩到，详见 ~/.workbuddy/USER.md）
 
 - 无系统级 Node.js，托管在 `C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2-3\node.exe`，不在 PATH。
