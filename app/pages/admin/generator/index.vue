@@ -4,6 +4,15 @@
 // 二维码图片输出对齐合规第一条（QR/DM 码制，供印刷厂赋码）：2026-09-15 起改为「下载官方离线工具、本机生成」，服务端不再渲染 PNG
 // Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
 // 只读账号（viewer）在模板中隐藏全部写操作入口
+import {
+  MAX_CODES_PER_BATCH,
+  GENERATE_QUANTITY_ERROR,
+  GENERATE_QUANTITY_RANGE_TEXT,
+  LARGE_BATCH_CONFIRM_THRESHOLD,
+  estimateCodesSizeMb,
+  estimateGenerateMs,
+} from '#shared/utils/code-limits'
+
 const { canWrite } = useUser()
 
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
@@ -57,13 +66,44 @@ const SEGMENT_COLORS = ['b-tag-danger', 'b-tag-info', 'b-tag-warning', 'b-tag-su
 // 页内【重置】：清空生成表单与全部结果/预览，恢复页面初始状态（Keep-Alive 缓存页互不影响）
 const resetPage = () => {
   Object.assign(form, { productId: null, quantity: 100 })
+  showBigConfirm.value = false
   result.value = null
   toast.add({ title: '已重置，页面恢复初始状态', color: 'primary' })
 }
 
-const doGenerate = async () => {
+// 大数量二次确认（>20 万条）：阈值与体积/耗时估算统一由 shared/utils/code-limits.ts 定义
+// 目的：50 万条一次生成时，页面要把全部码值留在内存中（导出 urls.txt 约 31MB、CSV 约 80MB），
+// 先在确认框里把体积与耗时讲清楚，避免误操作、避免低配机直接卡死
+const showBigConfirm = ref(false)
+const pendingQuantity = ref(0)
+const bigConfirmText = computed(() => {
+  const q = pendingQuantity.value
+  return {
+    quantity: q.toLocaleString(),
+    elapsed: (estimateGenerateMs(q) / 1000).toFixed(1),
+    txt: estimateCodesSizeMb(q, 'txt'),
+    urls: estimateCodesSizeMb(q, 'urls'),
+    csv: estimateCodesSizeMb(q, 'csv'),
+  }
+})
+
+const doGenerate = () => {
   if (!form.productId) { toast.add({ title: '请选择产品', color: 'warning' }); return }
-  if (form.quantity < 1 || form.quantity > 10000) { toast.add({ title: '生成数量须为 1-10000', color: 'warning' }); return }
+  // 区间校验文案与接口 400 文案同源（GENERATE_QUANTITY_ERROR），避免前后端提示不一致
+  if (!Number.isInteger(Number(form.quantity)) || form.quantity < 1 || form.quantity > MAX_CODES_PER_BATCH) {
+    toast.add({ title: GENERATE_QUANTITY_ERROR, color: 'warning' }); return
+  }
+  if (form.quantity > LARGE_BATCH_CONFIRM_THRESHOLD) {
+    pendingQuantity.value = Number(form.quantity)
+    showBigConfirm.value = true
+    return
+  }
+  runGenerate()
+}
+
+// 真正调用生成接口（大数量场景由确认弹窗确认后调用）
+const runGenerate = async () => {
+  showBigConfirm.value = false
   generating.value = true
   try {
     result.value = await $fetch('/api/admin/codes/generate', { method: 'POST', body: { ...form } })
@@ -259,8 +299,8 @@ const downloadOfflineTool = async () => {
 
           <div>
             <label class="b-label">生成数量 <span class="b-required">*</span></label>
-            <UInput v-model.number="form.quantity" type="number" min="1" max="10000" />
-            <p class="b-help">1-10000 条/次</p>
+            <UInput v-model.number="form.quantity" type="number" min="1" :max="MAX_CODES_PER_BATCH" />
+            <p class="b-help">{{ GENERATE_QUANTITY_RANGE_TEXT }}；超过 20 万条会先弹确认框（提示文件体积与耗时）</p>
           </div>
         </div>
 
@@ -411,7 +451,7 @@ const downloadOfflineTool = async () => {
         <ol class="space-y-1.5 text-[13px] leading-6 text-[var(--b-text-muted)]">
           <li>① 在上方「生成结果」区点【导出 urls.txt】，得到每行一个完整扫码地址的码文件（也可用【导出 TXT】或 sn 清单 CSV，工具三种都能识别）。</li>
           <li>② 下载并双击运行离线工具（便携版，免安装、无需联网）。</li>
-          <li>③ 在工具「第 1 步」把码文件拖进去 —— <strong>可一次拖入多个文件自动合并去重</strong>；单批超过 1 万条时，把多次生成导出的文件一起拖入即可。</li>
+          <li>③ 在工具「第 1 步」把码文件拖进去 —— <strong>可一次拖入多个文件自动合并去重</strong>；本平台单次最多可生成 50 万条，导出文件可直接拖入，无需分批多次生成。</li>
           <li>④ 在工具「第 2 步」设置码制（QR / DataMatrix）、模块大小（<strong>DataMatrix 建议 ≥4 像素/格</strong>）、静区白边（<strong>务必 ≥2</strong>），选好输出文件夹后导出 PNG。</li>
           <li>⑤ 印刷前务必用微信扫一扫验证前几张图，确认能打开本平台追溯查询页且产品信息正确。</li>
         </ol>
@@ -439,5 +479,38 @@ const downloadOfflineTool = async () => {
         </UButton>
       </div>
     </div>
+
+    <!-- 大数量生成二次确认（阈值 20 万条，见 shared/utils/code-limits.ts）：
+         50 万条一次生成时，全部码值会留在当前页面内存中（导出 urls.txt 约 31MB、CSV 约 80MB），
+         确认框先把返回体积、导出体积与耗时讲清楚，避免误操作、避免低配机卡死 -->
+    <UModal v-model:open="showBigConfirm">
+      <template #content>
+        <div class="b-modal">
+          <div class="b-modal-head">
+            <div class="b-modal-icon">
+              <UIcon name="i-lucide-triangle-alert" class="h-4 w-4 text-amber-600" />
+            </div>
+            <div>
+              <h3 class="b-modal-title">确认生成大数量追溯码</h3>
+              <p class="b-modal-sub">本次共 {{ bigConfirmText.quantity }} 条</p>
+            </div>
+          </div>
+          <div class="b-modal-body">
+            <div class="b-note">
+              <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+              <p class="b-note-text">
+                服务端生成预计约 {{ bigConfirmText.elapsed }} 秒，生成的码值会一次性返回给当前页面。<br>
+                导出文件体积约为：TXT {{ bigConfirmText.txt }} MB · urls.txt {{ bigConfirmText.urls }} MB · CSV {{ bigConfirmText.csv }} MB。<br>
+                条数越大页面内存占用越高，建议生成后<strong>尽快导出并刷新页面</strong>，不要长时间停留在大批量结果页。
+              </p>
+            </div>
+          </div>
+          <div class="b-modal-foot">
+            <UButton variant="outline" color="neutral" @click="showBigConfirm = false">取消</UButton>
+            <UButton color="neutral" variant="solid" :loading="generating" @click="runGenerate">确认生成</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
   </div>
 </template>

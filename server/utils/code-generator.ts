@@ -2,6 +2,7 @@
 // 32 位结构：第1位登记类别 + 第2-7位登记证号后6位 + 第8位生产类型 + 第9-11位规格码（强制，不可配置）
 //           第12位后 21 位自定义段：时间戳段 + 随机段 + 流水填充 + 校验位段（可选，占末 2 位）
 // 自定义段配置对齐 PRD 3.2 表：时间戳段 / 随机数字段 / 校验位段
+import { MAX_CODES_PER_BATCH, GENERATE_QUANTITY_ERROR } from '#shared/utils/code-limits'
 import { createHash, randomInt } from 'node:crypto'
 
 export type TimestampType = 'none' | 'ymd' | 'sec' | 'ms'   // 时间戳段（PRD 3.2）
@@ -113,8 +114,8 @@ export function generateOne(ctx: GenerateContext, seq: number, cfg: GenerateConf
  * 返回含耗时统计（参考离线工具：总数/唯一/重码/耗时）
  */
 export function generateBatch(ctx: GenerateContext, quantity: number, cfg: GenerateConfig): { codes: string[]; duplicates: number; elapsedMs: number } {
-  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10000) {
-    throw new Error('生成数量须为 1-10000')
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_CODES_PER_BATCH) {
+    throw new Error(GENERATE_QUANTITY_ERROR)
   }
   const start = Date.now()
   const codes: string[] = []

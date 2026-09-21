@@ -12,6 +12,7 @@
 //   ③ 分块写入 5000/批，防 max_allowed_packet 超限；
 //   ④ 批号已存在但三要素不一致 → 拒绝（防输错串批）；质检不合格批次 → 拒绝绑定（PRD 5.6）；
 //   ⑤ 自动建批 + 批量插码在同一数据库事务内，失败整体回滚，不留孤儿批次。
+import { MAX_CODES_PER_WRITE, WRITE_QUANTITY_ERROR } from '#shared/utils/code-limits'
 import { getPool, query } from '../../../utils/db'
 import { sendMessage } from '../../../utils/notify'
 import { requireWritableUser } from '../../../utils/auth'
@@ -19,7 +20,8 @@ import { cleanLine, validateCode } from '../../../utils/code-validator'
 
 // 日期入参格式（YYYY-MM-DD，与批次页 UInput type=date 口径一致）
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
-// 单批写入上限（防 max_allowed_packet 超限；10 万条上限下分 20 批）
+// 单批写入上限（防 max_allowed_packet 超限；50 万条上限下分 100 批）
+// 注意：此处只能减不能加——MySQL 预处理语句占位符上限 65535，现 5000 × 11 列 = 55000 已近顶
 const CHUNK = 5000
 
 export default defineEventHandler(async (event) => {
@@ -41,7 +43,7 @@ export default defineEventHandler(async (event) => {
   const fileName = rawFileName || ('手动导入 ' + nowTs.getFullYear() + '-' + pad2(nowTs.getMonth() + 1) + '-' + pad2(nowTs.getDate()) + ' ' + pad2(nowTs.getHours()) + ':' + pad2(nowTs.getMinutes()))
 
   if (codes.length === 0) throw createError({ statusCode: 400, statusMessage: '没有可导入的码' })
-  if (codes.length > 100000) throw createError({ statusCode: 400, statusMessage: '单次最多 10 万条码' })
+  if (codes.length > MAX_CODES_PER_WRITE) throw createError({ statusCode: 400, statusMessage: WRITE_QUANTITY_ERROR })
   if (!Number.isInteger(productId) || productId <= 0) throw createError({ statusCode: 400, statusMessage: '请选择关联产品' })
   if (!batchNo) throw createError({ statusCode: 400, statusMessage: '请输入生产批次号（与产品标签喷码一致）' })
   if (!DATE_RE.test(produceDate)) throw createError({ statusCode: 400, statusMessage: '请选择生产日期（与产品标签喷码一致）' })

@@ -4,12 +4,13 @@
 // （展示产品信息+「尚未绑定生产信息」），生产时在码库管理按上传批次【修正】绑定批次。
 // 与 import（生产采集，强制绑定）互为两条入库通道：import=绑定入库；stock-in=留档入库。
 // 同一事务：建 upload_batch 行（文件维度，file_name=「生成入库 时间」）+ 分块插码（status=1）。
+import { MAX_CODES_PER_WRITE, WRITE_QUANTITY_ERROR } from '#shared/utils/code-limits'
 import { getPool, query } from '../../../utils/db'
 import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
 import { cleanLine, validateCode } from '../../../utils/code-validator'
 
-// 单批写入上限（与 import 同口径，防 max_allowed_packet 超限）
+// 单批写入上限（与 import 同口径，防 max_allowed_packet 超限；不可调大，原因见 shared/utils/code-limits.ts 顶部说明）
 const CHUNK = 5000
 
 export default defineEventHandler(async (event) => {
@@ -19,7 +20,7 @@ export default defineEventHandler(async (event) => {
   const productId = Number(body.productId)
 
   if (codes.length === 0) throw createError({ statusCode: 400, statusMessage: '没有可入库的码' })
-  if (codes.length > 100000) throw createError({ statusCode: 400, statusMessage: '单次最多 10 万条码' })
+  if (codes.length > MAX_CODES_PER_WRITE) throw createError({ statusCode: 400, statusMessage: WRITE_QUANTITY_ERROR })
   if (!Number.isInteger(productId) || productId <= 0) throw createError({ statusCode: 400, statusMessage: '请选择关联产品' })
 
   const fid = user.role === 'platform_admin' ? null : user.enterprise_id

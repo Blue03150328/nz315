@@ -1,5 +1,6 @@
 // POST /api/admin/codes/parse —— 追溯码文件解析校验（PRD 5.5.2）
 // 输入：{ content: string（文件文本，每行一个码）} 或 { codes: string[] }
+import { MAX_CODES_PER_WRITE, WRITE_QUANTITY_ERROR } from '#shared/utils/code-limits'
 import { query } from '../../../utils/db'
 import { requireBackendUser } from '../../../utils/auth'
 import { cleanLine, validateBatch } from '../../../utils/code-validator'
@@ -17,7 +18,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 400, statusMessage: '请上传码文件或粘贴码文本' })
   }
   if (rawLines.length === 0) throw createError({ statusCode: 400, statusMessage: '文件为空' })
-  if (rawLines.length > 100000) throw createError({ statusCode: 400, statusMessage: '单次最多 10 万条码' })
+  if (rawLines.length > MAX_CODES_PER_WRITE) throw createError({ statusCode: 400, statusMessage: WRITE_QUANTITY_ERROR })
 
   const fid = user.role === 'platform_admin' ? null : user.enterprise_id
 

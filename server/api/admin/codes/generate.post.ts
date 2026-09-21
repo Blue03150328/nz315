@@ -1,5 +1,6 @@
 // POST /api/admin/codes/generate —— 追溯码生成（PRD 5.5.1：离线生成工具 Web 版，不入库，导出后经生产采集导入）
 // 生成规则：第 1-11 位取产品/规格主数据（1049 强制结构），第 12 位后自定义段（PRD 3.2：时间戳段/随机段/校验位段）
+import { MAX_CODES_PER_BATCH, GENERATE_QUANTITY_ERROR } from '#shared/utils/code-limits'
 import { query } from '../../../utils/db'
 import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
@@ -20,8 +21,8 @@ export default defineEventHandler(async (event) => {
     ? 100
     : Number(body.quantity)
   if (!Number.isInteger(productId) || productId <= 0) throw createError({ statusCode: 400, statusMessage: '请选择产品' })
-  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10000) {
-    throw createError({ statusCode: 400, statusMessage: '生成数量须为 1-10000' })
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_CODES_PER_BATCH) {
+    throw createError({ statusCode: 400, statusMessage: GENERATE_QUANTITY_ERROR })
   }
 
   // 产品 + 规格（码头数据源）
@@ -75,6 +76,6 @@ export default defineEventHandler(async (event) => {
     elapsedMs: result.elapsedMs,
     cfg,
     preview: result.codes.slice(0, 10).map(code => ({ code, segments: segments(code) })),
-    allCodes: result.codes, // 导出用（数量上限 1 万，JSON 可承载）
+    allCodes: result.codes, // 导出用（数量上限 50 万条，全量回传 JSON 约 16.7MB；弱网下注意 nginx proxy_read_timeout）
   }
 })
