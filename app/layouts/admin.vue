@@ -20,6 +20,7 @@ const MENU_READY: { path: string; label: string; icon: string; writeOnly?: boole
   { path: '/admin/batches', label: '效期预警', icon: 'i-lucide-boxes' },
   { path: '/admin/statistics', label: '扫码统计', icon: 'i-lucide-bar-chart-3' },
   { path: '/admin/alerts', label: '风险预警', icon: 'i-lucide-shield-alert' },
+  { path: '/admin/external-verify', label: '外部二维码核验', icon: 'i-lucide-scan-line', writeOnly: true },
   { path: '/admin/messages', label: '消息中心', icon: 'i-lucide-bell' },
   { path: '/admin/settings', label: '系统设置', icon: 'i-lucide-settings' },
 ]

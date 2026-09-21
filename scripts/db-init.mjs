@@ -208,6 +208,7 @@ const DDL = [
     alert_type TINYINT NULL COMMENT '1-8 对应8类异常',
     code_id BIGINT NULL,
     product_id BIGINT NULL,
+    external_verification_id BIGINT NULL COMMENT '外部二维码核验记录ID',
     evidence JSON NULL COMMENT '证据数据',
     trigger_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     repeat_count INT NOT NULL DEFAULT 1,
@@ -219,6 +220,23 @@ const DDL = [
     KEY idx_type (alert_type),
     KEY idx_trigger (trigger_time)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `CREATE TABLE IF NOT EXISTS external_verification (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    source_url TEXT NOT NULL,
+    source_platform VARCHAR(120) NULL,
+    code VARCHAR(64) NOT NULL,
+    code_parts JSON NOT NULL,
+    source_data JSON NULL,
+    registration_candidates JSON NULL,
+    result JSON NOT NULL,
+    overall_status VARCHAR(20) NOT NULL,
+    created_by BIGINT NULL,
+    enterprise_id BIGINT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_code (code),
+    KEY idx_status (overall_status),
+    KEY idx_enterprise_time (enterprise_id, created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='外部二维码核验快照'`,
   // 站内消息（PRD 5.11 消息中心）——此前遗漏未纳入初始化脚本，新环境会缺表导致消息中心/风险预警通知报错
   `CREATE TABLE IF NOT EXISTS message (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -305,6 +323,15 @@ async function migrate(conn) {
     );
     return rows.length > 0;
   };
+
+  if (!(await hasColumn('risk_alert', 'external_verification_id'))) {
+    await conn.query("ALTER TABLE risk_alert ADD COLUMN external_verification_id BIGINT NULL COMMENT '外部二维码核验记录ID' AFTER product_id");
+    console.log('[db] 迁移：risk_alert 补充列 external_verification_id');
+  }
+  if (!(await hasIndex('risk_alert', 'idx_external_verification'))) {
+    await conn.query('ALTER TABLE risk_alert ADD KEY idx_external_verification (external_verification_id)');
+    console.log('[db] 迁移：risk_alert 补充索引 idx_external_verification');
+  }
 
   // scan_log.consumer_id：消费者登录后扫码，记录归属人，支撑个人中心「我的查询记录」
   if (!(await hasColumn('scan_log', 'consumer_id'))) {
