@@ -10,6 +10,9 @@
 //   引擎耗时 38ms / 309ms / 1518ms —— 引擎不是瓶颈
 //   响应 allCodes 0.33MB / 3.34MB / 16.69MB（JSON）—— 50 万约 16.7MB，弱网需注意 nginx proxy_read_timeout
 //   前端导出 urls.txt 约 31MB、CSV 约 80MB、堆内存增量约 +59MB —— 低配机有卡顿风险，故大数量需二次确认
+//   服务端内存：一次大数量生成要同时持有「码数组 + 去重 Set（SELECT code FROM trace_code 全表拉库内码）+ 约 17MB JSON 响应」，
+//     瞬时数百 MB，且反复跑之后回收不干净 —— 2026-09-21 本机 dev 反复生成后撞 4.1GB 堆上限 OOM 崩溃（exit 134）。
+//     线上 PM2 max_memory_restart 仅 800M，**线上验收只跑 5 万条，别跑满 50 万**（详见 19 号执行单 §6.3）
 //   MySQL 占位符上限 65535，分块 CHUNK=5000 × 11 列 = 55000 已近顶 —— 分块大小只能减不能加
 
 /** 单次生成追溯码上限（POST /api/admin/codes/generate），50 万条 */
