@@ -3,6 +3,7 @@
 import { query, execute } from '../utils/db'
 import { triggerAlert } from '../utils/risk-alert'
 import { getCurrentConsumer } from '../utils/consumer-auth'
+import { lookupRegistryByCode } from '../utils/registry-lookup'
 import type { TraceOutcome, TraceResultType } from '#shared/types/trace'
 
 const CODE_RE = /^\d{32}$/
@@ -44,13 +45,44 @@ export default defineEventHandler(async (event) => {
     return out
   }
 
-  // 2) 查码
+  // 2) 查码：本平台签发的追溯码优先
   const [tc] = await query<any[]>('SELECT * FROM trace_code WHERE code = ? LIMIT 1', [code])
   if (!tc) {
+    // 2.1) 非本平台码 → 登记资料库（pesticide_reg）兜底比对（2026-09-22）
+    // 消费者扫到的码大多不是本平台签发的，只回「未查询到」等于什么都没告诉他；
+    // 32 位单元识别码是全国统一结构，前 8 位（类别+登记证后六位+生产类型）可直接与
+    // 「国家农药登记资料库」比对：命中就摆出登记资料供核对，未命中则明确告知结构无对应登记证。
+    // ⚠️ 只读、不写 scan_log、不触发风险预警（不是本平台的码，不污染本平台统计与预警）。
+    const registry = await lookupRegistryByCode(code)
+    const hasReg = registry.candidates.length > 0
+    const p = registry.codeParts
+    const structureOk = p.validLength && p.validCategory && p.validProductionType
+    // 未命中登记库时，原因要分清是哪一种 —— 结构本身非法 ≠ 结构合规但登记库没这个登记证
+    // （踩过：结构非法时也说「登记库无对应登记证」，而登记库其实有，只是被类别过滤掉了）
+    const missReason = structureOk
+      ? '该码前 8 位解析出的登记证后六位（' + p.registrationLast6 + '）在农药登记资料库中没有对应登记证'
+      : '该码前 8 位编码结构不符合32位单元识别代码规则（第1位应为1=PD类/2=WP类，第8位应为1/2/3=生产类型）'
     const out: TraceOutcome = {
-      ...baseOutcome, resultType: 'not-found', status: null, abnormalFlag: 0,
+      ...baseOutcome,
+      resultType: (hasReg ? 'external-reg' : 'not-found') as TraceResultType,
+      status: null, abnormalFlag: 0,
       queryCount: 0, firstQuery: false, recentScans: [],
-      reasons: ['该追溯码未在追溯系统中登记'], generatedReport: null,
+      codeParts: {
+        categoryLabel: p.categoryLabel,
+        registrationLast6: p.registrationLast6,
+        productionTypeLabel: p.productionTypeLabel,
+        validLength: p.validLength,
+        validCategory: p.validCategory,
+        validProductionType: p.validProductionType,
+      },
+      registryCandidates: registry.candidates,
+      reasons: hasReg
+        ? [
+            '该追溯码不是本平台（农资315）签发的追溯码，本平台没有该码的生成与生产记录',
+            '以下登记资料来自国家农药登记资料库比对：仅能核对登记信息，不能证明该产品为正品',
+          ]
+        : ['该追溯码未在追溯系统中登记', missReason],
+      generatedReport: null,
     }
     return out
   }

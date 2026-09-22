@@ -23,6 +23,7 @@ useHead({
   </div>
   <div v-else-if="data">
     <TraceResult v-if="data.resultType === 'genuine'" :outcome="data" />
+    <TraceExternal v-else-if="data.resultType === 'external-reg'" :outcome="data" />
     <TraceNotFound v-else-if="data.resultType === 'not-found'" :outcome="data" />
     <TraceAlert v-else :outcome="data" />
   </div>

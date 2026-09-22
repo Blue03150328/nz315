@@ -4,6 +4,7 @@
 // 微信内置浏览器（iOS 无法网页调起相机）自动展示引导文案。
 // 识别命中后跳转 /trace?code={码}（SSR 秒开查询，与扫码 URL 官方格式一致）。
 import { useQrScanner, traceCodeOf } from '~/composables/useQrScanner'
+import { extractTraceCode } from '#shared/utils/trace-code'
 
 definePageMeta({ layout: 'fullbleed' })
 useHead({ title: '扫码查询' })
@@ -15,8 +16,9 @@ const fileRef = ref<HTMLInputElement | null>(null)
 const manualOpen = ref(false)      // 手动输入区展开开关
 const manualCode = ref('')
 const decodingImage = ref(false)   // 相册图片解析中
+const lastRejected = ref('')       // 上一次已提示过「不含追溯码」的二维码内容（防同一张码反复弹提示）
 
-const { phase, errorMsg, isWechat, mount, start, stop, onResult, decodeImageFile } = useQrScanner()
+const { phase, errorMsg, isWechat, mount, start, stop, onResult, onRawResult, decodeImageFile } = useQrScanner()
 
 onMounted(() => { mount(videoRef.value) })
 // 页面销毁时释放相机与解码循环（防摄像头指示灯常亮/占用）
@@ -25,6 +27,26 @@ onBeforeUnmount(() => { stop() })
 // 识别成功 → 跳转追溯查询页
 onResult((code) => {
   router.push('/trace?code=' + encodeURIComponent(code))
+})
+
+// 扫到的内容不是本平台追溯码（例如别的追溯平台的链接、纯文本）：
+// 原先这里是静默忽略，用户看到的是「扫了半天没反应」。现在改为尽力而为 + 明确告知：
+// 先从内容里抠 32 位单元识别代码（多数外部平台的链接里也带码），抠到就照常送查询，
+// /trace 会走「登记资料库比对」给出有用结论；确实没有码才提示，并继续扫描。
+onRawResult((raw) => {
+  const code = extractTraceCode(raw)
+  if (code) {
+    router.push('/trace?code=' + encodeURIComponent(code))
+    return
+  }
+  if (raw === lastRejected.value) { start(); return } // 同一张码仍在镜头里：只重启扫描，不重复提示
+  lastRejected.value = raw
+  toast.add({
+    title: '这不是农资315的追溯二维码',
+    description: '已识别到二维码内容，但其中不含 32 位追溯码，无法查询。请对准瓶身标签上的农药追溯二维码。',
+    color: 'warning',
+  })
+  start() // 识别命中时已释放相机与解码循环，这里重新开启继续扫
 })
 
 const goBack = () => { router.back() }
@@ -231,7 +253,7 @@ const submitManual = () => {
         </button>
       </div>
       <p v-if="isScanning" class="mt-3 text-center text-xs text-white/55">
-        仅识别农资315追溯二维码，其它二维码不会触发跳转
+        识别到 32 位追溯码即自动查询；其它二维码会给出提示，不会自动跳转
       </p>
     </div>
   </div>

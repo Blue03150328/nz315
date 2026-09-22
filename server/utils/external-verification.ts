@@ -3,7 +3,8 @@ import { lookup } from 'node:dns/promises'
 import { query } from './db'
 import { regCategoryOf, normalizeOrgName } from './regdata'
 import { extractTraceCode, isHttpUrl, isTraceCode } from '#shared/utils/trace-code'
-import type { ExternalCodeParts, ExternalSourceData, ExternalVerificationResult, VerificationItem, VerificationItemStatus } from '#shared/types/external-verification'
+import { parseUnitCode } from '#shared/utils/unit-code'
+import type { ExternalSourceData, ExternalVerificationResult, VerificationItem, VerificationItemStatus } from '#shared/types/external-verification'
 
 const PRIVATE_HOST = /^(localhost|.*\.localhost|.*\.local|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)$/i
 
@@ -25,23 +26,8 @@ function normalizeProductName(value: unknown): string {
   return normalizeText(String(value ?? '').replace(/[\d．.]+[%％]/g, '')).toLowerCase()
 }
 
-export function parseExternalCode(code: string): ExternalCodeParts {
-  const value = String(code || '')
-  const categoryCode = value.slice(0, 1)
-  const productionTypeCode = value.slice(7, 8)
-  return {
-    length: value.length,
-    categoryCode,
-    categoryLabel: categoryCode === '1' ? 'PD' : categoryCode === '2' ? 'WP' : '未知',
-    registrationLast6: value.slice(1, 7),
-    productionTypeCode,
-    productionTypeLabel: productionTypeCode === '1' ? '登记证持有人生产' : productionTypeCode === '2' ? '委托加工' : productionTypeCode === '3' ? '委托分装' : '未知',
-    suffix: value.slice(8),
-    validLength: /^\d{32,}$/.test(value),
-    validCategory: categoryCode === '1' || categoryCode === '2',
-    validProductionType: ['1', '2', '3'].includes(productionTypeCode),
-  }
-}
+// 32 位码结构解析已抽到 server/utils/unit-code.ts（公众端 /api/trace 的登记库兜底比对共用同一套规则）
+export const parseExternalCode = parseUnitCode
 
 async function assertSafeUrl(input: string): Promise<URL> {
   let url: URL
