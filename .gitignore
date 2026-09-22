@@ -27,6 +27,8 @@ scripts/_tmp-*
 
 # 截图与验证产物
 screenshots/
+# 异常场景扫码测试产物（九张码 + 总览页 + manifest.json，由 scripts/seed-abnormal-demo.mjs 一键再生，不入库）
+qr-test/
 
 # 数据库备份文件（含全量数据，隐私）
 backup/
