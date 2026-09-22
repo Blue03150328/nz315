@@ -4,6 +4,13 @@
 > 本文件是项目的长期记忆：记录**用户全局偏好**（所有项目通用）与**本项目状态**（进度/架构/踩坑）。
 > 接手顺序：本文件 → `git log --oneline`（最近提交）→ PRD 需求文档（农药追溯码管理平台 PRD 纯净版.md）。
 
+> 🧭 **当前状态指针（2026-09-22 更新）**：**新对话先读 `docs/handover/20-交接手册-新对话接续（ycdb分支与待部署清单）.md`**。
+> 三条要点，避免踩空：① **工作副本在 `ycdb` 分支，不是 `master`**（`ycdb` = master + 8 提交，主体是「外部二维码核验」，
+> **带 DDL**：新表 `external_verification` + `risk_alert` 补列补索引）；② **master 上挂着一笔未提交的活儿**（`git stash@{0}`
+> 里的 PROJECT_LOG 条目 + 未跟踪的 `docs/厂家后台使用说明/` 与 `scripts/generate-user-guide.mjs`，**`stash pop` 必须在 master 上做**）；
+> ③ **线上仍停在 09-19 那次构建的产物上**（实测 `/_nuxt/builds/latest.json` 时间戳 = `2026-09-19 18:08:56`）⇒
+> **生成上限 50 万那版（19 号执行单）尚未上线，线上仍是 1 万**；外部核验整条线也未合入 master、未部署。
+
 > ✅ **更正（2026-09-21 复核）：下面这个「待部署」块已过时 —— 09-19 那次部署是完整跑完的，线上已是加固版 + 工具 v1.2.0。**
 > 证据（本机直连公网实测）：① `POST https://www.nz315.cn/api/auth/login` 带恶意前缀 Origin `https://www.nz315.cn.evil.com`
 > → **403「跨站请求被拒绝」**（加固代码才有的行为，旧版会走到 401）；② `/tools/nz315-qr-tool-v1.2.0.exe` HEAD

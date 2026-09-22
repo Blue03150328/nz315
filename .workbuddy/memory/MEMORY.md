@@ -69,5 +69,16 @@
 
 ## 交接文档
 
-- **最新交接手册：`docs/handover/16-交接手册-安全加固收尾与新对话接续.md`**（新对话先读它，再读 13 号看服务器细节）。
+- **最新交接手册：`docs/handover/20-交接手册-新对话接续（ycdb分支与待部署清单）.md`**（新对话先读它；20 号讲当前三条线与线上实测，16 号留着看机制与铁律，13 号看服务器细节）。
+
+## 分支与部署状态（2026-09-22 实测，易漂移，用前复核）
+
+- **工作副本在 `ycdb`，不在 `master`**。`ycdb` = `master`(`ea7dc78`) + 8 提交（主体是「外部二维码核验」），**未合入 master、未推送**。
+- **`ycdb` 相对 master 带 DDL**：新表 `external_verification` + `risk_alert` 补列 `external_verification_id` 与索引。
+  ⇒ 上线它**必须 `node scripts/db-init.mjs --migrate-only`**（`--migrate-only` 不可省）。
+- **线上构建产物 = 2026-09-19 18:08:56**（证据：`/_nuxt/builds/latest.json` 的 `timestamp`）。⇒ **生成上限 50 万那版（19 号执行单）尚未上线，线上仍是 1 万**。
+- **master 上挂着一笔未提交的活儿**（厂家后台使用说明）：`stash@{0}` 只含 PROJECT_LOG 条目；`docs/厂家后台使用说明/`（30 文件）与 `scripts/generate-user-guide.mjs`（13,507 字节）是未跟踪。
+  - ⚠️ **`git stash pop` 必须在 master 上做**；⚠️ `C:/shots/_master-uncommitted-backup-20260922` **是过时的中途快照**（11 文件 / 脚本 7,221 字节），**绝不能用它盖工作区**。
+- **判断线上状态优先公网实测**，别信文档里的"应该"：`/_nuxt/builds/latest.json` 的时间戳能直接判定"最后一次 build 是什么时候"。
+
 
