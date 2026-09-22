@@ -12,6 +12,8 @@ export interface ExternalSourceData {
   holderName?: string
   productionType?: string
   spec?: string
+  formulation?: string
+  toxicity?: string
   produceDate?: string
   batchNo?: string
   expireDate?: string

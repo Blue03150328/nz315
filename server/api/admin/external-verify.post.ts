@@ -10,6 +10,7 @@ export default defineEventHandler(async (event) => {
   const result = await verifyExternalCode({
     sourceUrl: String(body.sourceUrl || ''),
     code: String(body.code || ''),
+    pageText: String(body.pageText || ''),
     enterpriseId: user.enterprise_id,
     userId: user.id,
   })

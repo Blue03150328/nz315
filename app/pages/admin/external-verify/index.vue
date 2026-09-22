@@ -9,6 +9,7 @@ const { canWrite } = useUser()
 const toast = useToast()
 const sourceUrl = ref('')
 const code = ref('')
+const pageText = ref('')
 const busy = ref(false)
 const result = ref<ExternalVerificationResult | null>(null)
 const showScanner = ref(false)
@@ -19,13 +20,13 @@ const sampleUrl = 'http://www.wla1.cn/p?id=12618401501000000000003780168217'
 
 const verify = async () => {
   if (!canWrite.value) return
-  if (!sourceUrl.value.trim() && !code.value.trim()) {
-    toast.add({ title: '请粘贴外部二维码链接或32位追溯码', color: 'warning' })
+  if (!sourceUrl.value.trim() && !code.value.trim() && !pageText.value.trim()) {
+    toast.add({ title: '请粘贴外部二维码链接、32位追溯码，或来源页面内容', color: 'warning' })
     return
   }
   busy.value = true
   try {
-    result.value = await $fetch<ExternalVerificationResult>('/api/admin/external-verify', { method: 'POST', body: { sourceUrl: sourceUrl.value.trim(), code: code.value.trim() } })
+    result.value = await $fetch<ExternalVerificationResult>('/api/admin/external-verify', { method: 'POST', body: { sourceUrl: sourceUrl.value.trim(), code: code.value.trim(), pageText: pageText.value.trim() } })
     toast.add({ title: result.value.overallStatus === 'mismatch' ? '核验完成，发现信息差异' : '核验完成', color: result.value.overallStatus === 'mismatch' ? 'warning' : 'success' })
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || '核验失败', color: 'error' })
@@ -56,8 +57,28 @@ const statusClass: Record<string, string> = { match: 'b-tag-success', mismatch: 
     <div class="b-card space-y-4">
       <div class="b-card-head"><span class="b-card-title">输入外部二维码</span><UButton variant="link" color="neutral" size="xs" @click="useSample">填入示例链接</UButton></div>
       <div class="grid gap-4 lg:grid-cols-2">
-        <div><label class="b-label">外部扫码链接</label><UInput v-model="sourceUrl" placeholder="例如 http://www.wla1.cn/p?id=..." /></div>
+        <div>
+          <label class="b-label">外部扫码链接</label>
+          <UInput v-model="sourceUrl" placeholder="例如 http://www.wla1.cn/p?id=..." />
+          <a
+            v-if="sourceUrl.trim().startsWith('http')"
+            :href="sourceUrl.trim()"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="mt-1 inline-block text-xs text-primary underline"
+          >在新窗口打开来源页面（便于复制内容）</a>
+        </div>
         <div><label class="b-label">或直接输入追溯码</label><UInput v-model="code" placeholder="至少32位数字" class="font-code" /></div>
+      </div>
+      <div>
+        <label class="b-label">粘贴来源页面内容（可选 · 供纯脚本渲染的外部平台使用）</label>
+        <UTextarea
+          v-model="pageText"
+          :rows="4"
+          class="w-full"
+          placeholder="部分外部平台的页面由脚本异步渲染，服务端抓不到正文。请在浏览器打开该二维码链接，把页面上的「基本信息 / 产品信息」整段文字复制到这里 —— 解析走通用规则，不区分平台。"
+        />
+        <p class="mt-1 text-xs text-muted">填写后会优先使用你粘贴的内容（比服务端抓取结果更完整）。</p>
       </div>
       <p class="text-xs text-muted">仅核验第1—8位：登记类别、登记证号后六位、生产类型。第9位以后保留原码但不参与判定；规格、生产日期等只展示来源页面提供的内容。</p>
       <UButton v-if="canWrite" color="primary" :loading="busy" icon="i-lucide-search-check" @click="verify">开始核验</UButton>
@@ -100,6 +121,9 @@ const statusClass: Record<string, string> = { match: 'b-tag-success', mismatch: 
           <div><span class="text-muted">生产日期</span><div class="mt-1">{{ result.source.produceDate || '来源页面未提供' }}</div></div>
           <div><span class="text-muted">生产批次</span><div class="mt-1">{{ result.source.batchNo || '来源页面未提供' }}</div></div>
           <div><span class="text-muted">登记证号</span><div class="mt-1 font-code">{{ result.source.registrationNo || '来源页面未提供' }}</div></div>
+          <div><span class="text-muted">剂型</span><div class="mt-1">{{ result.source.formulation || '来源页面未提供' }}</div></div>
+          <div><span class="text-muted">毒性</span><div class="mt-1">{{ result.source.toxicity || '来源页面未提供' }}</div></div>
+          <div><span class="text-muted">有效期至</span><div class="mt-1">{{ result.source.expireDate || '来源页面未提供' }}</div></div>
           <div><span class="text-muted">来源链接</span><div class="mt-1 max-w-full truncate" :title="result.source.sourceUrl">{{ result.source.sourceUrl || '未提供' }}</div></div>
         </div>
       </div>
