@@ -1,6 +1,8 @@
 # 项目长期记忆 — 农资315 追溯码管理平台
 
-> 只留跨会话必须遵守的约定；细节/证据/进度看 `docs/handover/21-交接手册-*.md` 与当日 `.workbuddy/memory/YYYY-MM-DD.md`。
+> 只留跨会话必须遵守的约定；细节/证据/进度看 `docs/handover/` 与当日 `.workbuddy/memory/YYYY-MM-DD.md`。
+> 三份最常用的：**21 号**＝新对话接续手册 · **22 号**＝功能测试报告 · **23 号**＝**缺陷与待办总账（P0/P1/P2）**。
+> 复测可直接用 skill `nz315-func-regression`（独立断言脚本 + 四层验证法），别每次从零搭。
 
 ## 数据口径
 - 库里演示/测试数据**数值不可信**，别拿测试数据之间的矛盾当缺陷结论；能据代码下结论的只有「机制」（代码事实）；合规判断必须上真实数据。
@@ -16,7 +18,10 @@
 - 比对**必须先按类别过滤**（第1位=1→PD/PDN/LS/EX；=2→WP/WPN/WL），否则别的类别撞后六位会给出错误候选。未命中原因文案按 `structureOk` 分流（「结构非法」≠「结构合规但无此证」）。
 - 性能：`RIGHT(registration_no,6)=?` 走不了索引（全扫 95,386 行 / 26-32ms），靠 `registry-lookup.ts` 进程内 LRU（500条/10分钟）兜；加生成列+索引可提速（DDL，未做）。
 - 合规边界：登记命中**≠正品**；日期/批次本平台给不了（指向瓶身标签）；**不抓外部平台页面**。
-- 🔴 `scan_log.province`/`city` **只有读没有写**（`trace.get.ts` 的 INSERT 无这两列）⇒「重复查询」(≥3次且≥2省) 在真实链路**永远触发不了**，线上一直如此。看到"重复查询验不出"先想这条。根治=IP 解析或前端上送位置。
+- ✅ `scan_log.province`/`city` **已于 2026-09-22 补齐写入**（提交 `66b0f6b`，在 `ycdb`）：新增 `server/utils/ip-geo.ts`，走**高德 IP 定位**（复用 `runtimeConfig.amapWebKey`，**零新依赖**）；写 `scan_log` 时**缓存命中即当场写、首见新 IP 交后台异步补齐（fire-and-forget）** —— 公众端是唯一被陌生人高频打的路径，外部调用**不得阻塞扫码主链路**。**零 DDL**（两列与索引本已存在）。**尚未部署。**
+  - 高德两条实测硬约束（改 `ip-geo.ts` 前必看）：① **限流/配额用尽时 HTTP 仍是 200**（返 `status:'0'` + `CUQPS_HAS_EXCEEDED_THE_LIMIT`；实测**连打 4 次即中**）⇒ 必须显式判 `status === '1'`；② **未命中返回空数组 `[]` 而非空串**（内网/境外 IP）⇒ 直接 `String()` 会把 `[]` 写进库。
+  - 🔴 **取客户端 IP 一律 `clientIpOf(event)`（优先 `x-real-ip`）**：nginx 的 `$proxy_add_x_forwarded_for` 会把**客户端自带**的 `x-forwarded-for` 拼在真实 IP **前面**，取 `split(',')[0]` 等于采信客户端自报归属地 ⇒ **「重复查询」的省份可被任意伪造**（原 `trace.get.ts` 就是这么写的，已随本次修复改掉）。
+  - 本机 `x-real-ip` 常是 `127.0.0.1`（内网 ⇒ 查不出省市）⇒ **线上验这条必须用公网 IP 打**，本机只能伪造头模拟。线上 `nz315.conf` 带 `proxy_set_header X-Real-IP $remote_addr`，链路是通的。
 - 微信扫码有数据 = 直接打开了该码所属平台的 H5 —— **架构事实，不是缺陷**。
 
 ## 异常场景扫码测试
@@ -67,7 +72,9 @@
 - 本机 git 写不了嵌套引用（分支名用平铺名，如 `ycdb`）；checkout/merge 后可能只落地差异文件（`git status` 报一堆 ` D`）—— 文件没丢，`git reset --hard HEAD` 全铺回。
 
 ## 分支与部署状态（易漂移，用前复核）
-- 工作副本在 **`ycdb`**（= master + 15 提交 / 31 文件 / +2,599 −38），未合入 master、未推送；**带 DDL**（新表 `external_verification` + `risk_alert` 补列补索引），**依赖零变化**（package.json/lock/nuxt.config 与 master 零差异）⇒ 上线必须 `--migrate-only`。
+- 工作副本在 **`ycdb`**（2026-09-22 18:0x 实测 = master + **21** 提交 / **35** 文件 / **+3,624 −114**；取数 `git rev-list --count master..ycdb` + `git diff --shortstat master...ycdb`），未合入 master、未推送；**带 DDL**（新表 `external_verification` + `risk_alert` 补列补索引），**依赖零变化**（package.json/lock/nuxt.config 与 master 零差异）⇒ 上线必须 `--migrate-only`。
+  - ⚠️ **文档里的旧数字一律别信**：21 号记「+15」、23 号初版记「+17」**均偏低**，用前现测。
+  - 🧭 **路线已定（2026-09-22，用户裁定「走 ycdb」）**：不回 master 收尾、**不动 `stash@{0}`**（见下条）。
 - 线上构建产物 = **2026-09-19 18:08:56**（`/_nuxt/builds/latest.json` 的 `timestamp`=`1789812536370`）⇒ **50 万上限未上线，线上仍是 1 万**。待部署包：`E:\software\workbuddy\文件存放处\2026-09-21-1214-生成上限50万\nz315-master-68163bb.tar.gz`（742,206 字节 / SHA256 `5d2135c6f73b11cf924def7607c109353f4a1ff4ad1be728f5ed15c4e9c65d46`，**不含 ycdb**）。
 - ✅ **裸域名 `https://nz315.cn` 已修复**（301→www，路径/query 保留，`rejectUnauthorized:true` 严格校验通过）。**别再当待办。**
 - `MP_verify_OUOoNSqTrpZkfWli.txt` 公网 200，但微信后台「网页授权域名」是否保存成功**必须问用户**。
