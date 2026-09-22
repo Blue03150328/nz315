@@ -72,8 +72,8 @@
 - 本机 git 写不了嵌套引用（分支名用平铺名，如 `ycdb`）；checkout/merge 后可能只落地差异文件（`git status` 报一堆 ` D`）—— 文件没丢，`git reset --hard HEAD` 全铺回。
 
 ## 分支与部署状态（易漂移，用前复核）
-- 工作副本在 **`ycdb`**（2026-09-22 18:0x 实测 = master + **21** 提交 / **35** 文件 / **+3,624 −114**；取数 `git rev-list --count master..ycdb` + `git diff --shortstat master...ycdb`），未合入 master、未推送；**带 DDL**（新表 `external_verification` + `risk_alert` 补列补索引），**依赖零变化**（package.json/lock/nuxt.config 与 master 零差异）⇒ 上线必须 `--migrate-only`。
-  - ⚠️ **文档里的旧数字一律别信**：21 号记「+15」、23 号初版记「+17」**均偏低**，用前现测。
+- 工作副本在 **`ycdb`**（**HEAD `f746141` 时实测 = master + 25 提交 / 36 文件 / +4,309 −116**；取数 `git rev-list --count master..ycdb` + `git diff --shortstat master...ycdb`），未合入 master、未推送；**带 DDL**（新表 `external_verification` + `risk_alert` 补列补索引），**依赖零变化**（package.json/lock/nuxt.config 与 master 零差异）⇒ 上线必须 `--migrate-only`。
+  - ⚠️ **这个数字每次提交都在动，别背、别信文档**：21 号记「+15」、23 号初版记「+17」、本文件先记「+21」**全部偏低**。**用前现测**。
   - 🧭 **路线已定（2026-09-22，用户裁定「走 ycdb」）**：不回 master 收尾、**不动 `stash@{0}`**（见下条）。
 - 线上构建产物 = **2026-09-19 18:08:56**（`/_nuxt/builds/latest.json` 的 `timestamp`=`1789812536370`）⇒ **50 万上限与 ycdb 整条线都未上线**。
 - 🚀 **要上线就照 `docs/handover/24-部署执行单-ycdb整线上线.md`（2026-09-22 新增，取代 19 号）**。**`ycdb` 已包含 19 号那笔 `68163bb`**（→ 跑 24 号即可，别单独跑 19 号，同一份代码何必构建两遍）。
