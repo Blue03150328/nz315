@@ -19,7 +19,14 @@ export function extractExternalCode(input: string): string {
   const text = String(input || '').trim()
   const urlMatch = text.match(/[?&#](?:code|id|sn|traceCode)=([0-9]{32,})(?:&|#|$)/i)
   if (urlMatch?.[1]) return urlMatch[1]
-  const direct = text.match(/(?<![0-9])[0-9]{32,}(?![0-9])/) 
+  // 外部平台常用数字参数名（例如 ?47=码值），逐个检查查询参数而不是猜参数名
+  try {
+    const url = new URL(text)
+    for (const value of url.searchParams.values()) {
+      if (/^\d{32,}$/.test(value)) return value
+    }
+  } catch { /* 不是 URL 时继续检查纯文本 */ }
+  const direct = text.match(/(?<![0-9])[0-9]{32,}(?![0-9])/)
   return direct?.[0] || ''
 }
 
