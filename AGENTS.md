@@ -4,12 +4,19 @@
 > 本文件是项目的长期记忆：记录**用户全局偏好**（所有项目通用）与**本项目状态**（进度/架构/踩坑）。
 > 接手顺序：本文件 → `git log --oneline`（最近提交）→ PRD 需求文档（农药追溯码管理平台 PRD 纯净版.md）。
 
-> 🧭 **当前状态指针（2026-09-22 更新）**：**新对话先读 `docs/handover/20-交接手册-新对话接续（ycdb分支与待部署清单）.md`**。
-> 三条要点，避免踩空：① **工作副本在 `ycdb` 分支，不是 `master`**（`ycdb` = master + 8 提交，主体是「外部二维码核验」，
-> **带 DDL**：新表 `external_verification` + `risk_alert` 补列补索引）；② **master 上挂着一笔未提交的活儿**（`git stash@{0}`
-> 里的 PROJECT_LOG 条目 + 未跟踪的 `docs/厂家后台使用说明/` 与 `scripts/generate-user-guide.mjs`，**`stash pop` 必须在 master 上做**）；
+> 🧭 **当前状态指针（2026-09-22 17:2x 更新）**：**新对话先读 `docs/handover/21-交接手册-新对话接续（ycdb分支·裸域名已修复·待部署清单）.md`**。
+> 四条要点，避免踩空：
+> ① **工作副本在 `ycdb` 分支，不是 `master`**（`ycdb` = master + **15** 提交，31 文件 / +2,599 −38；三件事：**外部二维码核验** +
+> **公众端扫码接入登记库比对**（新结果类型 `external-reg`）+ **异常场景扫码测试码脚本** `scripts/seed-abnormal-demo.mjs`；
+> **带 DDL**：新表 `external_verification` + `risk_alert` 补列补索引。**零依赖变化**——`package.json` / `package-lock.json` / `nuxt.config.ts` 与 master 无差异）；
+> ② **master 上挂着一笔未提交的活儿**（`git stash@{0}` 里的 PROJECT_LOG 条目 + 未跟踪的 `docs/厂家后台使用说明/`（30 项）
+> 与 `scripts/generate-user-guide.mjs`（13,507 字节），**`stash pop` 必须在 master 上做**）；
 > ③ **线上仍停在 09-19 那次构建的产物上**（实测 `/_nuxt/builds/latest.json` 时间戳 = `2026-09-19 18:08:56`）⇒
-> **生成上限 50 万那版（19 号执行单）尚未上线，线上仍是 1 万**；外部核验整条线也未合入 master、未部署。
+> **生成上限 50 万那版（19 号执行单）尚未上线，线上仍是 1 万**；`ycdb` 整条线也未合入 master、未部署；
+> ④ ✅ **裸域名 `https://nz315.cn` 已修复**（2026-09-22 17:2x 实测：**301 → www**、路径与 query 均保留、
+> **`rejectUnauthorized:true` 严格校验通过**。⇒ **20 号手册里那条 P0「裸域名 443 证书不匹配」可以划掉了**）。
+> ⚠️ **另有一条 P1 架构缺陷**：`scan_log.province` / `city` **全仓库只有读没有写**（`trace.get.ts` 的 INSERT 无这两列）
+> ⇒ 「重复查询」判据 `≥3 次且 ≥2 省` 在**真实扫码链路上永远触发不了**（线上一直如此）。详见 21 号 §2.4。
 
 > ✅ **更正（2026-09-21 复核）：下面这个「待部署」块已过时 —— 09-19 那次部署是完整跑完的，线上已是加固版 + 工具 v1.2.0。**
 > 证据（本机直连公网实测）：① `POST https://www.nz315.cn/api/auth/login` 带恶意前缀 Origin `https://www.nz315.cn.evil.com`
@@ -58,12 +65,16 @@
 > `https://www.nz315.cn/` **200**（标题「农资315 - 农药追溯查询」，不再是 cynx）· `/login` **200** ·
 > **`/scan` 200 ← 摄像头扫码页已在 HTTPS 安全上下文下可用** · `http://` **301** 且 `Location` 正确 ·
 > **`www.cynx.cn` 全程 online 未受影响**。→ **公众端摄像头（`getUserMedia`）的前置条件已满足。**
-> 🔴 **剩余待办**：① **裸域名 `https://nz315.cn` 证书不匹配**（`ERR_TLS_CERT_ALTNAME_INVALID`，
-> 它落到了 cynx 的 server 块）—— 证书 SAN 已含 `nz315.cn`，补一个 `server_name nz315.cn` 的 **443 跳转块**即可修
-> （**14 号文档原「阿里云免费证书是单域名、不能加裸域名块」的结论已被实测推翻**）；
-> ② 微信「网页授权域名」仍未配 —— `https://www.nz315.cn/MP_verify_OUOoNSqTrpZkfWli.txt` 实测 **404**，
-> nginx 里两处 location 已就位，只差把文件放到 `/www/server/nginx/html/`（14 号文档 §2.4）；
-> ③ 公安联网备案。**流程与判据见 `docs/handover/14-微信网页授权域名配置流程.md`。**
+> 🔴 **剩余待办（2026-09-22 17:2x 复核更新）**：
+> ① ~~**裸域名 `https://nz315.cn` 证书不匹配**~~ ✅ **已修复** —— 实测 `https://nz315.cn/` → **301 → `https://www.nz315.cn/`**，
+> `/login`、`/trace?code=…` 的**路径与 query 均保留**；`tls.connect(SNI='nz315.cn')` 严格校验（`rejectUnauthorized:true`）
+> **握手成功**，返回的正是 nz315 自己的 DigiCert 证书（`CN=www.nz315.cn`、`SAN` 含 `nz315.cn`）；
+> 对照 `SNI='www.cynx.cn'` 拿到的是 Let's Encrypt 证书 ⇒ **证明裸域名走的是 nz315 自己的 server 块，不再是 cynx 的**。
+> **这条 P0 可划掉。**
+> ② 微信「网页授权域名」**是否保存成功仍未确认** —— 校验文件 `MP_verify_OUOoNSqTrpZkfWli.txt` 已由 404 变
+> **200**（内容 `OUOoNSqTrpZkfWli`）⇒ 用户已把文件放到 `/www/server/nginx/html/`；**但微信后台那一步公网看不到，得问用户**。
+> ③ 公安联网备案未做（**时限约 2026-10-15**）。
+> **流程与判据见 `docs/handover/14-微信网页授权域名配置流程.md`（其中裸域名那节已完成）。**
 > 要点：服务器 `8.163.107.137` 是**宝塔生产机**，跑着正式站 `www.cynx.cn`（**绝对不许影响**）；
 > nz315 走独立端口 3100 / 独立库 / 独立 nginx 配置；独立 MySQL 8.0.43 已装好在 3307 端口。
 > ⚠️ 三条最容易踩的：① **改服务器 `.env` 后必须重新构建**（Nitro runtimeConfig 构建期内嵌，
