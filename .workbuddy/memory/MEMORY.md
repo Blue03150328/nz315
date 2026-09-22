@@ -129,16 +129,26 @@
 
 ## 交接文档
 
-- **最新交接手册：`docs/handover/20-交接手册-新对话接续（ycdb分支与待部署清单）.md`**（新对话先读它；20 号讲当前三条线与线上实测，16 号留着看机制与铁律，13 号看服务器细节）。
+- **最新交接手册：`docs/handover/21-交接手册-新对话接续（ycdb分支·裸域名已修复·待部署清单）.md`**（2026-09-22 17:2x 起，**新对话先读它**）。
+  20 号已被它取代（机制/铁律/踩坑仍有效，但「ycdb=+8」「裸域名待修」两条已被推翻）；16 号看机制，13 号看服务器细节。
+- **写交接手册的规矩（20 号立、21 号沿用）：先实测再写，别转抄旧文档。** 实测能直接掀翻旧结论——21 号就是这么发现
+  「裸域名已修好」和「ycdb 已从 +8 漂到 +15」两条的。
 
-## 分支与部署状态（2026-09-22 实测，易漂移，用前复核）
+## 分支与部署状态（2026-09-22 17:2x 实测，易漂移，用前复核）
 
-- **工作副本在 `ycdb`，不在 `master`**。`ycdb` = `master`(`ea7dc78`) + 8 提交（主体是「外部二维码核验」），**未合入 master、未推送**。
-- **`ycdb` 相对 master 带 DDL**：新表 `external_verification` + `risk_alert` 补列 `external_verification_id` 与索引。
+- **工作副本在 `ycdb`，不在 `master`**。`ycdb`(`c1e9e11`) = `master`(`ea7dc78`) + **15 提交 / 31 文件 / +2,599 −38**，**未合入 master、未推送**。
+  三件事：外部二维码核验 · **公众端扫码接入登记库比对**（`external-reg`）· **异常场景扫码测试码脚本**。
+- **`ycdb` 带 DDL、零依赖**：新表 `external_verification` + `risk_alert` 补列 `external_verification_id` 与索引 `idx_external_verification`；
+  **`package.json` / `package-lock.json` / `nuxt.config.ts` 与 master 实测零差异**。
   ⇒ 上线它**必须 `node scripts/db-init.mjs --migrate-only`**（`--migrate-only` 不可省）。
-- **线上构建产物 = 2026-09-19 18:08:56**（证据：`/_nuxt/builds/latest.json` 的 `timestamp`）。⇒ **生成上限 50 万那版（19 号执行单）尚未上线，线上仍是 1 万**。
-- **master 上挂着一笔未提交的活儿**（厂家后台使用说明）：`stash@{0}` 只含 PROJECT_LOG 条目；`docs/厂家后台使用说明/`（30 文件）与 `scripts/generate-user-guide.mjs`（13,507 字节）是未跟踪。
-  - ⚠️ **`git stash pop` 必须在 master 上做**；⚠️ `C:/shots/_master-uncommitted-backup-20260922` **是过时的中途快照**（11 文件 / 脚本 7,221 字节），**绝不能用它盖工作区**。
+- **线上构建产物 = 2026-09-19 18:08:56**（证据：`/_nuxt/builds/latest.json` 的 `timestamp` = `1789812536370`）。⇒ **生成上限 50 万那版尚未上线，线上仍是 1 万**。
+  待部署包：`E:\software\workbuddy\文件存放处\2026-09-21-1214-生成上限50万\nz315-master-68163bb.tar.gz`（**742,206 字节 / SHA256 `5d2135c6f73b11cf924def7607c109353f4a1ff4ad1be728f5ed15c4e9c65d46`**，不含 ycdb）。
+- ✅ **裸域名 `https://nz315.cn` 已修复**（2026-09-22 17:2x 实测）：**301 → `https://www.nz315.cn/`**，路径与 query 均保留；
+  `tls.connect(SNI='nz315.cn')` 在 `rejectUnauthorized:true` 下**握手成功**，拿到 nz315 自己的 DigiCert 证书
+  （对照 `SNI='www.cynx.cn'` 是 Let's Encrypt ⇒ 走的是 nz315 自己的 server 块）。**别再把它当待办。**
+- `MP_verify_OUOoNSqTrpZkfWli.txt` 公网 **200**（内容 `OUOoNSqTrpZkfWli`）⇒ 文件已放到位；**但微信后台「网页授权域名」是否保存成功，公网看不到，必须问用户**。
+- **master 上挂着一笔未提交的活儿**（厂家后台使用说明）：`stash@{0}` 只含 PROJECT_LOG 条目；`docs/厂家后台使用说明/`（30 项）与 `scripts/generate-user-guide.mjs`（13,507 字节）是未跟踪。
+  - ⚠️ **`git stash pop` 必须在 master 上做**；⚠️ `C:/shots/_master-uncommitted-backup-20260922` **是过时的中途快照**（11 项 / 脚本 7,221 字节），**绝不能用它盖工作区**。
 - **判断线上状态优先公网实测**，别信文档里的"应该"：`/_nuxt/builds/latest.json` 的时间戳能直接判定"最后一次 build 是什么时候"。
 
 
