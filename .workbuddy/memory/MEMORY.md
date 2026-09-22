@@ -1,154 +1,75 @@
 # 项目长期记忆 — 农资315 追溯码管理平台
 
-> 只记录跨会话仍需遵守的项目约定。进度与过程写在 `2026-MM-DD.md` 日志里，不重复。
+> 只留跨会话必须遵守的约定；细节/证据/进度看 `docs/handover/21-交接手册-*.md` 与当日 `.workbuddy/memory/YYYY-MM-DD.md`。
 
-## 数据口径约定
+## 数据口径
+- 库里演示/测试数据**数值不可信**，别拿测试数据之间的矛盾当缺陷结论；能据代码下结论的只有「机制」（代码事实）；合规判断必须上真实数据。
+- 脏值举例（防误判）：`product_original.ingredient` 3/5 为 NULL 且 2 行与字典表不符；两租户电话相同；`enterprise.address/website` 全 NULL。
 
-- **库里的演示/测试数据仅供功能验证，数值本身不可信**（用户 2026-09-12 明确："这部分数据只供测试用，数据填写可能不准确"）。
-  - **不要把测试数据之间的数值矛盾当成缺陷结论。** 典型踩坑：2026-09-12 发现码级生产日期 `2026-09-10` 与批次级 `2026-08-20` 差 21 天，一度当作"与标签不一致"的合规风险提出——实际只是测试数据填得随意。
-  - 可以据代码下结论的：**机制本身**（例如"码级字段优先于批次级"，来自 `server/api/trace.get.ts` 的 COALESCE 逻辑）——这是代码事实，与数据准不准无关。
-  - 涉及"数据是否合规"的判断，必须在真实业务数据上做，测试库得出的只能叫"可能性"，不能说成结论。
-- 演示数据里的脏值举例（避免误判）：`product_original.ingredient` 5 行中 3 行为 NULL，另 2 行与字典表对不上（`PD20096830` 写"盐酸吗啉胍"，字典里该证是"乙酸铜"）；`enterprise` 两个租户电话同为 `0531-88888888`；`enterprise.address` / `website` 全 NULL。
+## 合规（农业农村部公告第1049号）
+- 扫码结果页必显六项：农药名称、登记证持有人、生产日期（须与标签一致）、生产批次、原药登记证号、原药生产企业。接口本就全返回，只差展示；其他字段可空。
+- `status=1`（已生成）的码 `batch_id` 为空 ⇒ 日期/批次无从展示，是业务链路问题、非展示缺陷。
 
-## 合规口径（农业农村部公告第1049号）
+## 32 位单元识别码（唯一实现 `shared/utils/unit-code.ts`）
+- 结构：第1位类别(1=PD/2=WP)·第2-7位登记证后六位·第8位生产类型。三处共用（后台核验/公众端兜底/两个前端结果页），**别再自己 slice**。码提取唯一来源 `shared/utils/trace-code.ts`。
+- 公众端 `/api/trace` 未命中本平台时走登记库兜底：命中⇒`external-reg`（`TraceExternal.vue`）；再未命中⇒`not-found`（`TraceNotFound.vue` 多出结构解析卡）。**只读：不写 `scan_log`、不触发预警**。
+- 比对**必须先按类别过滤**（第1位=1→PD/PDN/LS/EX；=2→WP/WPN/WL），否则别的类别撞后六位会给出错误候选。未命中原因文案按 `structureOk` 分流（「结构非法」≠「结构合规但无此证」）。
+- 性能：`RIGHT(registration_no,6)=?` 走不了索引（全扫 95,386 行 / 26-32ms），靠 `registry-lookup.ts` 进程内 LRU（500条/10分钟）兜；加生成列+索引可提速（DDL，未做）。
+- 合规边界：登记命中**≠正品**；日期/批次本平台给不了（指向瓶身标签）；**不抓外部平台页面**。
+- 🔴 `scan_log.province`/`city` **只有读没有写**（`trace.get.ts` 的 INSERT 无这两列）⇒「重复查询」(≥3次且≥2省) 在真实链路**永远触发不了**，线上一直如此。看到"重复查询验不出"先想这条。根治=IP 解析或前端上送位置。
+- 微信扫码有数据 = 直接打开了该码所属平台的 H5 —— **架构事实，不是缺陷**。
 
-- 扫码结果页**必显六项**：农药名称、登记证持有人名称、生产日期（须与标签一致）、生产批次、原药（母药）登记证号、原药生产企业名称。
-  - 2026-09-12 确认：**这六项接口原本就已全部返回**，只需改前端展示；用户明确"其他字段可为空"、"厂商信息栏非必要可去掉"。
-- 六项中「生产日期 / 生产批次」依赖码状态：`status=1`（已生成）的码 `batch_id` 为空，接口返回 `batch: null`，页面无从展示。这是业务链路问题，不是展示缺陷。
+## 异常场景扫码测试
+- `node scripts/seed-abnormal-demo.mjs --verify` 造 9 张真能扫的码 + 数据 + 总览页，覆盖 `/trace` 全分支（正常/重复(跨3省)/过期/冻结/作废/证过期/查无此码/结构非法/外部平台码）。产物 `qr-test/`（`manifest.json` 机器可读）；`--clean` 只清本脚本数据；须 dev 在 3100。
+- **硬安全闸：`DB_HOST` 非 127.0.0.1/localhost/::1 直接 exit(2)**，别放宽。演示数据带 `【测试】` 前缀 + 独立企业（本机 `enterprise_id=5`），upsert 幂等。
+- 改结果页后**两层都要验**：接口 `resultType` + SSR 文案断言（只验接口漏白屏，只验页面漏"渲染了错组件"）；第三层 zxing 反解 PNG。
+- 🔴 **32 位码绝不手抄**，一律取 `qr-test/manifest.json`（手抄错一位白查半小时；别拿 HTML 字节数当页面指纹，不同页面可能恰好等长）。
+- raw `mysql2` `conn.query()` 返回 `[rows,fields]`，项目封装 `db.ts query()` 返回行数组本身 —— 混用后 `if(row)` 对空数组为真，会静默走错分支。**临时脚本统一收口 `firstRow()`**（本项目已踩三次）。
 
-## 公众端扫码与登记库比对（2026-09-22 起）
+## 🔴 数据库与部署硬约定
+- 真实库补列补索引一律 `node scripts/db-init.mjs --migrate-only`，**`--migrate-only` 不可省**（裸跑会 `seed()`：插演示企业/4 条码/产品批次/`admin123` 账号）。三明治留证：`verify-db-migration.mjs dump` → 迁移 → `compare`（期望 PASS）。
+- 服务器：① 绝不 `pm2 kill`/`delete all`（与 `www.cynx.cn` 共用 daemon，只能 `pm2 reload nz315`）② `nz315.conf` 绝不写 `listen 443 ssl default_server` ③ 绝不把本机构建的 `.output` 传上去 ④ 改 `.env` 必须重新 build（runtimeConfig 构建期内嵌）⑤ 顺序固定：补列→构建→reload ⑥ 静态资源清单构建期固化（工具包须在 build 前放进 `public/tools/`）。
+- 三段 token（09-19 起）：旧两段被主动拒绝 ⇒ 每次部署后所有在线用户需重登（预期非故障）；**改他人凭证的写操作（改密/改角色/禁用）要顺带 `revokeUserSessions`**。
+- Origin 校验**别退回 `startsWith`**（`host.evil.com` 可绕）；**无 Origin 的请求要放行**（API 客户端依赖）。
 
-- **32 位单元识别码的结构规则只有一份实现**：`shared/utils/unit-code.ts`（`parseUnitCode` 第 1 位=类别 1=PD/2=WP · 第 2-7 位=登记证号后 6 位 · 第 8 位=生产类型 1/2/3；
-  另 `isUnitCodeStructureValid` + 两段展示文案）。被**三处**共用：后台外部核验 / 公众端登记库兜底 / 两个前端结果页。
-  **不要再在别处自己 slice 一遍**——本项目前后端规则漂移已经踩过一次（`shared/utils/trace-code.ts` 是同一课的另一半）。
-- **公众端 `/api/trace` 未命中本平台 `trace_code` 时走登记库兜底比对**：命中 ⇒ `resultType='external-reg'`（前端 `TraceExternal.vue`）；
-  未命中 ⇒ 仍 `not-found`（`TraceNotFound.vue` 会多出「前 8 位结构解析」卡）。
-  **该分支只读：不写 `scan_log`、不触发风险预警**（不是本平台的码，不污染本平台统计与预警）。
-- **登记库比对必须先按类别过滤**（`regCategoryOf`：第 1 位=1 只认 PD/PDN/LS/EX，=2 只认 WP/WPN/WL）。
-  否则**别的类别撞「登记证后六位」会给出错误候选**。未命中的原因文案要按 `structureOk` 分流——
-  「结构非法」与「结构合规但登记库没这个证」是两回事（2026-09-22 把前者错写成后者，实测踩到）。
-- **性能事实**：`RIGHT(registration_no, 6) = ?` **走不了索引**（`EXPLAIN` = 覆盖索引全扫 95,386 行），本机 **26-32 ms/次**。
-  公众端是唯一会被陌生人高频打的路径 ⇒ 靠 `registry-lookup.ts` 的进程内 LRU 缓存（500 条/10 分钟）兜。
-  要更快可加**生成列 `reg_last6` + 索引**（属 DDL，需 `--migrate-only`，**尚未做**）。
-- **公众端文案的合规边界（不能越界）**：① 登记资料命中 **≠ 产品是正品**（登记证号是公开信息，仿冒品照样能印真实证号）；
-  ② **生产日期 / 生产批次本平台给不了**（只在包装标签实物与该码所属平台，页面明确指向瓶身标签）；
-  ③ 公众端**不抓外部平台页面**（延迟/封禁/SSRF 面都要另评估，用户未要求前不要做）。
-- **为什么微信扫码有数据、我们没有**：微信会**直接打开该码所属平台的 H5**（数据来自人家的库）；我们只认自己 `trace_code` 里的码。
-  这是**架构事实不是缺陷**——别把它当 bug 去"修"。第三方码的破局点是「前 8 位 → 国家农药登记资料库」。
-- 🔴 **`scan_log.province` / `city` 全仓库只有读、没有写**（2026-09-22 查实）：`trace.get.ts` 的 INSERT **根本没有这两列**
-  （前端 `useQrScanner` 不上送位置、服务端不解析 IP）⇒ **两列恒为空串**。
-  而「重复查询」判据是 `queryCount >= 3 && COUNT(DISTINCT province) >= 2` ⇒ **真实扫码永远触发不了该分支**（线上一直如此）。
-  **看到「重复查询验不出来」先想这条，别去怀疑判定逻辑。** 根治 = 从 IP 解析（或前端上送位置）补齐这两列；补之前
-  只能用预置跨省 `scan_log` 造场景（见下节脚本）。
+## 角色收口
+- 写接口 `requireWritableUser`（非 viewer）；用户管理/企业信息仅 platform_admin / enterprise_admin；总部专属 `requirePlatformAdmin`；`requireBackendUser` 只给 GET。
+- 前端新增写入口 = 两个动作：接口 `requireWritableUser` + 按钮 `v-if="canWrite"`。**别散落写 `role==='viewer'`**。
+- 验收：viewer 页面不应存在任何可点写操作 ——「后端 403」与「看不到按钮」必须分开验（后者只能真浏览器或 SSR 提取可见元素）。
+- `app/layouts/admin.vue` 的 `writeOnly: true` ⇒ viewer 侧栏看不到「外部二维码核验」（应为 9 项）。
 
-## 异常场景扫码测试（2026-09-22 起）
+## 接口形状与登录（2026-09-22 实测，断言前先看这条）
+- `GET /api/admin/external-verifications` 返回 **`{total,page,pageSize,rows}`**（**不是裸数组**）——按 `Array/.list/.items` 解析会误报"列表 0 条"。
+- 🔴 `POST /api/auth/login` 响应 **`{"ok":true,"user":null}`**，`user` **恒为 null**：`setAuthCookie` 写的是**响应** cookie，紧接着 `getCurrentUser(event)` 读**请求** header ⇒ 必然读不到。用户态只能从 `GET /api/auth/me` 取；前端 `useUser.loginWithPassword` 靠 `await refresh()` 补回，**仅 refresh 失败时的兜底回填会拿到 null**（该兜底形同虚设）。
+- **断言页面文案前，去组件源码取真实字符串**（示例：是「登记证**号**后六位」，不是「登记证后六位」）；**断言响应前先 `Object.keys` 打印结构**。断言口径写错会伪装成"被测对象出错"。
 
-- **`node scripts/seed-abnormal-demo.mjs --verify`** 一键造 **9 张真能扫的二维码 + 测试数据 + 总览页**，覆盖公众端 `/trace` 全部分支
-  （正常 / 重复查询(跨3省) / 产品过期 / 冻结 / 作废 / 登记证过期 / 查无此码 / 结构非法 / 外部平台码）。
-  产物在 `qr-test/`（`index.html` 手机对屏扫 · `manifest.json` 机器可读）；`--clean` 只删本脚本造的演示数据。须 dev 服务在 3100。
-- **硬安全闸：`DB_HOST` 非 `127.0.0.1/localhost/::1` 直接 `exit(2)`。** 本脚本定位就是"本机开发库专用"，别放宽。
-  演示数据统一带 **`【测试】`** 前缀 + 独立企业（本机库 `enterprise_id=5`），全部 upsert、幂等可重跑。
-- **改任何前端结果页后，除了接口回归还要做「SSR 文案断言」**：脚本的 `PAGE_MARKERS` 表就是范例——只验接口
-  `resultType` 会漏白屏，只验页面会漏"渲染了错的组件"，**两层都要**（第三层是 zxing 反解 PNG，保证图真能扫）。
-- 🔴 **32 位码绝不手抄**：一律从 `qr-test/manifest.json` 取。2026-09-22 手抄错一位（`990002`→`990001`），
-  症状是页面变"未查询到"，又因**两个 `TraceNotFound` 页面恰好等长 30036B**、恰好排在第 6 个请求位置，
-  现象酷似"服务端结果随请求顺序翻转"，白查了半小时。
-- **临时脚本连库（`mysql2/promise` 的 `conn.query()`）解构必错的口径**：raw `conn.query()` 返回 `[rows, fields]`，
-  而项目封装 `server/utils/db.ts query()` 返回**行数组本身**。混用后 `const [row] = await conn.query(...)` 拿到数组、
-  `row.id` 恒 `undefined`，**而 `if (row)` 对空数组为真** ⇒ 静默走错分支、报错点漂到几十行外。写脚本**统一收口到 `firstRow()`**。
-  （本项目第三次同类踩坑，前两次在业务代码里。）
+## 外部二维码核验（ycdb）
+- 拿别人的码 → 用国家登记库 `pesticide_reg`(97,471) 当基准，只判前 8 位。**码提取是硬前置**：需从「码值/来源链接/粘贴正文」提取到 ≥32 位连续数字，否则 400；只粘贴正文但正文不含码也是 400。
+- 判定天花板：后六位不唯一（同类别 15.8% 多候选，最多 4 个）⇒ 未给完整证号时产品名/持有人/证号三项 `insufficient`；8,914 条老证号（`PD91109-10` 形态）永不命中。
+- 字段提取：能过制表符/双空格/冒号内联/JS 引号键值/标签独占行+下行/别名；**不过单空格分隔**；「见瓶身喷码」会溜过占位词闸门被当生产日期。
+- ⚠️ `normalizeProductName` 只剥 `\d+%` ⇒ 真实平台把剂型+序号写进产品名会被判 mismatch，并**落 `risk_alert`(alert_type=5)**。
+- ⚠️ `external-verification.ts` 的 `PRIVATE_HOST` 正则末尾 `$` ⇒ 点分内网 IPv4（含 127.0.0.1）全放行，**SSRF 防护实际失效**。`NOISE_LABELS` 是死代码。
 
-## 🔴 数据库与部署硬约定（违反即事故）
+## 数量上限（`shared/utils/code-limits.ts`）
+- 上限一律从该文件取（`MAX_CODES_PER_BATCH`/`MAX_CODES_PER_WRITE`=**50万**，`LARGE_BATCH_CONFIRM_THRESHOLD`=20万），**别在页面/接口就地写数字**。
+- 四条硬边界：响应体积（50 万 `allCodes` 实测 19MB）/ nginx `proxy_read_timeout 120s` / MySQL 占位符上限 65535（`CHUNK=5000×11列=55000`，**只能减不能加**）/ 浏览器内存（+59MB）。引擎耗时 1.5s 非瓶颈。
+- ⚠️ 别在 dev 反复跑满 50 万（曾 OOM exit 134）。线上 PM2 `max_memory_restart` 仅 800M ⇒ **线上验收只跑 5 万**；要常态化 20 万+ 需调到 1200-1500M，而该字段 `pm2 reload` 不重读（需专门窗口，别顺手做）。
 
-- **真实库/生产库补列补索引一律用 `node scripts/db-init.mjs --migrate-only`**，**`--migrate-only` 不可省**。
-  裸跑 `db-init.mjs` 会执行 `seed()`：插入演示企业「山东绿丰生物科技有限公司」（按名字查存在才插，名字对不上就新建）、
-  4 条演示追溯码（含冻结/作废，进 `trace_code` 核心表）、演示产品/批次、以及 `admin123` 演示账号。
-  **本机库 enterprise id=2 与 4 条 `1230101*` 码就是 seed 产物（活证据）。** 2026-09-19 补出该参数并实测零写入。
-- **服务器三条铁律**：① 绝不 `pm2 kill` / `pm2 delete all`（与正式站 `www.cynx.cn` **共用 PM2 daemon**，只能 `pm2 reload nz315`）；
-  ② `nz315.conf` 绝不写 `listen 443 ssl default_server`（会抢走 cynx 的 443）；③ **绝不把本机构建的 `.output` 传上服务器**
-  （Nitro `runtimeConfig` 构建期内嵌，本机 DB 连接信息会进产物）。
-- **改服务器 `.env` 后必须重新构建**（runtimeConfig 构建期内嵌，改 `.env` 不 rebuild 运行期不生效）。
-- 部署服务器一律：**补列 → 构建 → `pm2 reload`**（顺序有因果，别换）。
-- ⚠️ **三段 token（2026-09-19 起）**：旧两段格式被主动拒绝 → **每次部署后所有在线用户需重登一次**（预期，非故障）；
-  回滚**不会**造成二次重登。**任何"改他人凭证"的写操作（改密/改角色/禁用）都要顺带 `revokeUserSessions`。**
-- **改 Origin 校验别退回 `startsWith` 前缀比较**（`https://host.evil.com` 可绕过）；**无 Origin 的请求要放行**（API 客户端依赖），别当漏洞"修"掉。
+## 验证手法
+- 改页面 `setup()` 先跑 **SSR 直出探针**：带 cookie `fetch http://127.0.0.1:3100/<页面>`，500 页面的 `<script>` payload 里内嵌 ReferenceError 堆栈（含文件名行号）。
+- 真浏览器验证**必须同一浏览器实例内跑完**（会话 cookie 不跨实例）；`ui-shot.js` 固定「先 `--click` 后 `--js`」，需先设值再点击时把点击也写进 `--js-file`；`--js-file` 用正斜杠绝对路径。
+- 无摄像头环境验扫码回调：从 DOM 向上遍历 `__vueParentComponent` 取页面组件（dev 下 `setupState` 可达）直接调方法断言。
 
-## 角色与前端收口约定
+## 本机环境
+- 无系统 Node（用托管路径 `C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2-3\node.exe`）；dev 端口 **3100**（3000 被"农码查"残留占用）。计划任务 `NZ315 Dev Server` 查无，当前是后台进程，重启即失。判服务是否最新代码：带恶意前缀 Origin 登录 → 新版 403。
+- 账号 `admin`/`lvfeng`/`codeop`/`viewer`（只读），密码统一 `admin123`。
+- 沙箱：`rm`/`tail`/`head`/`grep`/`find`/`wc` 多不可用 → 删文件用 node `fs`，长输出落盘再 Read；`schtasks`/`sc.exe` 被策略拉黑。
+- 本机 git 写不了嵌套引用（分支名用平铺名，如 `ycdb`）；checkout/merge 后可能只落地差异文件（`git status` 报一堆 ` D`）—— 文件没丢，`git reset --hard HEAD` 全铺回。
 
-- 角色白名单：写接口用 `requireWritableUser`（非 viewer）；用户管理与企业信息编辑仅 `platform_admin` / `enterprise_admin`；
-  总部专属用 `requirePlatformAdmin`。`requireBackendUser` **只留给 GET 读接口**。
-- 前端新增写入口 = **两个动作**：① 接口用 `requireWritableUser`；② 按钮加 `v-if="canWrite"`（用户管理/企业信息用 `canManageUsers`）。
-  **别散落写 `role === 'viewer'`**（会与后端白名单漂移）。
-- 验收口径：**viewer 登录后页面不应存在任何可点的写操作**——"后端返回 403"与"用户看不到按钮"是两件事，必须分开验
-  （前者靠接口回归，后者**只能靠真浏览器截图或 SSR 提取可见元素**）。
-
-## 外部二维码核验（ycdb）机制与边界（2026-09-22 全量实测）
-
-- 定位：**拿别人的码 → 用国家登记库 `pesticide_reg`(97,471 条) 当基准核验**。只判前 8 位（第1位类别 1=PD/2=WP、第2-7位登记证后六位、第8位生产类型 1/2/3），第9位起只留证不判定。
-- **码提取是硬前置**：必须从「码值 / 来源链接 / 粘贴正文」任一处提取到 **≥32 位连续数字**，否则 400「未识别到至少32位数字单元识别代码」。
-  ⇒ **只粘贴正文但正文里不含码 = 400**（20 号手册 §2.5「只粘贴正文也能核验」有前提：正文恰好含码）。
-- **判定天花板 = 后六位不唯一**：仅算「后六位全数字 + 同类别」，75,479 组中 **11,921 组（15.8%）有多候选**（最多 4 个）；另有 **8,914 条老证号**（`PD91109-10` 形态）后六位含非数字 ⇒ 编码规则无法表达、永不命中。来源未给完整登记证号时，多候选 ⇒ `matchedRegistration` 为空 ⇒ 产品名/持有人/登记证号三项 `insufficient`。
-- ⚠️ **产品名比对会对真实平台误报**：`normalizeProductName` 只剥 `\d+%`；真实平台把剂型+序号写进产品名（实测 wla1 的 `15%精草铵膦可溶液剂-2` vs 登记库 `精草铵膦`）⇒ mismatch ⇒ **写进 `risk_alert`（alert_type=5）**。改这处逻辑前先明白「mismatch 会落风险预警」。
-- ⚠️ `server/utils/external-verification.ts` 的 `PRIVATE_HOST` 正则**末尾 `$` 导致点分 IPv4 全部放行**（实测 127.0.0.1 / 10.0.0.5 / 192.168.1.1 / 172.16.0.1 / 169.254.169.254 全拦不住，只有 `127.` 这种字面串被拦）⇒ SSRF 防护实际失效。
-- ⚠️ `NOISE_LABELS` 是**死代码**（全项目只有定义处，从未被引用）——20 号手册 §2.3 称其为「配套三件套」之一属虚报，别照它理解现状。
-- 字段提取实测：**能过** 制表符表格 / 双空格 / 冒号内联 / JS 带引号键值对 / 标签独占行+下行 / 别名（批号·保质期）；**不过** 单空格分隔（`农药名称 硝钠·萘乙酸` → 三项字段全空）；占位词闸门只拦单一词，**「见瓶身喷码」溜过**被当成生产日期。（warnings 的误导文案已在 `6b942bd` 修掉：已粘贴内容时不再提示"请复制页面内容"）
-- **码提取规则唯一来源 = `shared/utils/trace-code.ts`**（2026-09-22 `6b942bd` 起）：`extractTraceCode` / `isTraceCode` / `isHttpUrl`，前后端共用。**改码提取规则只改这一个文件**，别再在页面或接口里就地写正则 —— 此前前端 `traceCodeOf` 与后端 `extractExternalCode` 各一套，漂移的直接后果是「扫到别人平台的裸码时页面毫无反应」（外部核验页只注册了 `onRawResult`）。
-
-## 验证手法（2026-09-22 归档，本项目通用）
-
-- ① **改页面 `setup()` 后先跑「SSR 直出探针」**：带 cookie 直接 `fetch http://127.0.0.1:3100/<页面>`（`accept: text/html`），**500 页面的 `<script>` payload 里内嵌 setup 的 ReferenceError 堆栈**（含文件名行号），几秒定位。真浏览器侧只会表现为「路由变了但页面没切换、无错误遮罩」，极易误判成 dev 冷编译慢。
-- ② **真浏览器验证必须在一个浏览器实例内跑完**：会话 cookie 不跨实例，`--user-data-dir` 也救不了（ui-shot 脚本 taskkill 强杀进程，cookie 不落盘）；且 `ui-shot.js` 固定「先 `--click` 后 `--js`」，需要「先设值再点击」时把点击也写进 `--js-file`。
-- ③ **无摄像头环境验证扫码回调**：从 DOM 向上遍历 `__vueParentComponent` 拿到页面组件（dev 下 `setupState` 可达），直接调其方法断言 —— 绕过 `getUserMedia` 的唯一可行路径。登录页可用 `setupState.doLogin()` 驱动真实登录，不必伪造 cookie。
-
-## 数量上限约定（2026-09-21 起）
-
-- **追溯码的生成/写入上限一律从 `shared/utils/code-limits.ts` 取**（`MAX_CODES_PER_BATCH` / `MAX_CODES_PER_WRITE` = **50 万**、
-  `LARGE_BATCH_CONFIRM_THRESHOLD` = **20 万**、派生的错误与提示文案、`estimateCodesSizeMb` / `estimateGenerateMs`）。
-  **不要在页面或接口里就地写数字**——2026-09-21 之前同一个 `10000` 散在 5 处、`单次最多 10 万条码` 散在 3 处，改一处必漏，
-  表现为「前端放开、后端 400」或「生成完入不了库」。
-- 改上限前先看该文件顶部写明的四条硬边界：**响应体积**（50 万条 `allCodes` 全量回传**接口实测 19 MB**，urls.txt 31 MB、CSV 约 80 MB）、
-  **nginx `proxy_read_timeout 120s`**、**MySQL 占位符上限 65535**（`CHUNK=5000 × 11 列 = 55000` 已贴顶，**只能减不能加**）、
-  **浏览器内存**（50 万条堆增量约 +59 MB）。**引擎耗时 1.5s，不是瓶颈。**
-- 前端大数量（>20 万）必须保留二次确认弹窗；**离线工具不是瓶颈**（支持多文件合并，其 1000 万上限仅作用于「离线应急生成」模式）。
-- ⚠️ **别在 dev 里反复跑满 50 万**：2026-09-21 本机 dev 因反复大数量生成**撞 4.1GB 堆上限 OOM 崩掉**（exit 134，已连跑 5h48m）。
-  一次生成同时持有「码数组 + 去重 Set（`generate.post.ts` 全表 `SELECT code`）+ 约 19MB JSON」，**瞬时数百 MB 且回收不干净**。
-  **线上 PM2 `max_memory_restart` 只有 800M** → **线上验收只跑 5 万条**（实测 0.15s）；要常态化跑 20 万+ 需调到 1200–1500M，
-  但该字段 **`pm2 reload` 不重读，必须 `pm2 delete nz315` + 重新 start**（与「只许 reload」铁律冲突 → 需专门窗口，别顺手做）。
-
-## 本机环境（易反复踩到，详见 ~/.workbuddy/USER.md）
-
-- 无系统级 Node.js，托管在 `C:\Users\Administrator\.workbuddy\binaries\node\versions\22.22.2-3\node.exe`，不在 PATH。
-- dev 服务端口 **3100**（3000 被农码查残留占用，勿用）。**计划任务 `NZ315 Dev Server` 自 2026-09-19 起查无**
-  （`Get-ScheduledTask` 返回空），当前服务是**后台进程**（`node scripts/dev-start.mjs`），**重启机器/注销即失**。
-  判断服务是否是最新代码：打 `POST /api/auth/login` 带恶意前缀 Origin → 新版应 **403**。
-- 演示账号：`admin` / `lvfeng` / `codeop` / **`viewer`**，密码统一 `admin123`（viewer 为 2026-09-19 新增的只读验收账号，用户要求保留）。
-- 临时诊断脚本沿用 `scripts/_tmp-*`（已 gitignore），**用完即删**；只读查询用 mysql2 读 `.env` 取连接信息。
-- **沙箱命令限制（本机高频踩）**：`rm` 被安全 shim 拦死（exit 127）→ **删文件一律用 node** `fs.unlinkSync` / `fs.rmSync`；
-  `tail`/`head`/`wc`/`sleep`/`find` 等 coreutils 多数不可用 → **长命令输出用 `> 日志 2>&1` 落盘再 Read**；
-  `schtasks`/`sc.exe` 被策略拉黑（不可重试）。
-
-## 交接文档
-
-- **最新交接手册：`docs/handover/21-交接手册-新对话接续（ycdb分支·裸域名已修复·待部署清单）.md`**（2026-09-22 17:2x 起，**新对话先读它**）。
-  20 号已被它取代（机制/铁律/踩坑仍有效，但「ycdb=+8」「裸域名待修」两条已被推翻）；16 号看机制，13 号看服务器细节。
-- **写交接手册的规矩（20 号立、21 号沿用）：先实测再写，别转抄旧文档。** 实测能直接掀翻旧结论——21 号就是这么发现
-  「裸域名已修好」和「ycdb 已从 +8 漂到 +15」两条的。
-
-## 分支与部署状态（2026-09-22 17:2x 实测，易漂移，用前复核）
-
-- **工作副本在 `ycdb`，不在 `master`**。`ycdb`(`c1e9e11`) = `master`(`ea7dc78`) + **15 提交 / 31 文件 / +2,599 −38**，**未合入 master、未推送**。
-  三件事：外部二维码核验 · **公众端扫码接入登记库比对**（`external-reg`）· **异常场景扫码测试码脚本**。
-- **`ycdb` 带 DDL、零依赖**：新表 `external_verification` + `risk_alert` 补列 `external_verification_id` 与索引 `idx_external_verification`；
-  **`package.json` / `package-lock.json` / `nuxt.config.ts` 与 master 实测零差异**。
-  ⇒ 上线它**必须 `node scripts/db-init.mjs --migrate-only`**（`--migrate-only` 不可省）。
-- **线上构建产物 = 2026-09-19 18:08:56**（证据：`/_nuxt/builds/latest.json` 的 `timestamp` = `1789812536370`）。⇒ **生成上限 50 万那版尚未上线，线上仍是 1 万**。
-  待部署包：`E:\software\workbuddy\文件存放处\2026-09-21-1214-生成上限50万\nz315-master-68163bb.tar.gz`（**742,206 字节 / SHA256 `5d2135c6f73b11cf924def7607c109353f4a1ff4ad1be728f5ed15c4e9c65d46`**，不含 ycdb）。
-- ✅ **裸域名 `https://nz315.cn` 已修复**（2026-09-22 17:2x 实测）：**301 → `https://www.nz315.cn/`**，路径与 query 均保留；
-  `tls.connect(SNI='nz315.cn')` 在 `rejectUnauthorized:true` 下**握手成功**，拿到 nz315 自己的 DigiCert 证书
-  （对照 `SNI='www.cynx.cn'` 是 Let's Encrypt ⇒ 走的是 nz315 自己的 server 块）。**别再把它当待办。**
-- `MP_verify_OUOoNSqTrpZkfWli.txt` 公网 **200**（内容 `OUOoNSqTrpZkfWli`）⇒ 文件已放到位；**但微信后台「网页授权域名」是否保存成功，公网看不到，必须问用户**。
-- **master 上挂着一笔未提交的活儿**（厂家后台使用说明）：`stash@{0}` 只含 PROJECT_LOG 条目；`docs/厂家后台使用说明/`（30 项）与 `scripts/generate-user-guide.mjs`（13,507 字节）是未跟踪。
-  - ⚠️ **`git stash pop` 必须在 master 上做**；⚠️ `C:/shots/_master-uncommitted-backup-20260922` **是过时的中途快照**（11 项 / 脚本 7,221 字节），**绝不能用它盖工作区**。
-- **判断线上状态优先公网实测**，别信文档里的"应该"：`/_nuxt/builds/latest.json` 的时间戳能直接判定"最后一次 build 是什么时候"。
-
-
+## 分支与部署状态（易漂移，用前复核）
+- 工作副本在 **`ycdb`**（= master + 15 提交 / 31 文件 / +2,599 −38），未合入 master、未推送；**带 DDL**（新表 `external_verification` + `risk_alert` 补列补索引），**依赖零变化**（package.json/lock/nuxt.config 与 master 零差异）⇒ 上线必须 `--migrate-only`。
+- 线上构建产物 = **2026-09-19 18:08:56**（`/_nuxt/builds/latest.json` 的 `timestamp`=`1789812536370`）⇒ **50 万上限未上线，线上仍是 1 万**。待部署包：`E:\software\workbuddy\文件存放处\2026-09-21-1214-生成上限50万\nz315-master-68163bb.tar.gz`（742,206 字节 / SHA256 `5d2135c6f73b11cf924def7607c109353f4a1ff4ad1be728f5ed15c4e9c65d46`，**不含 ycdb**）。
+- ✅ **裸域名 `https://nz315.cn` 已修复**（301→www，路径/query 保留，`rejectUnauthorized:true` 严格校验通过）。**别再当待办。**
+- `MP_verify_OUOoNSqTrpZkfWli.txt` 公网 200，但微信后台「网页授权域名」是否保存成功**必须问用户**。
+- master 上挂着未提交的「厂家后台使用说明」：`stash@{0}` 只含 PROJECT_LOG 条目（**`stash pop` 必须在 master 上做**），`docs/厂家后台使用说明/`(30 项) + `scripts/generate-user-guide.mjs`(13,507 字节) 未跟踪；备份目录 `C:/shots/_master-uncommitted-backup-20260922` **已过时，别拿它盖工作区**。
+- **判断线上状态优先公网实测**，别信文档里的"应该"。
