@@ -1,6 +1,8 @@
 // 扫码查询接口（H5）：/trace?code=xxx —— 真实查询链路（PRD 5.9）
 // 流程：格式校验 → 查 trace_code → 写扫码日志(scan_log) → 异常判定（作废/冻结优先）→ 联查产品/批次 → 返回展示数据
 import { query, execute } from '../utils/db'
+import { clientIpOf } from '../utils/audit'
+import { backfillScanGeo, peekIpGeo } from '../utils/ip-geo'
 import { triggerAlert } from '../utils/risk-alert'
 import { getCurrentConsumer } from '../utils/consumer-auth'
 import { lookupRegistryByCode } from '../utils/registry-lookup'
@@ -89,11 +91,21 @@ export default defineEventHandler(async (event) => {
 
   // 3) 写扫码日志（扫码不改变码状态，仅记录；PRD 5.9 H5 业务规则2）
   // 已登录消费者的扫码归属到本人，支撑个人中心「我的查询记录」；未登录时 consumer_id 为空，不影响任何原有逻辑
-  const ip = (String(getHeader(event, 'x-forwarded-for') || getHeader(event, 'x-real-ip') || '').split(',')[0] || '').trim()
+  // IP 统一走 clientIpOf（优先 x-real-ip）—— 不能再用 x-forwarded-for 取第一个值：
+  // nginx 的 $proxy_add_x_forwarded_for 会把**客户端自带**的该头拼在真实 IP 前面，
+  // 取 split(',')[0] 等于采信客户端自报的归属地，能把「重复查询」的省份刷成任意值。
+  const ip = clientIpOf(event)
   const consumer = await getCurrentConsumer(event).catch(() => null)
-  await execute(
-    'INSERT INTO scan_log (enterprise_id, code, product_id, scan_time, scan_device, scan_subject, ip_location, consumer_id) VALUES (?,?,?,NOW(),?,1,?,?)',
-    [tc.enterprise_id, code, tc.product_id, detectDevice(event), ip || null, consumer?.id ?? null])
+  // 省 / 市：当场写入只取「已缓存」的结果（零外部调用）；首见的新 IP 留空，交给后台异步补齐。
+  // 2026-09-22 修 23 号缺陷清单 P1-1：此前这两列全仓库只有读、没有写 ⇒「重复查询」
+  // (queryCount>=3 且 DISTINCT province>=2) 在真实扫码链路上永远触发不了。
+  // 采取「缓存命中即写 / 未命中后台补」而不是同步解析：高德 IP 定位 QPS 极小（实测连续 4 次即限流），
+  // 而公众端是唯一被陌生人高频打的路径 —— 外部调用一律不得阻塞扫码结果。详见 server/utils/ip-geo.ts。
+  const geo = peekIpGeo(ip)
+  const insert = await execute(
+    'INSERT INTO scan_log (enterprise_id, code, product_id, scan_time, scan_device, scan_subject, ip_location, consumer_id, province, city) VALUES (?,?,?,NOW(),?,1,?,?,?,?)',
+    [tc.enterprise_id, code, tc.product_id, detectDevice(event), ip || null, consumer?.id ?? null, geo?.province ?? null, geo?.city ?? null])
+  if (!geo) backfillScanGeo(insert?.insertId, ip)
 
   // 4) 查询统计（含本次；重复查询判定 PRD 8类异常-1：≥3次且≥2归属地）
   const [statRow] = await query<any[]>(
