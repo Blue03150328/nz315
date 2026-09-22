@@ -11,6 +11,7 @@
 import { wgs84ToGcj02 } from '~/composables/useGeoConvert'
 
 definePageMeta({ layout: 'fullbleed' })
+const router = useRouter()
 const toast = useToast()
 const cfg = useRuntimeConfig()
 const amapKey = cfg.public.amapJsKey as string

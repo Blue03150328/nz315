@@ -2,6 +2,7 @@
 import type { TraceOutcome } from '#shared/types/trace'
 
 const props = defineProps<{ outcome: TraceOutcome }>()
+const router = useRouter()
 const toast = useToast()
 
 const copyCode = async () => {

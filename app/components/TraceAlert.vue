@@ -2,6 +2,7 @@
 import type { TraceOutcome } from '#shared/types/trace'
 
 const props = defineProps<{ outcome: TraceOutcome }>()
+const router = useRouter()
 const toast = useToast()
 
 // 各异常类型配置：标题/副标题/图标/横幅渐变

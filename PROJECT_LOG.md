@@ -1,4 +1,21 @@
 ## 变更记录
+### 2026-09-22 | fix：扫「未登记码」时三个按钮全是死的 —— 三处 `router` 未声明
+- **结果一句话**：用户拿一瓶真实农药扫码验收结果页，发现扫到的码未登记。顺手真浏览器点了一遍未登记页的按钮，**点【重新查询】毫无反应**，控制台抛 `TypeError: Cannot read properties of undefined (reading 'push')`。根因是**模板里用了 `router`，`<script setup>` 里却没 `const router = useRouter()`**；全仓库排查出**同类三处**，已全部补上声明。
+- **复现与定因（真浏览器 + CDP，非静态推断）**：访问 `/trace?code=<未登记码>` → 劫持 `console.error/warn` + `unhandledrejection` → 原生 `click()` 点【重新查询】→ 拿到 **`rejection: TypeError: Cannot read properties of undefined (reading 'push')`**，且 `location` **停在原 URL 完全没变**（按钮彻底失效，不是"跳得慢"）。
+  - **为什么 `router` 会是 undefined**：实测该页 `#__nuxt.__vue_app__.config.globalProperties` 只有 **`$router` / `$route` / `$head` / `$unhead`** 四个键，**没有裸的 `router`** —— 所以模板里写 `router.xxx` 不会 fallback 到全局属性，直接拿到 `undefined`；组件 setup 里也没声明 → 必然炸。
+  - **为什么静态检查抓不到**：`router` 只是模板表达式里的自由变量，**编译期合法**（`node --check` / SFC 编译 / TS 检查全静默通过），只有真点下去才炸。又一次印证本仓库既有结论：**改了模板/`setup()` 引用就必须真浏览器点一遍**。
+- **同类三处（全仓库 grep `router.(push|back|replace)` 与 `useRouter` 交叉核对得出）**：
+  | 文件 | 失效按钮 |
+  |---|---|
+  | `app/components/TraceNotFound.vue` | 【返回】`router.back()`、【重新查询】`router.push('/')` |
+  | `app/components/TraceAlert.vue` | 【返回】`router.back()` |
+  | `app/pages/nearby-stores.vue` | 移动端顶栏【返回】`router.back()` |
+  （`TraceResult.vue` / `PageHeader.vue` / `index.vue` / `login.vue` / `scan.vue` / `layouts/admin.vue` 均有正确声明，不受影响。）
+- **修改**：三个文件各加**一行** `const router = useRouter()`，位置放在既有 `const toast = useToast()` 之前，与 `TraceResult.vue` / `PageHeader.vue` 的既有写法保持一致。**零逻辑改动、零样式改动。**
+- **验证（真浏览器前后对比，Edge headless + CDP）**：① 修复前 = 抛 `TypeError` + URL 不动（上表）；② 修复后未登记页**【重新查询】→ `location` 由 `/trace?code=…` 变为 `/`**、`errors: []`（首次跑因 dev 首编首页慢而 2.5s 内未跳完，预热首页后稳定通过 —— 记一笔：**dev 下验客户端跳转要先预热目标路由**）；③ 修复后异常页【返回】/ 附近门店页顶栏【返回】点击后 **CDP 报 `Inspected target navigated or closed`**，即 `router.back()` 已真实触发导航（未修前这类按钮只会抛错、页面纹丝不动 → 导航本身就是修复生效的证据）。
+- **未做**：未为这三处补 e2e 用例（现有 `tools/_verify-*-ui.js` 体系面向后台页，公众端结果页尚无验证脚本）；若后续要防回归，建议按「三个结果分支各点一遍按钮」补一个公众端 UI 验证脚本。
+- **修改文件**：`app/components/TraceNotFound.vue` · `app/components/TraceAlert.vue` · `app/pages/nearby-stores.vue` · 本条目 · `.workbuddy/memory/2026-09-22.md`。临时诊断脚本（`scripts/_tmp-*`，已 gitignore）用完即删。
+
 ### 2026-09-21 | ycdb 分支新增外部二维码核验首版
 - **结果一句话**：新增后台「外部二维码核验」入口，支持相机扫描或粘贴系统外二维码链接，保存来源快照，解析并核验单元识别码第1—8位；第9位以后仅留证不判定，规格/生产日期等仅展示来源页面内容。
 - **真实样本适配**：识别 `wla1.cn` 外部平台接口，样本码 `12618401501000000000003780168217` 可获取产品名、完整登记证号、持有人、规格、生产类型和生产日期字段。
