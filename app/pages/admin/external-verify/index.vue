@@ -1,6 +1,7 @@
 <script setup lang="ts">
 // 外部二维码核验：总部后台首版入口，保存来源页面快照并只核验前 8 位
 import type { ExternalVerificationResult } from '#shared/types/external-verification'
+import { extractTraceCode, isHttpUrl } from '#shared/utils/trace-code'
 
 definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
 useHead({ title: '外部二维码核验' })
@@ -14,7 +15,7 @@ const busy = ref(false)
 const result = ref<ExternalVerificationResult | null>(null)
 const showScanner = ref(false)
 const videoRef = ref<HTMLVideoElement | null>(null)
-const { phase, errorMsg, mount, start, stop, onRawResult } = useQrScanner()
+const { phase, errorMsg, mount, start, stop, onResult, onRawResult } = useQrScanner()
 
 const sampleUrl = 'http://www.wla1.cn/p?id=12618401501000000000003780168217'
 
@@ -34,14 +35,29 @@ const verify = async () => {
 }
 
 const useSample = () => { sourceUrl.value = sampleUrl; code.value = '' }
+
+/**
+ * 扫码结果落地：能从内容里提取到码就填「追溯码」，内容本身是网址再顺带填「来源链接」。
+ * 两个回调都必须接：扫到「纯 32 位裸码」时 useQrScanner 会按「本站码」走 onResult 分支，
+ * 此前本页只注册了 onRawResult —— 于是相机停了、页面却毫无反应（不报错、不填值、不提示）。
+ */
+const applyScan = (raw: string) => {
+  const text = String(raw || '').trim()
+  const scannedCode = extractTraceCode(text)
+  const scannedUrl = isHttpUrl(text) ? text : ''
+  code.value = scannedCode
+  sourceUrl.value = scannedUrl
+  showScanner.value = false
+  if (scannedCode && scannedUrl) toast.add({ title: '已识别：来源链接与追溯码均已填入，点击开始核验', color: 'success' })
+  else if (scannedCode) toast.add({ title: '已识别二维码中的追溯码，点击开始核验', color: 'success' })
+  else if (scannedUrl) toast.add({ title: '已填入来源链接，但链接里没有追溯码，请手动补充码值', color: 'warning' })
+  else toast.add({ title: '该二维码里没有识别到追溯码，请手动粘贴来源页面内容', color: 'warning' })
+}
+
 onMounted(() => mount(videoRef.value))
 onBeforeUnmount(() => stop())
-onRawResult((raw) => {
-  sourceUrl.value = raw
-  code.value = ''
-  showScanner.value = false
-  toast.add({ title: '已识别外部二维码，请点击开始核验', color: 'success' })
-})
+onResult((raw) => applyScan(raw))
+onRawResult((raw) => applyScan(raw))
 watch(showScanner, async (open) => { if (open) { await nextTick(); mount(videoRef.value); await start() } else stop() })
 const statusText: Record<string, string> = { match: '信息相符', mismatch: '发现差异', insufficient: '资料不足', 'not-applicable': '不适用' }
 const statusClass: Record<string, string> = { match: 'b-tag-success', mismatch: 'b-tag-danger', insufficient: 'b-tag-warning', 'not-applicable': 'b-tag-default' }
@@ -90,6 +106,7 @@ const statusClass: Record<string, string> = { match: 'b-tag-success', mismatch: 
       <video ref="videoRef" autoplay muted playsinline class="mt-3 aspect-video w-full rounded-lg bg-black object-cover" />
       <p v-if="errorMsg" class="mt-2 text-sm text-error">{{ errorMsg }}</p>
       <p v-else class="mt-2 text-xs text-muted">{{ phase === 'scanning' ? '请将二维码放入取景框' : '正在启动相机…' }}</p>
+      <p class="mt-2 text-xs text-muted">支持任意平台的二维码：识别到追溯码会自动填入码值框，识别到链接会填入来源链接框。</p>
     </div>
 
     <div v-if="result" class="space-y-4">

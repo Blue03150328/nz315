@@ -2,6 +2,7 @@
 import { lookup } from 'node:dns/promises'
 import { query } from './db'
 import { regCategoryOf, normalizeOrgName } from './regdata'
+import { extractTraceCode, isHttpUrl, isTraceCode } from '#shared/utils/trace-code'
 import type { ExternalCodeParts, ExternalSourceData, ExternalVerificationResult, VerificationItem, VerificationItemStatus } from '#shared/types/external-verification'
 
 const PRIVATE_HOST = /^(localhost|.*\.localhost|.*\.local|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)$/i
@@ -22,21 +23,6 @@ function cleanDate(value: unknown): string | undefined {
  */
 function normalizeProductName(value: unknown): string {
   return normalizeText(String(value ?? '').replace(/[\d．.]+[%％]/g, '')).toLowerCase()
-}
-
-export function extractExternalCode(input: string): string {
-  const text = String(input || '').trim()
-  const urlMatch = text.match(/[?&#](?:code|id|sn|traceCode)=([0-9]{32,})(?:&|#|$)/i)
-  if (urlMatch?.[1]) return urlMatch[1]
-  // 外部平台常用数字参数名（例如 ?47=码值），逐个检查查询参数而不是猜参数名
-  try {
-    const url = new URL(text)
-    for (const value of url.searchParams.values()) {
-      if (/^\d{32,}$/.test(value)) return value
-    }
-  } catch { /* 不是 URL 时继续检查纯文本 */ }
-  const direct = text.match(/(?<![0-9])[0-9]{32,}(?![0-9])/)
-  return direct?.[0] || ''
 }
 
 export function parseExternalCode(code: string): ExternalCodeParts {
@@ -189,7 +175,9 @@ export function extractLabeledFields(text: string): Partial<Record<ExtractableFi
 async function fetchWla1(url: URL, code: string): Promise<ExternalSourceData> {
   const apiUrl = new URL('/api/index/code/codeScan', url.origin)
   apiUrl.searchParams.set('code', code)
-  const response = await fetch(apiUrl, { signal: AbortSignal.timeout(12000), redirect: 'error', headers: { accept: 'application/json' } })
+  // 用 follow 而不是 error：来源站点若把 http 301 到 https（或对 /api 前缀做跳转），error 会当场抛错、接口变 500。
+  // apiUrl 由 url.origin 构造（必然同源），且调用前已过 assertSafeUrl，跟随后不会引入内网访问风险。
+  const response = await fetch(apiUrl, { signal: AbortSignal.timeout(12000), redirect: 'follow', headers: { accept: 'application/json' } })
   if (!response.ok) throw new Error('来源平台接口返回 HTTP ' + response.status)
   const body = await response.json() as any
   const result = body?.result
@@ -290,13 +278,18 @@ function item(key: string, label: string, status: VerificationItemStatus, source
 export async function verifyExternalCode(input: { sourceUrl?: string; code?: string; pageText?: string; enterpriseId?: number | null; userId?: number | null }): Promise<ExternalVerificationResult> {
   const sourceUrl = String(input.sourceUrl || '').trim()
   const pageText = String(input.pageText || '').trim()
-  // 码可以从「来源链接」或「手工粘贴的页面内容」里任一处识别，两者都不含时才报错
-  const code = extractExternalCode(input.code || sourceUrl || pageText)
-  if (!/^\d{32,}$/.test(code)) throw createError({ statusCode: 400, statusMessage: '未识别到至少32位数字单元识别代码' })
+  // 码可以从「来源链接」「码值」「手工粘贴的页面内容」任一处识别，三者都不含时才报错
+  const code = extractTraceCode(input.code || sourceUrl || pageText)
+  if (!isTraceCode(code)) throw createError({ statusCode: 400, statusMessage: '未识别到至少32位数字单元识别代码' })
   const codeParts = parseExternalCode(code)
-  const source: ExternalSourceData = (sourceUrl || pageText)
+  // 「来源链接」必须是 http(s) 网址才值得去抓。扫码到别人平台的裸码值时前端会填进码值框，
+  // 但「手工把裸码粘进链接框」也很常见 —— 那种输入按「未提供来源页面」处理（编码结构与登记库核验照做），
+  // 不要用 400 把用户堵死：否则「扫到/拿到别人的裸码」这条最常见路径直接走不通。
+  const hasUrlSource = isHttpUrl(sourceUrl)
+  const pageFetched = Boolean(pageText) || hasUrlSource
+  const source: ExternalSourceData = pageFetched
     ? await fetchExternalSource(sourceUrl, code, pageText)
-    : { sourceUrl: '', platform: '未提供来源页面', code }
+    : { sourceUrl, platform: '未提供来源页面', code }
   const candidatesRaw = codeParts.registrationLast6 && codeParts.validCategory
     ? await query<any[]>('SELECT registration_no, product_name, company, expire_date FROM pesticide_reg WHERE RIGHT(registration_no, 6) = ?', [codeParts.registrationLast6])
     : []
@@ -329,9 +322,16 @@ export async function verifyExternalCode(input: { sourceUrl?: string; code?: str
   const checked = items.some(i => i.status === 'match' || i.status === 'mismatch')
   const overallStatus = mismatch ? 'mismatch' : checked && items.some(i => i.status === 'insufficient') ? 'insufficient' : checked ? 'match' : 'insufficient'
   const warnings: string[] = []
-  if (source.platform === '未提供来源页面') warnings.push('未抓取来源页面，只完成编码结构与本地登记资料核验')
+  if (!pageFetched) {
+    warnings.push('未抓取来源页面，只完成编码结构与本地登记资料核验')
+    // 用户把裸码（而不是网址）填进了「来源链接」栏 —— 明确告知已按仅码值核验处理，别让他以为系统坏了
+    if (sourceUrl) warnings.push('「来源链接」里填的不是网址（已按仅码值核验）；如需核验页面信息，请把来源页面内容粘贴到下方输入框。')
+  }
   if (!source.productName && !source.registrationNo && !source.holderName) {
-    warnings.push('未从来源页面提取到产品字段：该页面很可能由脚本异步渲染（服务端只拿到空壳）。请在浏览器打开该二维码链接，把页面上的「基本信息 / 产品信息」文字整段复制到「粘贴来源页面内容」后重新核验 —— 解析走通用规则，不区分平台。')
+    warnings.push(pageText
+      // 已经粘贴了内容还提不到字段：此时再让他"去复制页面内容"只会把人带偏，给出真正可操作的原因
+      ? '已从你粘贴的内容里提取不到产品字段：请确认内容中含「农药名称 / 登记证号 / 持有人」等标签，且标签与值之间用冒号、Tab 或换行分隔。'
+      : '未从来源页面提取到产品字段：该页面很可能由脚本异步渲染（服务端只拿到空壳）。请在浏览器打开该二维码链接，把页面上的「基本信息 / 产品信息」文字整段复制到「粘贴来源页面内容」后重新核验 —— 解析走通用规则，不区分平台。')
   }
   return { source, codeParts, registrationCandidates, matchedRegistration, localProduct, items, overallStatus, warnings }
 }
