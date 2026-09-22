@@ -22,8 +22,14 @@
 > 证据（本机直连公网实测）：① `POST https://www.nz315.cn/api/auth/login` 带恶意前缀 Origin `https://www.nz315.cn.evil.com`
 > → **403「跨站请求被拒绝」**（加固代码才有的行为，旧版会走到 401）；② `/tools/nz315-qr-tool-v1.2.0.exe` HEAD
 > **200 / `95035957`** 且 `nz315-qr-tool-v1.1.0.exe` **404**（只有 09-19 那次 build 之后才会是这个状态）。
-> ⇒ **服务器基线 = `02f4d5c`**（`.deploy-version` 待第 0 步复核确认）。**本轮（追溯码生成上限 1 万 → 50 万）的执行单见
-> `docs/handover/19-部署执行单-生成上限50万上线.md`**；它是**纯代码增量**（无 DDL / 无依赖变化 / 无 nginx 变更 / 无需重传工具包）。
+> ⇒ **服务器基线 = `02f4d5c`**（`.deploy-version` 待第 0 步复核确认）。
+> 🚀 **要上线时的执行单已换成 `docs/handover/24-部署执行单-ycdb整线上线.md`（2026-09-22 18:2x 新增，取代 19 号）**：
+> **因为 `ycdb` 已包含 19 号那笔 `68163bb`**（`git merge-base --is-ancestor 68163bb ycdb` → 真）⇒ 跑 24 号即可，
+> **别再单独跑 19 号**（同一份代码构建两遍）。24 号与 19 号的关键差异：**本次带 DDL**
+> （新表 `external_verification` + `risk_alert` 补列 `external_verification_id` 与索引 `idx_external_verification`），
+> 故必须走 **`dump → db-init --migrate-only → compare` 三明治**；其余（零依赖变化 / 零 nginx 变更 / 无需重传工具包 /
+> 不要求用户重登）与 19 号一致。包指纹：`nz315-ycdb-1c6730a.tar.gz` / **875,337 B** /
+> SHA256 `5b6649c5309f95437b458280344b7f7fb06ee8cf50c4440186a8744166692495`（190 文件 + 57 目录，已与 `git ls-tree` 双向核对）。
 > 下面这块留作历史 —— 其中 **`--migrate-only` 不可省、静态资源清单构建期固化、只 `pm2 reload` 三条铁律仍然有效**，别丢。
 
 > 🔐 **待部署的安全加固（2026-09-19 已完成、本机验证通过、尚未上线）**

@@ -75,7 +75,13 @@
 - 工作副本在 **`ycdb`**（2026-09-22 18:0x 实测 = master + **21** 提交 / **35** 文件 / **+3,624 −114**；取数 `git rev-list --count master..ycdb` + `git diff --shortstat master...ycdb`），未合入 master、未推送；**带 DDL**（新表 `external_verification` + `risk_alert` 补列补索引），**依赖零变化**（package.json/lock/nuxt.config 与 master 零差异）⇒ 上线必须 `--migrate-only`。
   - ⚠️ **文档里的旧数字一律别信**：21 号记「+15」、23 号初版记「+17」**均偏低**，用前现测。
   - 🧭 **路线已定（2026-09-22，用户裁定「走 ycdb」）**：不回 master 收尾、**不动 `stash@{0}`**（见下条）。
-- 线上构建产物 = **2026-09-19 18:08:56**（`/_nuxt/builds/latest.json` 的 `timestamp`=`1789812536370`）⇒ **50 万上限未上线，线上仍是 1 万**。待部署包：`E:\software\workbuddy\文件存放处\2026-09-21-1214-生成上限50万\nz315-master-68163bb.tar.gz`（742,206 字节 / SHA256 `5d2135c6f73b11cf924def7607c109353f4a1ff4ad1be728f5ed15c4e9c65d46`，**不含 ycdb**）。
+- 线上构建产物 = **2026-09-19 18:08:56**（`/_nuxt/builds/latest.json` 的 `timestamp`=`1789812536370`）⇒ **50 万上限与 ycdb 整条线都未上线**。
+- 🚀 **要上线就照 `docs/handover/24-部署执行单-ycdb整线上线.md`（2026-09-22 新增，取代 19 号）**。**`ycdb` 已包含 19 号那笔 `68163bb`**（→ 跑 24 号即可，别单独跑 19 号，同一份代码何必构建两遍）。
+  - 包：`E:\software\workbuddy\文件存放处\2026-09-22-1819-ycdb整线上线\nz315-ycdb-1c6730a.tar.gz` = **875,337 字节** / SHA256 `5b6649c5309f95437b458280344b7f7fb06ee8cf50c4440186a8744166692495`（190 文件 + 57 目录，已与 `git ls-tree` 双向核对：多出 0 / 缺失 0）。
+  - ⚠️ 与 19 号的关键差别：**本次带 DDL** ⇒ 必须 `verify-db-migration dump` → `db-init --migrate-only` → `compare` 三明治；`compare` 判据是 `bad=0`（业务表严格相等，`scan_log`/`operation_log` 放宽为只增不减）。
+  - ✅ **服务器 `AMAP_WEB_KEY` 已在线可用**（2026-09-22 实测 `GET /api/stores/nearby?lng=108.32&lat=22.82` → 200 + 真实 POI）⇒ P1-1 上线即生效。它**没写进 `.env.example`**（只记了 `NUXT_PUBLIC_AMAP_*`），别被误导。
+  - 🔴 **严禁在生产跑 `scripts/seed-abnormal-demo.mjs`**：它的安全闸只拦「`DB_HOST` 不是本机」，而**服务器 `DB_HOST` 正是 `127.0.0.1`** ⇒ 闸门放行、会往生产库灌演示数据。**开发库专用。**
+- ✳️ **上线的 before/after 判据（同一条 URL）**：`https://www.nz315.cn/trace?code=10929272000000000000000000000000` —— 部署前 `not-found`（页面含「未查询到」），部署后应为 `external-reg`（页面含「不是农资315签发」「农药登记资料库」「PD20092927」）。
 - ✅ **裸域名 `https://nz315.cn` 已修复**（301→www，路径/query 保留，`rejectUnauthorized:true` 严格校验通过）。**别再当待办。**
 - `MP_verify_OUOoNSqTrpZkfWli.txt` 公网 200，但微信后台「网页授权域名」是否保存成功**必须问用户**。
 - master 上挂着未提交的「厂家后台使用说明」：`stash@{0}` 只含 PROJECT_LOG 条目（**`stash pop` 必须在 master 上做**），`docs/厂家后台使用说明/`(30 项) + `scripts/generate-user-guide.mjs`(13,507 字节) 未跟踪；备份目录 `C:/shots/_master-uncommitted-backup-20260922` **已过时，别拿它盖工作区**。
