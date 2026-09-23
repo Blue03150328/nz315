@@ -4,19 +4,26 @@
 > 本文件是项目的长期记忆：记录**用户全局偏好**（所有项目通用）与**本项目状态**（进度/架构/踩坑）。
 > 接手顺序：本文件 → `git log --oneline`（最近提交）→ PRD 需求文档（农药追溯码管理平台 PRD 纯净版.md）。
 
-> 🧭 **当前状态指针（2026-09-22 17:2x 更新）**：**新对话先读 `docs/handover/21-交接手册-新对话接续（ycdb分支·裸域名已修复·待部署清单）.md`**。
-> 四条要点，避免踩空：
-> ① **工作副本在 `ycdb` 分支，不是 `master`**（`ycdb` = master + **15** 提交，31 文件 / +2,599 −38；三件事：**外部二维码核验** +
-> **公众端扫码接入登记库比对**（新结果类型 `external-reg`）+ **异常场景扫码测试码脚本** `scripts/seed-abnormal-demo.mjs`；
-> **带 DDL**：新表 `external_verification` + `risk_alert` 补列补索引。**零依赖变化**——`package.json` / `package-lock.json` / `nuxt.config.ts` 与 master 无差异）；
-> ② **master 上挂着一笔未提交的活儿**（`git stash@{0}` 里的 PROJECT_LOG 条目 + 未跟踪的 `docs/厂家后台使用说明/`（30 项）
-> 与 `scripts/generate-user-guide.mjs`（13,507 字节），**`stash pop` 必须在 master 上做**）；
-> ③ **线上仍停在 09-19 那次构建的产物上**（实测 `/_nuxt/builds/latest.json` 时间戳 = `2026-09-19 18:08:56`）⇒
-> **生成上限 50 万那版（19 号执行单）尚未上线，线上仍是 1 万**；`ycdb` 整条线也未合入 master、未部署；
-> ④ ✅ **裸域名 `https://nz315.cn` 已修复**（2026-09-22 17:2x 实测：**301 → www**、路径与 query 均保留、
-> **`rejectUnauthorized:true` 严格校验通过**。⇒ **20 号手册里那条 P0「裸域名 443 证书不匹配」可以划掉了**）。
-> ⚠️ **另有一条 P1 架构缺陷**：`scan_log.province` / `city` **全仓库只有读没有写**（`trace.get.ts` 的 INSERT 无这两列）
-> ⇒ 「重复查询」判据 `≥3 次且 ≥2 省` 在**真实扫码链路上永远触发不了**（线上一直如此）。详见 21 号 §2.4。
+> 🧭 **当前状态指针（2026-09-23 08:5x 更新）**：**新对话先读 `docs/handover/25-交接手册-新对话接续（ycdb·P1-1已修·上线包已备·2026-09-23）.md`**。
+> 五条要点，避免踩空：
+> ① **工作副本在 `ycdb` 分支，不是 `master`** @ `a462a58`（**实测 = master + 30 提交 / 37 文件 / +4,350 −116**）。
+> ⚠️ **这个数字每次提交都在动，用前现测**：`git rev-list --count master..ycdb` + `git diff --shortstat master...ycdb`。
+> `ycdb` 上是三件事：**外部二维码核验** + **公众端扫码接入登记库比对**（新结果类型 `external-reg`）+
+> **异常场景扫码测试码脚本** `scripts/seed-abnormal-demo.mjs`；**带 DDL**：新表 `external_verification` +
+> `risk_alert` 补列补索引。**零依赖变化**——`package.json` / `package-lock.json` / `nuxt.config.ts` 与 master 无差异；
+> ② ✅ **P1-1 已修复**（提交 **`66b0f6b`**）：`scan_log.province`/`city` 从「只读无写」补齐为**写入**
+> （新增 `server/utils/ip-geo.ts` 走**高德 IP 定位**，复用 `runtimeConfig.amapWebKey`，**零新依赖 / 零 DDL**）⇒
+> 「重复查询」那条死分支已打通，**随 `ycdb` 上线即生效**（服务器 `AMAP_WEB_KEY` 已实测在线可用）。
+> ⇒ **本文档下方「另有一条 P1 架构缺陷」的旧结论、以及 21 号 §2.4 的「未修」作废**；
+> ③ **master 上挂着一笔未提交的活儿**（`git stash@{0}` 里的 PROJECT_LOG 条目 + 未跟踪的 `docs/厂家后台使用说明/`（30 项）
+> 与 `scripts/generate-user-guide.mjs`（13,507 字节），**`stash pop` 必须在 master 上做**；备份目录已过时，别拿它盖工作区）；
+> ④ **线上仍停在 09-19 那次构建的产物上**（实测 `/_nuxt/builds/latest.json` 时间戳 = `1789812536370` = **2026-09-19 18:08:56**）⇒
+> **生成上限 50 万那版与 `ycdb` 整条线均未上线**（线上仍是 1 万）；✅ **裸域名 `https://nz315.cn` 已修复**（301→www、路径与 query 保留、严格校验通过）；
+> ⑤ 🚀 **上线包与执行单都已备好**：包 = `E:\software\workbuddy\文件存放处\2026-09-22-1819-ycdb整线上线\nz315-ycdb-1c6730a.tar.gz`
+> （**875,337 B** / SHA256 `5b6649c5309f95437b458280344b7f7fb06ee8cf50c4440186a8744166692495`，09-23 复核一致）；
+> 执行单 = **24 号**。⚠️ 包基线 `1c6730a` 之后又进 3 个提交（**纯文档/记忆、零运行代码**）⇒ 部署行为一致，旧包可用，要绝对干净就重打。
+> 📌 **该包是把 `git archive` 的产物直接打包的** ⇒ 里面**带着 `.workbuddy/memory/` 与 `docs/handover/`**（内部日志/手册会一并解包到服务器）。
+> **已实测确认包内无真 `.env`（只有该带的 `.env.example`）**，不构成凭据泄露，但属不必要外溢；修法见 25 号 §5.3（加 `.gitattributes` 的 `export-ignore`）。
 
 > ✅ **更正（2026-09-21 复核）：下面这个「待部署」块已过时 —— 09-19 那次部署是完整跑完的，线上已是加固版 + 工具 v1.2.0。**
 > 证据（本机直连公网实测）：① `POST https://www.nz315.cn/api/auth/login` 带恶意前缀 Origin `https://www.nz315.cn.evil.com`
