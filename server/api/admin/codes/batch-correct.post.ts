@@ -5,6 +5,7 @@
 import { query, execute } from '../../../utils/db'
 import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
+import { assertProductBindable } from '../../../utils/product-guard'
 
 export default defineEventHandler(async (event) => {
   const user = await requireWritableUser(event)
@@ -40,6 +41,10 @@ export default defineEventHandler(async (event) => {
       'SELECT * FROM batch WHERE id = ?' + (fid ? ' AND enterprise_id = ?' : ''),
       fid ? [batchId, fid] : [batchId])
     if (!batch) throw createError({ statusCode: 400, statusMessage: '批次不存在' })
+
+    // 登记证过期守卫（PRD 5.9 异常4：暂停绑定批次；缺陷 N4）
+    // 传批次产品即可 —— 紧随其后的一致性校验保证所选码的产品与批次产品相同
+    await assertProductBindable(batch.product_id)
 
     // 关联产品一致性：批次的产品须与码的产品一致
     const [mismatch] = await query<any[]>(

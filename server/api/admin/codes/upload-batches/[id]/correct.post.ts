@@ -10,6 +10,7 @@ import { isInputDate } from '#shared/utils/input-date'
 import { query, execute } from '../../../../../utils/db'
 import { requireWritableUser } from '../../../../../utils/auth'
 import { logOperation } from '../../../../../utils/audit'
+import { assertProductBindable } from '../../../../../utils/product-guard'
 
 export default defineEventHandler(async (event) => {
   const user = await requireWritableUser(event)
@@ -58,6 +59,11 @@ export default defineEventHandler(async (event) => {
 
   // ① 新建批次绑定（仅"已生成"码；生成入库留档的码在此完成生产绑定，与 import 建批/归并同口径）
   if (isNewBatchMode) {
+    // 登记证过期守卫（PRD 5.9 异常4：暂停绑定批次；缺陷 N4）
+    // 🔴 必须放在**建批次之前**：否则过期产品会先 INSERT 出一行孤儿 batch（下方 exist 未命中分支），
+    // 再被守卫拒掉 ⇒ 库里留下没有任何码引用的垃圾批次。
+    // （27 号方案原写「插到 :111-113 之间」，实施时前移到分支开头，理由即此。）
+    await assertProductBindable(productId)
     const newProduceDate = String(body.produceDate || '').trim()
     const newQualityCertNo = String(body.qualityCertNo || '').trim() || '见箱内质量合格证'
     const newQcReportNo = String(body.qcReportNo || '').trim() || null
@@ -139,6 +145,8 @@ export default defineEventHandler(async (event) => {
     if (Number(batch.product_id) !== productId) {
       throw createError({ statusCode: 400, statusMessage: '所选批次产品与本批次关联产品不一致，请重新选择' })
     }
+    // 登记证过期守卫（PRD 5.9 异常4：暂停绑定批次；缺陷 N4）
+    await assertProductBindable(productId)
     const r = await execute(
       'UPDATE trace_code SET batch_id = ?, produce_date = ?, batch_no = ?, quality_cert_no = ?, status = 2, bound_at = NOW() WHERE upload_batch_id = ? AND status = 1' + (fid ? ' AND enterprise_id = ?' : ''),
       [batchId, batch.produce_date, batch.batch_no, batch.quality_cert_no, ubId, ...(fid ? [fid] : [])])

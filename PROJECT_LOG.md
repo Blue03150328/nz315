@@ -1,4 +1,18 @@
 ## 变更记录
+### 2026-09-23 | fix：N4 —— 「登记证已过期 ⇒ 暂停绑定批次」（PRD 8 类异常-4）
+- **结果一句话**：新增**公共守卫** `server/utils/product-guard.ts` 的 `assertProductBindable(productId)`，插入 **3 个文件 / 4 处**绑定入口。此前 `registration_expire` 全仓库只出现在 4 处（`trace.get.ts` 只读判断 + `products.post.ts` / `products/[id].patch.ts` 写入），**4 个绑定入口全无该字段校验** ⇒ 已过期的登记证照样能绑批次，消费者扫码才看到红字。
+- **★ 端到端验收证据（双向，本机 3100 真打）**：
+  | 场景 | 结果 |
+  |---|---|
+  | 过期产品（`id=22` `PD20990002`，expire=**2020-01-01**）走单码换绑 | **400「该产品登记证（PD20990002）已于 2020-01-01 到期，不可绑定生产批次，请先更新登记证有效期」** ✅ |
+  | 未过期产品（`id=21`，expire=**2029-12-31**）走同一入口 | 守卫**放行**，被紧随其后的一致性校验拦住（「所选批次产品与当前追溯码产品不一致」）—— **文案不含"到期" ⇒ 证明不误拦** ✅ |
+  | 另两个改动文件的编译加载 | `batch-correct` / `upload-batches/[id]/correct` 未认证均返 **401「未登录」**（而非 500 编译错）⇒ 守卫 import 与调用无问题 ✅ |
+- **★ 四处插入点（均为「绑定动作」发生前）**：`codes/batch-correct.post.ts:47`（批次查出后、产品一致性校验前）· `codes/[id]/correct.post.ts:53`（传 `code.product_id ?? batch.product_id`）· `codes/upload-batches/[id]/correct.post.ts:66`（**新建批次模式的分支开头**）与 `:149`（重绑前）。
+- **★ 实施时对 27 号方案做了一处主动改进（不是照抄）**：27 号原写「新建批次那处插到 `:111-113` 之间」（即 batchId 已确定、UPDATE 之前）—— 但那个位置**在半路**：`exist` 未命中时 `:99-101` 已经 `INSERT INTO batch` 建了新批次，此时才抛 400 ⇒ **库里会留下一行没有任何码引用的孤儿 batch**。⇒ 实施时**前移到分支开头**（查 unbound 与建批次之前），理由已写进代码注释。
+- **★ 五条边界（已写进 `product-guard.ts` 文件头）**：① **历史数据不回溯**（已绑定码不回收、不改变，只拦新的绑定动作）；② **只拦绑定、不拦生成码**（严格按 PRD 处置层级"暂停绑定批次"；生成码是码池入库、不代表生产行为）；③ **不拦编辑批次与字段修正**（那是**纠错**场景，拦了历史数据永远修不回来）⇒ **明确不加到 `batches/[id].patch.ts`**（它不是绑定入口，只同步冗余列）；④ **`registration_expire` 为空的产品不拦**（保持既有数据可操作；代价是留了个"后门"，要堵得把它改成必填，属产品决策、本次不做）；⑤ ⚠️ **日期比较刻意沿用项目既有 UTC 口径** `new Date().toISOString().slice(0,10)`（与 `trace.get.ts` 一致）⇒ 东八区凌晨 00:00–08:00 之间 UTC 日期还是前一天，**到期当天凌晨会多放行 8 小时**。本次**刻意保持一致**（引入第二套口径 = 两处判断打架更糟）；若某天要统一修，应**连同 `trace.get.ts` 一起**改成按北京时间，那是独立一条、别混进别的改动。
+- **★ 上线影响面提示**：上线后会出现「以前能绑、现在被拦」——**这是预期行为**（正是本修复的目的）。建议上线前先量：`SELECT COUNT(*) FROM product WHERE registration_expire IS NOT NULL AND registration_expire < CURDATE();`
+- **修改文件**：**新增** `server/utils/product-guard.ts` · `server/api/admin/codes/batch-correct.post.ts` · `server/api/admin/codes/[id]/correct.post.ts` · `server/api/admin/codes/upload-batches/[id]/correct.post.ts` · 本条目。**零 DDL / 零依赖 / 零 nginx / 零 `.env`**；需 build + reload（并入 ycdb 一次上线）。
+
 ### 2026-09-23 | fix：N6 ①②③ —— 附近门店接口纯防御加固（缓存封顶 / 坐标校验 / 同 IP 限流）
 - **结果一句话**：按用户决策**只做 ①②③ 三项纯防御**（**N6④ 独立高德 key、N6-b 搜索框一并暂缓** —— 用户明确「附近门店模块后续可能下架、改为类微信支付的农资记账功能」，不值得给一个可能被删的模块投成本）。改 `server/api/stores/nearby.get.ts` + **新增** `server/utils/rate-limit.ts`（通用进程内限流器，N2 的 `/api/feedback` 要复用）。
 - **★ 三项加固的实测证据（本机 3100 真打）**：① 非法坐标 `lng=999&lat=999` → **`200 {"located":false,"rows":[]}` / 38ms**（改前只判 `Number.isFinite`，同样能推动 **2 次高德调用**）；② 无参数 → `located:false`；③ 合法坐标（济南）→ `200 rows=20` / 216ms，**同坐标再打仅 4ms**（缓存命中，证明既有缓存未被改坏）；④ 连打 40 次非法坐标 → **第 27 次起 `429`**（前序已用 4 次，4+27=31>30，**阈值精确**）。
