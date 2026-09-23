@@ -30,13 +30,17 @@
 > 与 `scripts/generate-user-guide.mjs`（13,507 字节），**`stash pop` 必须在 master 上做**；备份目录已过时，别拿它盖工作区）；
 > ④ **线上代码仍停在 09-19 那次构建的产物上**（实测 `/_nuxt/builds/latest.json` 时间戳 = `1789812536370` = **2026-09-19 18:08:56**）⇒
 > **生成上限 50 万那版与 `ycdb` 整条线的运行代码均未上线**（线上仍是 1 万）；**但"数据库那一半"已经先走了** —— 服务器第 4 步迁移（`external_verification` 建表 + `risk_alert` 补列补索引）**已 ✅ 通过**（见上方 (1)）；✅ **裸域名 `https://nz315.cn` 已修复**（301→www、路径与 query 保留、严格校验通过）；
-> ⑤ 🔴 **上线包当前【已作废，必须先重打】再跑第 5 步**：`nz315-ycdb-a573f09.tar.gz`（**655,237 B** / SHA256 `9a67f3dd…a7bf37be` / 161 文件 + 54 目录 / 基线 `a573f09`，含 N2–N6 全部 5 个提交）**只到记账功能之前** —— 本轮**改了运行代码**（新增 `server/api/bill*.ts` 5 个 · `app/pages/bill/*` 2 个 · 3 个记账组件 · `shared/utils/bill-category.ts` · `server/utils/bill-input.ts` · `scripts/db-init.mjs` 的 DDL · `nuxt.config.ts`，**并删除 5 个门店文件**）⇒ **拿它跑第 5 步 = 记账功能白做 + 线上仍挂着要下线的门店模块**。
-> ~~旧包 `nz315-ycdb-1c6730a.tar.gz`（875,337 B）~~ 同样作废。
-> 🔎 **「包是否过期」的判据（这条知识仍然有效，别丢）**：`git archive` 在包首写一条 `pax_global_header`，内容 = `comment=<提交 sha>` ⇒ **同内容、不同提交打出来的包 SHA256 必然不同** ⇒ **判过期必须逐文件比内容，绝不能比 SHA256**；反之，**只要新提交没碰运行代码（纯 `docs/`、`.workbuddy/` 已被 `export-ignore` 剔出）旧包就仍可用** —— 记账功能**碰了运行代码**，所以这次结论是「**必须重打**」。
-> 执行单仍是 **24 号**（`dump → db-init --migrate-only → compare` 三明治 + 补列→构建→`pm2 reload nz315`）；⚠️ **但「本轮无需改流程」这句话只对 N2–N6 那轮成立** —— **记账这轮带的 DDL（`farm_bill`）与 §6/§7 里那几条 `/api/stores/nearby` 验收项**都要求 24 号**再改一次**（👉 新增一次 `--migrate-only`、换掉失效验收项、换包指纹），**改动清单见 29 号 §11**。
+> ⑤ ✅ **上线包已重打（记账版），可用**：`E:\software\workbuddy\文件存放处\2026-09-23-1431-ycdb记账版上线包\nz315-ycdb-f3c43e0.tar.gz`
+> （**670,620 B** / SHA256 `3044320885a60188d97ede38e104ea46025eddf788f2ad434e3817fb68d08d59` / **168 文件 + 55 目录** / 基线 `f3c43e0`；
+> 本机自验 **多出 0 / 缺失 0 / 泄漏 0 / 违规 0**，37 个关键文件逐个点名在位）。**基线含 N2–N6 五笔 + 记账四笔。**
+> ~~上一版 `nz315-ycdb-a573f09.tar.gz`（655,237 B）与 `nz315-ycdb-1c6730a.tar.gz`（875,337 B）~~ **两个都已作废**，
+> 已移入 `E:\software\workbuddy\文件存放处\_作废包-勿传（已过期）\` —— 它们**不含记账**，且 `a573f09` **还带着要下线的门店模块**。
+> 🔎 **「包是否过期」的判据（这条知识仍然有效，别丢）**：`git archive` 在包首写一条 `pax_global_header`，内容 = `comment=<提交 sha>` ⇒ **同内容、不同提交打出来的包 SHA256 必然不同** ⇒ **判过期必须逐文件比内容，绝不能比 SHA256**；反之，**只要新提交没碰运行代码（纯 `docs/`、`.workbuddy/` 已被 `export-ignore` 剔出）旧包就仍可用** —— 记账功能**碰了运行代码**，所以那次结论是「必须重打」。
+> ✅ **24 号执行单已同步改完**：文首新增「**2026-09-23 14:3x 修订**」块（**R1 换包 / R2 补跑 `--migrate-only` 建 `farm_bill` / R3 三处失效验收**），§0 指纹已换，§6.1、§N6①②③、§7' 三处 `nearby` 验收已改。**执行单仍是 24 号**（`dump → db-init --migrate-only → compare` 三明治 + 补列 → 构建 → `pm2 reload nz315`）。
+> **新的执行顺序（第 0–4 步已完成，不必重做）**：`上传新包 + sha256 校验 → 解包 → 补跑 node scripts/db-init.mjs --migrate-only → npm install → npm run build → pm2 reload nz315 → §6 验证（按 R3 新判据）→ 第 7 步 N3 计划任务 → 第 8 步部署标记`。
 > 上线后额外一件事：到宝塔加 **N3 的每日 03:00 巡检计划任务**（命令见 **24 号第 7 步**，必须用 `/usr/local/node22/bin/node` 绝对路径，**首次先不加 `--apply` 看量**）。
 > 📌 ✅ **内部文件外溢已解决**：`.gitattributes` 加了 `export-ignore`（`.workbuddy/` + `docs/handover/`，提交 `a573f09`）⇒
-> **新包里不再带** AI 记忆与内部交接手册（旧包带，共 40 个文件）。包内无真 `.env`（只有该带的 `.env.example`）。
+> **新包里不再带** AI 记忆与内部交接手册（本项目跟踪 209 个文件 − `export-ignore` 41 个 = 包内 **168** 个）。包内无真 `.env`（只有该带的 `.env.example`）。
 
 > ✅ **更正（2026-09-21 复核）：下面这个「待部署」块已过时 —— 09-19 那次部署是完整跑完的，线上已是加固版 + 工具 v1.2.0。**
 > 证据（本机直连公网实测）：① `POST https://www.nz315.cn/api/auth/login` 带恶意前缀 Origin `https://www.nz315.cn.evil.com`
