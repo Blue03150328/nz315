@@ -156,14 +156,25 @@ const ok = (msg) => console.log('OK    ' + msg);
 // 判据放宽为「只增不减」（**减少仍判 FAIL**——那可能意味着数据被删），且增长不计入 FAIL。
 // ⚠️ 2026-09-23 把 external_verification 也加进来：它天生是追加型，上线后每次核验都写一行；
 //    若不列进来，日后「已上线状态再重跑一次三明治」会把正常业务写入报成迁移污染（假 FAIL）。
-// ⚠️ 只有这三张是纯追加型；业务主数据表一律严格相等——seed 若被误跑，
+// ⚠️ 2026-09-23（记账那轮）把 farm_bill 也加进来：同属追加型 —— 消费者每记一笔就写一行，
+//    而且是**消费者本人的私人账本**，部署窗口里被写进去是完全正常的业务行为。
+// ⚠️ 只有这几张是纯追加型；业务主数据表一律严格相等——seed 若被误跑，
 //    enterprise / trace_code / product / batch / upload_batch / product_spec 必被命中，逃不掉。
-const ACTIVE_TABLES = ['scan_log', 'operation_log', 'external_verification'];
+const ACTIVE_TABLES = ['scan_log', 'operation_log', 'external_verification', 'farm_bill'];
 const grew = [];
 
 // 本次迁移**预期要新建**的表（白名单）：出现在这里的新表不算污染，但必须存在且为空表。
 // 每次带来「新建表」的上线，都要把新表名加进来；不在名单里的新表仍然判 FAIL。
-const EXPECTED_NEW_TABLES = ['external_verification'];
+// ---------------------------------------------------------------
+// 2026-09-23 入库两张（按上线批次先后）：
+//   ① external_verification —— ycdb 整线（已于 2026-09-23 11:49 上线）
+//   ② farm_bill            —— 农资记账轮（本次上线）
+// ⚠️ 名单是**累积**的：已经上线过的表仍要留在里面 —— 后续再跑三明治时它已存在于基线中，
+//    不会进 `extra`，但末尾那句「预期新建的表必须出现」仍会检查它还在（防被误删）。
+// ⚠️ 少了 ② 的后果：本次上线三明治第 ③ 步会打出
+//    `FAIL 出现了基线中不存在、且不在预期白名单里的新表: farm_bill` + 退出码 1 —— **假 FAIL**，
+//    而第 ④ 行的「新表为 0 行」真正该看的判据反而被这条红字盖住。
+const EXPECTED_NEW_TABLES = ['external_verification', 'farm_bill'];
 
 console.log('--- 1) 逐表行数（业务主数据必须严格相等；活跃日志表允许只增不减）---');
 for (const t of Object.keys(base.counts)) {
