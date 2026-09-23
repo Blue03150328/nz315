@@ -37,12 +37,6 @@ const CONFIG: Record<string, { title: string; subtitle: string; icon: string; gr
     icon: 'i-lucide-ban',
     gradient: 'from-destructive to-red-800',
   },
-  mismatch: {
-    title: '信息存疑',
-    subtitle: '扫码信息与包装标签标注可能存在不一致，可提交反馈',
-    icon: 'i-lucide-alert-triangle',
-    gradient: 'from-warning to-orange-700',
-  },
 }
 
 const cfg = computed(() => CONFIG[props.outcome.resultType] || CONFIG.frozen)
@@ -52,6 +46,12 @@ const batch = computed(() => props.outcome.batch)
 // 作废码不展示产品与批次信息（PRD 5.5.5）
 const showProductInfo = computed(() => props.outcome.resultType !== 'voided')
 
+// 反馈入口可见性（2026-09-23 N2 修复）：**除作废码外都可反馈**。
+// 原实现的门是 `outcome.resultType === 'mismatch'`，而 `trace.get.ts` **从不产出该值** ⇒ 入口永不出现；
+// 且那时点开也只弹「信息反馈功能建设中，敬请期待」（已删）。
+// 作废码是终态，不必收集反馈。
+const showFeedback = computed(() => props.outcome.resultType !== 'voided')
+
 const copyCode = async () => {
   try {
     await navigator.clipboard.writeText(props.outcome.code)
@@ -59,10 +59,6 @@ const copyCode = async () => {
   } catch {
     toast.add({ title: '复制失败，请手动选择复制', color: 'warning' })
   }
-}
-
-const handleFeedback = () => {
-  toast.add({ title: '信息反馈功能建设中，敬请期待', color: 'primary' })
 }
 </script>
 
@@ -140,11 +136,18 @@ const handleFeedback = () => {
         </div>
       </div>
 
-      <!-- 操作 -->
-      <div class="grid grid-cols-2 gap-3">
-        <UButton v-if="outcome.resultType === 'mismatch'" color="warning" size="lg" icon="i-lucide-message-square-warning" @click="handleFeedback">
-          提交反馈
-        </UButton>
+      <!-- 操作：反馈入口（2026-09-23 N2 修复 —— 除作废码外都可反馈，见 script 里 showFeedback 注释） -->
+      <div class="grid gap-3" :class="showFeedback ? 'grid-cols-2' : 'grid-cols-1'">
+        <TraceFeedback
+          v-if="showFeedback"
+          :code="outcome.code"
+          :result-type="outcome.resultType"
+          label="信息有误，点此反馈"
+          variant="outline"
+          color="warning"
+          size="lg"
+          icon="i-lucide-message-square-warning"
+        />
         <UButton variant="outline" color="neutral" size="lg" icon="i-lucide-arrow-left" @click="router.back()">
           返回
         </UButton>

@@ -9,6 +9,10 @@ export type TraceResultType =
   | 'frozen'         // 已冻结（异常标记）
   | 'voided'         // 已作废（异常标记）
   | 'mismatch'       // 扫码信息与标签不符（8类异常-7）
+                     // ⚠️ 当前 `trace.get.ts` **不产出**该值 —— 消费者反馈走 `POST /api/feedback`
+                     //    → 落 `risk_alert(alert_type=7)`，**不经过结果页类型**。
+                     //    保留类型是为对齐 PRD 8 类异常清单；**别据此在页面上写 `resultType === 'mismatch'` 的 `v-if` 门** ——
+                     //    2026-09-23 的 N2 缺陷就是被这一行骗的（按钮门挂在这里 ⇒ 永远不显示）。
 
 // 码状态（PRD 5.5.4 两状态模型）
 export type CodeStatus = 'generated' | 'bound' | null

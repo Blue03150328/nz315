@@ -1,4 +1,30 @@
 ## 变更记录
+### 2026-09-23 | feat：N2 —— 公众端「信息有误，点此反馈」入口真正可用（复用 risk_alert，零 DDL）
+- **结果一句话**：新增公众可写接口 `POST /api/feedback` + 新组件 `app/components/TraceFeedback.vue`，把反馈入口接到**正品页与异常页**。此前 `TraceAlert.vue` 的按钮门设在 `resultType === 'mismatch'`（而 `trace.get.ts` **从不产出**该值）⇒ 入口永不出现；且就算出现，点开只弹「信息反馈功能建设中，敬请期待」。**零 DDL / 零依赖 / 零 env**。
+- **★ 端到端验收（本机 3100 真打，全部实测）**：
+  | 场景 | 结果 |
+  |---|---|
+  | 码位数不足（31 位） | 400「追溯码格式不正确」✅ |
+  | 内容过短（<10 字） | 400「反馈内容请填写 10–500 字」✅ |
+  | 合法提交 | 200 `{"ok":true}`，落 `risk_alert(alert_type=7)`，evidence 含 `source / resultType / content / contact / scanTime / ip` ✅ |
+  | 同码 5 分钟内重复 | 429「该追溯码刚提交过反馈，请稍后再试」✅ |
+  | 合法提交 6 次（不同码） | 前 5 次 200、**第 6 次 429**「反馈提交过于频繁」✅ |
+  | 页面层 SSR 断言 | 正品页 **有**入口 ✅ / 登记证过期页 **有**入口 ✅ / **作废页无入口** ✅ |
+- **★ 真浏览器验证（按项目铁律，UI 变更必须真浏览器点一遍；`ui-shot.js` + CDP 探针实测三条）**：
+  | 页面 | 结果 |
+  |---|---|
+  | 正品页（genuine） | 入口「信息与包装标签不一致？点此反馈」可见；点击 → `[role="dialog"]` + `[data-slot="overlay"]` 出现、弹窗含 1 个 `textarea`；组件实例 `open=true` ✅ |
+  | 登记证过期页（reg-expired） | 入口「信息有误，点此反馈」可见；点击 → 弹窗打开、含 textarea、**空内容时「提交」按钮 `disabled=true`**（前端校验生效）✅ |
+  | 作废页（voided） | 页面上只有「复制」「返回」两个按钮，**无反馈入口** ✅ |
+- **★ 验证手法踩坑（两次假阴性后才定位，值得记）**：CDP `Runtime.evaluate` 里 `el.click()` **必须在 hydration 完成后才有效** —— 过早点击会落在「Vue 事件监听还没挂上」的按钮上，**静默无效果、无任何报错**（DOM 无变化、`console.error` 干净），极易被误判成「弹窗打不开 / 组件写错了」。可靠判据**不是等固定时长，而是等目标按钮已挂到对应组件实例**（`btn.__vueParentComponent` 向上找到 `type.__name === 'TraceFeedback'`）。另：`ui-shot.js` 的 `--js-file` 是把文件内容**当表达式直接执行**（`Runtime.evaluate({expression})`）⇒ **不能有顶层 `return` / `await`**，必须写成 `(async () => { … })()` IIFE，否则 SyntaxError 被静默吞掉（连 `JS>` 都不打印）。
+- **★ 实施中发现并修正的两个问题（都不是照抄 27 号方案）**：
+  1. **限流位置错了**：27 号把限流写在 Handler 最前 ⇒ 实测发现**连续几次 400 校验失败也会吃掉「5 次/小时」额度**，用户还没成功提交过一次就被锁 1 小时。⇒ 改为**放在入参校验之后**（400 路径**无任何副作用** —— 不落库、不发站内信、不打外部调用，不需要限流保护），并复验「连续 6 次校验失败全部 400 且额度未被消耗」✅。
+  2. 🔴 **`triggerAlert` 的合并键对非本平台码是错的**：它的合并条件是 `code_id <=> ?`，而**非本平台码的 `code_id` / `product_id` 恒为 NULL** ⇒ 所有非本平台码的反馈会被并成**同一条**记录（实测：6 个不同码 → 1 条记录 / `repeat_count=6`，且 `evidence` 被逐次**覆盖** ⇒ 后台既看不出有几个码被反馈、也看不到各自的反馈内容）。⇒ 改为**按 `code` 字符串合并**（`JSON_UNQUOTE(JSON_EXTRACT(evidence,'$.code'))`），本平台码与非本平台码一视同仁；**不动共用的 `triggerAlert`**（其他调用点各自有正确的区分键，改了反而引入风险）。复验：两个不同的非本平台码 → **两条独立记录** ✅；同一码跨 IP 再反馈 → **合并为 `repeat_count=2`** ✅。
+- **★ 三道业务边界（写进文件头）**：① **消费者提交的内容 = 线索，不是结论** —— 绝不自动把码标成"存疑/作废"，处理动作留在后台由人点（现有「已核实合规 / 已确认违规」）；② **非本平台码也允许反馈** ⇒ 落 `enterprise_id = null` 的预警；已核 `alerts.get.ts` 的 `platform_admin` 分支**不加企业过滤** ⇒ **平台管理员能看见（不是黑洞）**；③ **站内信骚扰风险**：同码合并 + 限流缓解，但攻击者可"换着码刷"（每个新码建一条预警 + 一条站内信）⇒ **限流是唯一防线**，若日后成灾再加"全局每小时上限"（本次不做）。
+- **★ 顺带的安全核查**：`deploy/nginx-nz315.conf:87` 有 `proxy_set_header X-Real-IP $remote_addr;` ⇒ **nginx 会覆盖客户端自带的 `x-real-ip`**；配合 `clientIpOf` 优先读 x-real-ip 的设计 ⇒ **生产环境限流无法靠伪造请求头绕过** ✅（本机 dev 无 nginx，可伪造头，属预期）。
+- **★ 保留 `'mismatch'` 类型但加警告注释**：`shared/types/trace.ts` 里该类型**没有任何产出方**，但为对齐 PRD 8 类异常清单保留；已就地加注释说明「别据此写 `v-if` 门 —— N2 缺陷就是被这一行骗的」。
+- **修改文件**：**新增** `server/api/feedback.post.ts` · **新增** `app/components/TraceFeedback.vue` · `app/components/TraceAlert.vue`（删死按钮与 stub、接真入口）· `app/components/TraceResult.vue`（正品页加入口）· `shared/types/trace.ts`（警告注释）· 本条目。**零 DDL / 零依赖 / 零 nginx / 零 `.env`**；需 build + reload。
+
 ### 2026-09-23 | fix：N4 —— 「登记证已过期 ⇒ 暂停绑定批次」（PRD 8 类异常-4）
 - **结果一句话**：新增**公共守卫** `server/utils/product-guard.ts` 的 `assertProductBindable(productId)`，插入 **3 个文件 / 4 处**绑定入口。此前 `registration_expire` 全仓库只出现在 4 处（`trace.get.ts` 只读判断 + `products.post.ts` / `products/[id].patch.ts` 写入），**4 个绑定入口全无该字段校验** ⇒ 已过期的登记证照样能绑批次，消费者扫码才看到红字。
 - **★ 端到端验收证据（双向，本机 3100 真打）**：

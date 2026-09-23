@@ -196,6 +196,20 @@ const handleShare = async () => {
         </div>
       </div>
 
+      <!-- 反馈入口（2026-09-23 N2 修复新增）：消费者要发现「信息与包装标签不符」，
+           **必须先在页面上看到产品信息**，而产品信息只在正品页（本组件）展示 ⇒
+           只把入口放在异常页 = 把最该反馈的人挡在外面。故正品页也放一个低调的文字入口。 -->
+      <div class="text-center">
+        <TraceFeedback
+          :code="outcome.code"
+          :result-type="outcome.resultType"
+          label="信息与包装标签不一致？点此反馈"
+          variant="link"
+          color="neutral"
+          size="sm"
+        />
+      </div>
+
       <!-- 操作 -->
       <UButton variant="outline" color="neutral" size="lg" icon="i-lucide-arrow-left" class="w-full" @click="router.back()">
         返回
