@@ -15,7 +15,7 @@
 > **连带收益**：高德 **POI 调用彻底消失** ⇒ 「匿名刷爆配额 ⇒ 连带绞杀 `scan_log.province` 写入 ⇒ P1-1 回死分支」这条路径**物理消除**，`AMAP_WEB_KEY` 现仅 `ip-geo` 一个调用方。
 > ⚠️ **代价（已接受，上线时要注意）**：**24 号执行单 §6/§7 里用 `/api/stores/nearby` 做的三条验收项全部失效**（删接口后必 404）；上线判据改看 `/api/bill` 与 `scan_log.province`。同理 **`grep -c AMAP_WEB_KEY` 那条前置检查的含义变窄**（只剩 ip-geo 在用，缺 key 时表现为静默不写省份，不再有 POI 报错可看）。
 > 五条要点，避免踩空：
-> ① **工作副本在 `ycdb` 分支，不是 `master`**（**截至 `d4d7a0a` 实测 = master + 53 提交 / 54 文件 / +6,828 −143**；记账那批提交后数字还会再涨）。
+> ① **工作副本在 `ycdb` 分支，不是 `master`**（**截至 `fde7194` 实测 = master + 58 提交 / 75 文件 / +8,941 −1,023**）。
 > ⚠️ **这个数字每次提交都在动，用前现测**：`git rev-list --count master..ycdb` + `git diff --shortstat master...ycdb`。
 > `ycdb` 上是**五件事**：**外部二维码核验** + **公众端扫码接入登记库比对**（新结果类型 `external-reg`）+
 > **异常场景扫码测试码脚本** `scripts/seed-abnormal-demo.mjs` + **N2–N6 缺陷修复**（公众反馈接口 / 巡检脚本 /
