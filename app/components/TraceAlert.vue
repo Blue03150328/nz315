@@ -136,6 +136,14 @@ const copyCode = async () => {
         </div>
       </div>
 
+      <!-- 一键举报（2026-09-23 新增）：本组件服务的是**异常结果**
+           （登记证过期 / 产品过有效期 / 重复查询 / 已冻结 / 已作废）。
+           此前页面上只有一句「请勿购买使用」，消费者看完没有任何下一步 ——
+           现在给出主管部门渠道（12316 热线 + 当地农业农村局），并把追溯码备好供其举报时提供。
+           ⚠️ 与「信息有误，点此反馈」是两个不同去向：反馈是「平台内纠错」（落 risk_alert 由企业核实），
+              举报是「找主管部门投诉」，两者不可互相替代。 -->
+      <TraceReport :code="outcome.code" block />
+
       <!-- 操作：反馈入口（2026-09-23 N2 修复 —— 除作废码外都可反馈，见 script 里 showFeedback 注释） -->
       <div class="grid gap-3" :class="showFeedback ? 'grid-cols-2' : 'grid-cols-1'">
         <TraceFeedback

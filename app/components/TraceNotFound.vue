@@ -116,6 +116,11 @@ const reasons = computed(() => {
         </div>
       </div>
 
+      <!-- 一键举报（2026-09-23 新增）：查无此码是最需要举报出口的一类结果
+           （横幅原文就是「二维码为伪造」）—— 此前消费者只能看到「联系人工客服」，
+           而页面上并没有任何客服联系方式，等于没有出路。 -->
+      <TraceReport :code="outcome.code" block />
+
       <!-- 操作 -->
       <div class="grid grid-cols-2 gap-3">
         <UButton variant="outline" color="neutral" size="lg" icon="i-lucide-arrow-left" @click="router.back()">
