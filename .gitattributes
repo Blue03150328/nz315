@@ -7,3 +7,15 @@
 deploy/*.sh   text eol=lf
 deploy/*.conf text eol=lf
 deploy/*.cjs  text eol=lf
+
+# 上线包排除（只作用于 `git archive` 的产物）
+# ---------------------------------------------------------------
+# `.workbuddy/memory/` 与 `docs/handover/` 是 AI 工作记忆与内部交接手册：
+# 服务器上不需要它们（运行期零引用），但 `git archive` 默认会一并打进去 ⇒
+# 上线包解包时把内部日志/手册外溢到生产目录。加 export-ignore 剔出去。
+#
+# ⚠️ export-ignore **只影响 `git archive`**，不影响 clone / checkout / 仓库本身，
+#    也不影响任何运行时代码的读取路径（已确认运行期不读这两个目录）。
+# ⚠️ 若日后新增内部文档目录，记得同样加一行，否则又会漏进包。
+.workbuddy/    export-ignore
+docs/handover/ export-ignore
