@@ -1,6 +1,6 @@
-# 24 · 部署执行单 —— ycdb 整线上线（外部二维码核验 + 公众端登记库比对 + P1-1 + 生成上限 50 万）
+# 24 · 部署执行单 —— ycdb 整线上线（外部二维码核验 + 公众端登记库比对 + P1-1 + 生成上限 50 万 + N2–N6 六条修复）
 
-> **生成时间**：2026-09-22 18:2x（本机 `E:\二维码管理`，分支 `ycdb`）
+> **生成时间**：2026-09-22 18:2x；**2026-09-23 11:0x 按重打的包全面更新（基线 `a573f09`）**
 > **用途**：你（大大怪）在**宝塔终端里逐条粘贴**照做，我在旁边读你贴回来的输出。
 >
 > **与 17 / 19 号的关系**：
@@ -9,11 +9,16 @@
 >   （本机已验证 `git merge-base --is-ancestor 68163bb ycdb` → 真）。**跑本文就够了，别再单独跑 19 号**，
 >   否则是同一份代码构建两遍。19 号的两条命令铁律仍然有效（已抄进本文 §1）。
 >
+> 🔴 **2026-09-23 重打说明（原包已作废）**：原包 `nz315-ycdb-1c6730a.tar.gz` **只到 `1c6730a`**，
+> **不含 09-23 的 N2–N6 六条修复**（其中 4 个提交改动运行代码）⇒ **照原包部署等于这一轮白干**。
+> 现已以 `a573f09` 重打，**指纹见 §0**。**旧包请勿使用、勿上传。**
+>
 > | 项 | 值 |
 > |---|---|
-> | **本次代码基线** | `1c6730a`（`ycdb` 分支；**功能提交是 `66b0f6b`**，其后 3 笔是文档/日志） |
+> | **本次代码基线** | **`a573f09`**（`ycdb` 分支；功能提交 = `66b0f6b`(P1-1) + 外码核验/登记库比对 一批 + **N2–N6 五笔 `27f1514`/`18b40f5`/`5a59478`/`d1dbf78`/`d38ba0a`**，其后为文档/记忆提交） |
 > | **服务器当前基线** | `02f4d5c`（09-19 那次部署，**已公网实证**，见下「开工前的事实」） |
-> | 本次性质 | **代码增量 + 有 DDL**（新表 1 张 + `risk_alert` 补 1 列 1 索引）· **零依赖变化** · **零 nginx 变化** · **不需要重传 90MB 工具包** · **不需要重新构建两次** · **不要求用户重新登录** |
+> | 本次范围（相对 `02f4d5c`） | **62 个文件 / +7,465 −168** |
+> | 本次性质 | **代码增量 + 有 DDL**（新表 1 张 + `risk_alert` 补 1 列 1 索引）· **零依赖变化** · **零 nginx 变化** · **不需要重传 90MB 工具包** · **不要求用户重新登录** · **新增 1 条宝塔计划任务（N3）** |
 
 ---
 
@@ -38,14 +43,18 @@
 
 | # | 项 | 值 |
 |---|---|---|
-| ① | 代码包 | `E:\software\workbuddy\文件存放处\2026-09-22-1819-ycdb整线上线\nz315-ycdb-1c6730a.tar.gz` |
-| | 字节数 | **875,337**（约 855 KB） |
-| | SHA256 | `5b6649c5309f95437b458280344b7f7fb06ee8cf50c4440186a8744166692495` |
-| | 包内 | **190 个文件 + 57 个目录**（已与 `git -c core.quotePath=false ls-tree -r 1c6730a` **双向**核对：包内多出 **0**、git 有而包内缺 **0**） |
-| | 不含 | `.env`（含就出大事）· `node_modules/` · `.output/` · `.nuxt/` · **`public/tools/*.exe`**（`git archive` 天然不带，本次也无需它） |
+| ① | 代码包 | `E:\software\workbuddy\文件存放处\2026-09-23-1057-ycdb重打上线包\nz315-ycdb-a573f09.tar.gz` |
+| | 字节数 | **655,237**（约 640 KB） |
+| | SHA256 | `9a67f3dd86c9e69595025bc71c240de72b1586cd7f435838cf878764a7bf37be` |
+| | 包内 | **161 个文件 + 54 个目录**（核对方式：`git ls-tree -r a573f09` = 201 个跟踪文件，**减去 `.gitattributes` 里 `export-ignore` 掉的 40 个** = 161；双向核对 **多出 0 / 缺失 0** ✅） |
+| | 不含 | `.env`（含就出大事）· `node_modules/` · `.output/` · `.nuxt/` · **`public/tools/*.exe`**（`git archive` 天然不带，本次也无需它）· 🆕 **`.workbuddy/memory/` 与 `docs/handover/`（共 40 个文件，本次新加 `export-ignore` 剔出）** |
 | | 依赖变化 | **零**（`package.json` / `package-lock.json` / `nuxt.config.ts` 相对服务器基线 `02f4d5c` **无差异** → `npm install` 应是秒级 `up to date`） |
 
-### 这个包里装的是服务器上 `02f4d5c` 之后**全部 35 个文件的改动**，可以概括成四块
+> 🆕 **本次包比原包小了 220 KB，是好事**：新加了 `.gitattributes` 的 `export-ignore`，
+> 把 **AI 工作记忆（`.workbuddy/memory/` 10 个）与内部交接手册（`docs/handover/` 30 个）** 剔出了上线包。
+> 原包会把它们一并解包到 `/var/www/nz315/`（不构成凭据泄露——包内**确认无真 `.env`**，但属不必要外溢）。
+
+### 这个包里装的是服务器上 `02f4d5c` 之后**全部 62 个文件的改动**，可以概括成六块
 
 | 块 | 内容 | 主要文件 |
 |---|---|---|
@@ -53,15 +62,18 @@
 | **② 后台「外部二维码核验」** | 拿别人的码 → 用国家登记资料库 `pesticide_reg` 当基准核验前 8 位；新后台页 + 历史列表 | `app/pages/admin/external-verify/index.vue`(新) · `server/api/admin/external-verify.post.ts`(新) · `server/api/admin/external-verifications.get.ts`(新) · `server/utils/external-verification.ts`(新) · `shared/types/external-verification.ts`(新) · `app/layouts/admin.vue` |
 | **③ 公众端扫码接入登记库比对** | 扫到**别人平台**的码时不再只回「未查询到」，而是给编码结构解析 + 登记资料比对（新结果类型 `external-reg`）；`/scan` 不再静默丢弃非本平台二维码 | `shared/utils/unit-code.ts`(新) · `shared/utils/trace-code.ts`(新) · `server/utils/registry-lookup.ts`(新) · `app/components/TraceExternal.vue`(新) · `app/components/TraceNotFound.vue` · `app/pages/{scan,trace}.vue` · `app/composables/useQrScanner.ts` |
 | **④ P1-1 修复** | `scan_log.province` / `city` 此前**只有读没有写** ⇒「重复查询」在真实链路永不触发；现用高德 IP 定位补齐（缓存命中即写、首见 IP 后台异步补） | `server/utils/ip-geo.ts`(新) · `server/api/trace.get.ts` |
+| 🆕 **⑤ N2–N6 六条修复**（09-23 新增，**原包没有**） | **N2** 公众端反馈入口真正可用（新增 `POST /api/feedback` + 反馈组件，复用 `risk_alert` 零 DDL）· **N3** 每日定时巡检脚本（类型 3/4/6，**需单独加计划任务，见第 7 步**）· **N4** 登记证过期 ⇒ 暂停绑定批次 · **N5** 首页统计由硬编码 `128630/42` 改为真实计数 · **N6①②③** `/api/stores/nearby` 防御加固（缓存封顶 + 坐标校验 + 同 IP 限流） | `server/api/feedback.post.ts`(新) · `app/components/TraceFeedback.vue`(新) · `server/utils/product-guard.ts`(新) · `server/utils/rate-limit.ts`(新) · `scripts/inspect-daily.mjs`(新) · `server/api/stats.get.ts` · `server/api/stores/nearby.get.ts` · `app/components/{TraceAlert,TraceResult}.vue` |
 | （附带） | 异常场景扫码测试码脚本（**⚠️ 禁止在生产跑，见 §6'**）、各条线的交接文档 | `scripts/seed-abnormal-demo.mjs`(新) · `docs/handover/{18,19,20,21,22,23}.md` |
 
 ### 包里**没有**的东西（本次刻意不含）
 
-任何依赖变更 · nginx 配置 · `public/tools` 下的 EXE · **`docs/handover/24-…（本文）`**。
+任何依赖变更 · nginx 配置 · `public/tools` 下的 EXE · **AI 记忆与内部交接手册（本次新增 `export-ignore` 剔出）** · **`docs/handover/24-…（本文）`**。
 
-> 🔴 **本文不在包里** —— 本次是「**先提交代码 → 再打包 → 最后写文档**」的顺序（**刻意的**：本文要写死包的 SHA256，
-> 若把本文也打进包里，包一变、SHA256 就自我矛盾）。**服务器上不会出现 24 号，执行一律以本机这份为准。**
-> 同理**别在服务器上找 24 号**。
+> 🔴 **本文不在包里，而且这次是"双重不在"**：
+> ① **顺序使然** —— 本次仍是「**先提交代码 → 再打包 → 最后写文档**」（刻意的：本文要写死包的 SHA256，
+>   若把本文也打进包里，包一变、SHA256 就自我矛盾）；
+> ② 🆕 **`.gitattributes` 的 `export-ignore`** —— `docs/handover/` 整个目录都不进包。
+> ⇒ **服务器上不会出现 24 号，执行一律以本机这份为准，别在服务器上找 24 号。**
 
 ---
 
@@ -79,10 +91,12 @@
    而 `npm` 不加前缀会用到系统的旧 Node，构建会失败。
 5. ✅ **本次不需要用户重新登录。** `git diff 02f4d5c..ycdb -- server/utils/auth.ts` **为空** ⇒ token 格式一字未动。
    （09-19 那次换成三段 token 时已要求全员重登过。）**若有人被要求重登，那不是本次预期，贴我。**
+6. 🆕 **本次多了一件"部署之后才做"的事：加 N3 的每日巡检计划任务**（第 7 步）。
+   它**不参与构建**（纯独立脚本，不经 HTTP），所以第 5 步的 build 与它无关；漏了它 = N3 这条修复等于没上。
 
 ---
 
-## 2. 总览（共 7 步，约 20–25 分钟；第 5 步的 build 是大头）
+## 2. 总览（共 9 步，第 0 步为只读体检；约 25–30 分钟，第 5 步的 build 是大头）
 
 | 步 | 动作 | 能否中断 |
 |---|---|---|
@@ -92,8 +106,9 @@
 | 3 | 解包 + 核对（PM2 配置 / 工具包仍在 / 新文件落地） | 随时 |
 | 4 | ★ **数据库结构变更**（三明治：基线 → 迁移 → 比对） | 随时（步后即可回滚） |
 | 5 | `npm install` → `npm run build` → `pm2 reload nz315` | 构建中别断电 |
-| 6 | 验证（终端 + 公网 before/after + 生成页 + P1-1 + 库未污染） | — |
-| 7 | 写部署标记 | — |
+| 6 | 验证（终端 + 公网 before/after + 生成页 + 外码核验 + P1-1 + **N2–N6** + 库未污染） | — |
+| 7 | 🆕 **加 N3 每日巡检计划任务**（先 dry-run 看量，再加 `--apply`） | 随时 |
+| 8 | 写部署标记 | — |
 
 ---
 
@@ -147,7 +162,7 @@ $M --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NA
 ### 1.1 备份代码（整段粘贴）
 
 ```bash
-TS=$(date +%Y%m%d-%H%M%S); B=/root/nz315-backup-1c6730a-$TS; mkdir -p $B
+TS=$(date +%Y%m%d-%H%M%S); B=/root/nz315-backup-a573f09-$TS; mkdir -p $B
 cd /var/www/nz315
 cp -a .env .deploy-version package.json package-lock.json $B/
 cp -a deploy $B/deploy-server-corrected
@@ -158,7 +173,7 @@ pm2 save
 echo "====== 备份目录: $B ======"; ls -lh $B; echo "TS=$TS"
 ```
 
-**期望**：打印 `备份目录: /root/nz315-backup-1c6730a-20260922-xxxxxx`，里面能看到 `.env`、`src.tar.gz`、
+**期望**：打印 `备份目录: /root/nz315-backup-a573f09-20260923-xxxxxx`，里面能看到 `.env`、`src.tar.gz`、
 `deploy-server-corrected/`、`pm2-describe.txt`。
 
 > 👉 **把打印出来的 `TS=...` 记到手机备忘录** —— 回滚全靠它。
@@ -193,45 +208,52 @@ ls -lh $B/db-$DB_NAME.sql.gz
 ## 第 2 步 · 上传代码包 + 校验
 
 1. 宝塔面板 → **文件** → 地址栏输入 `/tmp` 回车
-2. 点 **上传** → 选 `E:\software\workbuddy\文件存放处\2026-09-22-1819-ycdb整线上线\nz315-ycdb-1c6730a.tar.gz`
+2. 点 **上传** → 选 `E:\software\workbuddy\文件存放处\2026-09-23-1057-ycdb重打上线包\nz315-ycdb-a573f09.tar.gz`
 3. 传完回终端：
 
 ```bash
 ls -l /tmp/*.tar.gz
-sha256sum /tmp/nz315-ycdb-1c6730a.tar.gz
+sha256sum /tmp/nz315-ycdb-a573f09.tar.gz
 ```
 
-**先做一次清理（防手滑解错包）**：
+**先做一次清理（防手滑解错包 —— 尤其别把 09-22 那个旧包传上去）**：
 
 ```bash
-rm -f /tmp/nz315-master-68163bb.tar.gz /tmp/nz315-master-02f4d5c.tar.gz /tmp/nz315-master-933a12a.tar.gz
+rm -f /tmp/nz315-ycdb-1c6730a.tar.gz /tmp/nz315-master-68163bb.tar.gz /tmp/nz315-master-02f4d5c.tar.gz /tmp/nz315-master-933a12a.tar.gz
 ls -l /tmp/*.tar.gz
 ```
 
 **期望（必须逐字符一致）**
 
 ```
-5b6649c5309f95437b458280344b7f7fb06ee8cf50c4440186a8744166692495  /tmp/nz315-ycdb-1c6730a.tar.gz
--rw-r--r-- ... 875337 ... /tmp/nz315-ycdb-1c6730a.tar.gz
+9a67f3dd86c9e69595025bc71c240de72b1586cd7f435838cf878764a7bf37be  /tmp/nz315-ycdb-a573f09.tar.gz
+-rw-r--r-- ... 655237 ... /tmp/nz315-ycdb-a573f09.tar.gz
 ```
 
-且清理后 `/tmp/*.tar.gz` **只剩 `nz315-ycdb-1c6730a.tar.gz` 这一个**。
+且清理后 `/tmp/*.tar.gz` **只剩 `nz315-ycdb-a573f09.tar.gz` 这一个**。
 
-👉 **SHA256 对不上就别往下走**，删掉重传（855 KB 的东西传坏概率不小，传坏了极难排查）。
+👉 **SHA256 对不上就别往下走**，删掉重传（640 KB 的东西传坏概率不小，传坏了极难排查）。
+👉 ⚠️ **同名之外还要看"大小"**：旧包是 **875,337** 字节、新包是 **655,237** —— 两个数都对得上才算拿对了包。
 
 ---
 
 ## 第 3 步 · 解包 + 核对四件事
 
 ```bash
-tar xzf /tmp/nz315-ycdb-1c6730a.tar.gz -C /var/www/nz315
+tar xzf /tmp/nz315-ycdb-a573f09.tar.gz -C /var/www/nz315
 echo "解包完成"
 grep -nE "PORT|interpreter" /var/www/nz315/deploy/ecosystem.config.cjs
 ls -l /var/www/nz315/public/tools/
 ls -l /var/www/nz315/server/utils/ip-geo.ts /var/www/nz315/server/utils/registry-lookup.ts \
       /var/www/nz315/shared/utils/unit-code.ts /var/www/nz315/shared/utils/trace-code.ts \
       /var/www/nz315/app/components/TraceExternal.vue /var/www/nz315/scripts/seed-abnormal-demo.mjs
-node -e "const s=require('fs').readFileSync('/var/www/nz315/server/api/trace.get.ts','utf8');console.log('trace.get.ts 含 province 写入:', s.includes('province, city'));console.log('含 clientIpOf:', s.includes('clientIpOf'));"
+echo "---- 以下 5 个是 09-23 新增（N2–N6），旧包没有 ----"
+ls -l /var/www/nz315/server/api/feedback.post.ts /var/www/nz315/app/components/TraceFeedback.vue \
+      /var/www/nz315/server/utils/product-guard.ts /var/www/nz315/server/utils/rate-limit.ts \
+      /var/www/nz315/scripts/inspect-daily.mjs
+node -e "const fs=require('fs');const R=(p)=>fs.readFileSync(p,'utf8');console.log('trace.get.ts 含 province 写入:', R('/var/www/nz315/server/api/trace.get.ts').includes('province, city'));console.log('含 clientIpOf:', R('/var/www/nz315/server/api/trace.get.ts').includes('clientIpOf'));console.log('stats.get.ts 已去硬编码:', !R('/var/www/nz315/server/api/stats.get.ts').includes('128630'));console.log('nearby 含限流:', R('/var/www/nz315/server/api/stores/nearby.get.ts').includes('allowRequest'));console.log('feedback 接口存在:', fs.existsSync('/var/www/nz315/server/api/feedback.post.ts'));"
+echo "---- 确认内部文档没被解包到服务器（应为 No such file） ----"
+ls -d /var/www/nz315/docs/handover /var/www/nz315/.workbuddy 2>&1 | tail -2
 ```
 
 **期望**
@@ -241,10 +263,12 @@ node -e "const s=require('fs').readFileSync('/var/www/nz315/server/api/trace.get
 | 解包 | 打印 `解包完成` |
 | PM2 配置 | 同时出现 **`PORT: 3100`** 和 **`interpreter: '/usr/local/node22/bin/node'`**（该文件与线上相同，属核对性质） |
 | `public/tools/` | **仍只列出 `nz315-qr-tool-v1.2.0.exe`（`95035957` 字节）** —— 解包不会删它（tar 里没有这个文件，只覆盖同名文件） |
-| 6 个新文件 | 全部**存在**（`ip-geo.ts` 约 8353 B · `registry-lookup.ts` 约 6694 B · `unit-code.ts` 约 3016 B · `trace-code.ts` 约 2464 B · `TraceExternal.vue` 约 11911 B · `seed-abnormal-demo.mjs` 约 29428 B） |
-| `node -e` 两行 | 均打印 **`true`** ⇒ P1-1 的代码确实落地了 |
+| 6 个（外码/P1-1）新文件 | 全部**存在**（`ip-geo.ts` 约 8353 B · `registry-lookup.ts` 约 6694 B · `unit-code.ts` 约 3016 B · `trace-code.ts` 约 2464 B · `TraceExternal.vue` 约 11911 B · `seed-abnormal-demo.mjs` 约 29428 B） |
+| 🆕 5 个 N2–N6 新文件 | `feedback.post.ts` 约 7859 B · `TraceFeedback.vue` 约 4624 B · `product-guard.ts` 约 3196 B · `rate-limit.ts` 约 2346 B · `inspect-daily.mjs` 约 13894 B —— **缺任一 ⇒ 你传的是旧包** |
+| `node -e` 五行 | **全部 `true`** ⇒ P1-1 / N2 / N5 / N6 的代码确实落地了 |
+| 最后一个 `ls -d` | **两行都是 `No such file or directory`** ⇒ `export-ignore` 生效，内部手册与 AI 记忆**没有**被解包到服务器 ✅ |
 
-🔴 **若有任一文件不存在、或那两行不是 `true`** → 包传错了或没解包成功，**停手贴我**，别往下走。
+🔴 **若有任一文件不存在、或五行里出现 `false`** → 包传错了或没解包成功，**停手贴我**，别往下走。
 
 ---
 
@@ -341,6 +365,9 @@ pm2 reload nz315
 
 **本次没有 5.0**（不用放工具包，线上已是 v1.2.0 且在 build 之前就已就位，见 18 号文档）。
 
+🆕 **关于 N3 的巡检脚本**：`scripts/inspect-daily.mjs` **随包上传即可，不参与 build**（纯独立 Node 脚本，不经 HTTP、不被 Nitro 打包）。
+它在第 3 步解包时就已落到 `/var/www/nz315/scripts/inspect-daily.mjs`，**第 7 步再去加计划任务**。
+
 - ❌ **不要用 `npm ci`**（全量重装 780+ 包，10 分钟起步，3.5G 内存的机器容易 OOM）
 - ❌ **不要改 `.env`**（改了必须重新 build 才生效）
 - ❌ **不要 `pm2 restart` / `kill` / `delete`**，只要 `reload nz315`
@@ -360,10 +387,16 @@ curl -s -o /dev/null -w '恶意Origin    : %{http_code}（期望 403）\n' -X PO
 curl -s -o /dev/null -w '同站Origin    : %{http_code}（期望 401）\n' -X POST -H 'Origin: http://127.0.0.1:3100' -H 'Content-Type: application/json' -d '{"username":"nobody","password":"x"}' http://127.0.0.1:3100/api/auth/login
 curl -s -o /dev/null -w 'cynx 未受影响 : %{http_code}（期望 301）\n' -H 'Host: www.cynx.cn' http://127.0.0.1/
 curl -sI https://www.nz315.cn/tools/nz315-qr-tool-v1.2.0.exe | grep -Ei 'HTTP/|content-length'
+echo "---- N5：统计不再是伪造数字 ----"
+curl -s http://127.0.0.1:3100/api/stats; echo
+echo "---- N6：非法坐标应 200 且 located:false（且很快）----"
+curl -s -w '\n耗时 %{time_total}s\n' 'http://127.0.0.1:3100/api/stores/nearby?lng=999&lat=999'
 ```
 
 **期望**：五个 http code 依次为 `200 / 200 / 403 / 401 / 301`，最后一个 `HTTP/2 200` + `content-length: 95035957`；
-`pm2 list` 里 **`cynx` 和 `nz315` 双双 online**。
+`pm2 list` 里 **`cynx` 和 `nz315` 双双 online**；
+`/api/stats` 返回**真实两个小数字**（或极端情况下 `{"totalQueries":null,...}`）——**绝不能是 `128630`**；
+`nearby` 返回 `{"located":false,"rows":[]}` 且耗时 **< 100 ms**（非法坐标会在打高德**之前**短路，不烧配额）。
 
 ### 6.2 ★ 公网 before/after 判据：**同一个 URL，响应必须变样**
 
@@ -473,15 +506,138 @@ SELECT COUNT(*) AS external_verification_rows FROM external_verification;"
 
 ---
 
-## 第 7 步 · 写部署标记（沿用服务器现有键名）
+### 6.8 ★ 🆕 N2–N6 六条修复的验收（**线上只跑"不写库"的那几种，别污染生产**）
+
+> 🔴 **原则**：生产库上**只做只读断言**。凡会写库的用例，下面都给出「可选 + 清理 SQL」，**默认不跑**。
+
+### N5 ✅ 首页伪造统计（已含在 6.1 里）
+`/api/stats` 不再返回 `128630/42`。再补一条"公网首页也不该出现这个数"：
+
+```bash
+curl -s https://www.nz315.cn/ | grep -c 128630
+```
+**期望**：输出 **`0`**（旧版线上是 `1` 或更多 —— 这一个数字就是 N5 的 before/after 判据）。
+
+### N6①②③ ✅ 附近门店防御（已含在 6.1 里）
+非法坐标 → `200 {"located":false,"rows":[]}` 且 **< 100ms**。
+再验限流（**故意用非法坐标，这样不会消耗高德配额**）：
+
+```bash
+for i in $(seq 1 40); do
+  code=$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:3100/api/stores/nearby?lng=999&lat=999')
+  printf '%s ' "$code"
+done; echo
+```
+**期望**：前 30 次 `200`，**第 31 次起变成 `429`**（阈值是「同 IP 30 次/分钟」）。
+
+### N2 ✅ 公众端反馈入口（**默认只验不写库的部分**）
+
+**① 页面入口存在（只读，SSR 断言）**
+
+```bash
+for c in genuine voided; do
+  echo "---- $c ----"
+  curl -s "https://www.nz315.cn/trace?code=$(date +%s)0000000000000000000000000" >/dev/null 2>&1 || true
+done
+# 用真实码验（有码才跑；把 CODE 换成 /var/www/nz315 库里任一个真码）
+CODE=$($M --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" -N -B -e "SELECT code FROM trace_code WHERE status=2 LIMIT 1;")
+echo "取样码: $CODE"
+curl -s "https://www.nz315.cn/trace?code=$CODE" | grep -o '点此反馈' | head -1
+```
+**期望**：打印出 **`点此反馈`**（旧版线上**一个字都没有** —— 这是 N2 的判据）。
+
+**② 入参校验（400 路径，**零写入**，随便打）**
+```bash
+curl -s -o /dev/null -w '31位码        : %{http_code}（期望 400）\n' -X POST -H 'Content-Type: application/json' -d '{"code":"1234567890123456789012345678901","content":"这条是要反馈的内容够十个字了"}' http://127.0.0.1:3100/api/feedback
+curl -s -o /dev/null -w '内容过短      : %{http_code}（期望 400）\n' -X POST -H 'Content-Type: application/json' -d '{"code":"12345678901234567890123456789012","content":"太短"}' http://127.0.0.1:3100/api/feedback
+```
+**期望**：两个都是 **400**（400 路径**不落库、不发站内信、不打外部调用**，所以随便打、不吃限流额度）。
+
+**③（可选，**会写库**）真提交一次**
+```bash
+curl -s -X POST -H 'Content-Type: application/json' -d '{"code":"12345678901234567890123456789012","content":"【部署验证】测试反馈，可删除，内容已够十个字"}' http://127.0.0.1:3100/api/feedback; echo
+```
+**期望**：`{"ok":true}`。然后清理（**不清理就是一条垃圾工单**）：
+```bash
+$M --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" -e "
+SELECT id, alert_type, handle_status, LEFT(evidence,80) FROM risk_alert WHERE alert_type=7 ORDER BY id DESC LIMIT 3;
+-- 确认上面那行的 evidence 里 code=12345678901234567890123456789012 后，再执行下面这句删除：
+-- DELETE FROM risk_alert WHERE alert_type=7 AND JSON_UNQUOTE(JSON_EXTRACT(evidence,'\$.code'))='12345678901234567890123456789012';"
+```
+> 💡 **建议**：线上**跳过 ③**。N2 的写路径在本机 dev 已端到端验过（含四态校验、同码/同 IP 双限流、真浏览器三条页面），
+> 生产上验到 ①② 就够证明"代码上线了且入口可达"。
+
+### N4 ✅ 登记证过期 ⇒ 暂停绑定（**先看影响面，不必造数据**）
+
+```bash
+$M --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" -e "
+SELECT COUNT(*) AS 已过期产品数 FROM product WHERE registration_expire IS NOT NULL AND registration_expire < CURDATE();
+SELECT id, name, registration_no, registration_expire FROM product WHERE registration_expire IS NOT NULL AND registration_expire < CURDATE() LIMIT 5;"
+```
+**期望**：一个数 + 若干行（**可能是 0**）。这个数是**上线后会"以前能绑、现在被拦"的产品量**——
+> ⚠️ **这是预期行为，不是故障**（PRD 8类异常-4 的要求就是这个）。数很大时先跟业务确认，别急着回滚。
+> 想验 400 文案：后台 → 码库 → 对一个**已过期产品**的码点【换绑批次】，应报
+> `该产品登记证（XXX）已于 YYYY-MM-DD 到期，不可绑定生产批次，请先更新登记证有效期`。
+
+### N3 ✅ 每日巡检（**第 7 步做，且首次必须 dry-run**）
+
+---
+
+## 第 7 步 · 🆕 加 N3 每日巡检计划任务（**先 dry-run 看量，再加 `--apply`**）
+
+**这一步不做，N3 这条修复等于没上**（脚本已在服务器上，但没有任何东西会定时跑它）。
+
+### 7.1 先 dry-run（**只读，绝不写库**）
+
+```bash
+cd /var/www/nz315
+env PATH=/usr/local/node22/bin:/usr/bin:/bin node scripts/inspect-daily.mjs
+```
+
+**期望**：打印巡检结果 —— 它会列出**待写入的预警条数**（按类型 3 登记证号不存在 / 4 登记证已过期 / 6 生产厂家不符），
+并明确说明这是 **dry-run、未写任何数据**。结尾应能看到 `待写入 N 条` 之类的统计。
+
+🔴 **`N` 很大（比如几百上千）时先停下来贴我** —— 先决定是「全量落库」还是「只记日志不上预警」，
+再决定要不要加 `--apply`。**别在一个数字都没看清之前就把计划任务配上。**
+
+### 7.2 加计划任务（宝塔面板 → 计划任务）
+
+- 任务类型：**Shell 脚本**
+- 任务名称：`nz315 每日巡检`
+- 执行周期：**每天 03:00**
+- 脚本内容：
+
+```bash
+/usr/local/node22/bin/node /var/www/nz315/scripts/inspect-daily.mjs --apply >> /www/wwwlogs/nz315-inspect.log 2>&1
+```
+
+> ⚠️ **必须用 `/usr/local/node22/bin/node` 绝对路径** —— 系统 `node` 是 v20（cynx 在用那套），
+> 与 PM2 的 per-app 解释器保持一致最稳。
+
+### 7.3 加完手动触发一次，确认真的能跑
+
+```bash
+/usr/local/node22/bin/node /var/www/nz315/scripts/inspect-daily.mjs --apply
+echo "退出码: $?"
+tail -5 /www/wwwlogs/nz315-inspect.log
+$M --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" -e "
+SELECT alert_type, COUNT(*) FROM risk_alert WHERE alert_type IN (3,4,6) GROUP BY alert_type;"
+```
+**期望**：退出码 `0`；日志里出现一次巡检记录；`risk_alert` 里出现 `alert_type` 为 3/4/6 的行（**之前的库这些类型通常是 0 行**）。
+
+👉 **再来一次 `--apply` 应该「待写入 0 条」**（30 天冷却生效）—— 这是幂等性判据，**强烈建议跑两次确认**。
+
+---
+
+## 第 8 步 · 写部署标记（沿用服务器现有键名）
 
 ```bash
 cat > /var/www/nz315/.deploy-version <<EOF
 deploy_time=$(date '+%Y-%m-%d %H:%M:%S %z')
-code_base=02f4d5c → 1c6730a (ycdb 分支：外部二维码核验 + 公众端扫码接入登记资料库比对(新结果类型 external-reg) + P1-1 补齐 scan_log.province/city 写入 ; 本包同时含 68163bb 的生成上限 1万→50万)
+code_base=02f4d5c → a573f09 (ycdb 分支：外部二维码核验 + 公众端扫码接入登记资料库比对(新结果类型 external-reg) + P1-1 补齐 scan_log.province/city 写入 + N2 公众反馈入口 + N3 每日巡检脚本 + N4 登记证过期不绑批次 + N5 首页真实统计 + N6 nearby 防御加固 ; 本包同时含 68163bb 的生成上限 1万→50万)
 backup_dir=$B
 previous_dir=/var/www/nz315/.output.bak-$TS
-note=含 DDL（新表 external_verification + risk_alert 补列 external_verification_id 与索引 idx_external_verification，已用 --migrate-only + verify-db-migration 三明治证明零写入）；零依赖变化；未改 nginx；未重传 public/tools；未动 token 格式故不要求用户重新登录；回滚只需切回 .output.bak-$TS
+note=含 DDL（新表 external_verification + risk_alert 补列 external_verification_id 与索引 idx_external_verification，已用 --migrate-only + verify-db-migration 三明治证明零写入）；零依赖变化；未改 nginx；未重传 public/tools；未动 token 格式故不要求用户重新登录；包内已 export-ignore 掉 .workbuddy/ 与 docs/handover/；已加宝塔计划任务 nz315 每日巡检（03:00）；回滚只需切回 .output.bak-$TS
 EOF
 cat /var/www/nz315/.deploy-version
 ```
@@ -490,7 +646,7 @@ cat /var/www/nz315/.deploy-version
 > 换过终端导致变量丢了就重取：
 > ```bash
 > TS=$(ls -d /var/www/nz315/.output.bak-* | sed 's|.*/\.output\.bak-||' | tail -1)
-> B=$(ls -d /root/nz315-backup-1c6730a-* | tail -1)
+> B=$(ls -d /root/nz315-backup-a573f09-* | tail -1)
 > echo "TS=$TS"; echo "B=$B"
 > ```
 
@@ -510,7 +666,7 @@ pm2 reload nz315
 **彻底回到改动前（约 5 分钟：恢复源码 + 恢复数据库 + 重建）**
 
 ```bash
-B=/root/nz315-backup-1c6730a-<你的TS>
+B=/root/nz315-backup-a573f09-<你的TS>
 cd /var/www/nz315
 tar xzf $B/src.tar.gz -C /var/www/nz315
 cp -a $B/.env .env
@@ -520,6 +676,9 @@ env PATH=/usr/local/node22/bin:/usr/bin:/bin npm install --no-audit --no-fund
 env PATH=/usr/local/node22/bin:/usr/bin:/bin npm run build
 pm2 reload nz315
 ```
+
+> ⚠️ **回滚代码不会撤销宝塔那条计划任务** —— 若已加，请到「计划任务」里把 `nz315 每日巡检` **暂停或删除**
+> （旧代码里没有 `scripts/inspect-daily.mjs` 的调用方，但脚本本身是独立的，留着会继续按 30 天冷却写预警）。
 
 **数据库要不要回滚？** —— **只回代码就不用**：本次三样 DDL **全是追加式**（新表 + **可空**新列 + 新索引），
 **旧代码完全不认识它们也不受影响**，留着不碍事。
@@ -552,14 +711,29 @@ gunzip -c $B/db-$DB_NAME.sql.gz | $M --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"
 | 6.6 的 `province` 仍为空 | ① 高德 key 没生效；② 扫的码不是本平台码（只读分支不写日志）；③ 异步补齐还没跑完 | 先 `SELECT ip_location FROM scan_log ORDER BY id DESC LIMIT 1` 看是不是你的公网 IP —— 若是 `127.0.0.1` 说明请求没走 nginx（贴我）；若是公网 IP 但 `province` 空 → 等 2 秒再看，仍空则贴我 |
 | **cynx 打不开了** | ⚠️ 危险信号 | 立刻检查有没有执行过 `pm2 kill` / `pm2 delete all`；把 `/root/nz315-backup-*/pm2-describe.txt` 贴我 |
 | `pm2: command not found` | 登录 shell 的 PATH 异常 | 先 `which pm2`；**千万别**给它加 `env PATH=...` 前缀（Node 版本不一致会让 PM2 重建 daemon，cynx 跟着挂） |
+| 🆕 解包后 `server/api/feedback.post.ts` 等 5 个文件**不存在** | **你传的是 09-22 的旧包** 🔴 | 停手。`ls -l /tmp/*.tar.gz` 看字节数：**新包 655237 / 旧包 875337**。删掉重传 `nz315-ycdb-a573f09.tar.gz`（本文 §2） |
+| 🆕 服务器上出现了 `docs/handover/` 或 `.workbuddy/` | 包不对（`export-ignore` 没生效） | 同上：传的是旧包。新包**不该**含这两个目录（第 3 步有核对命令） |
+| 🆕 `/api/stats` 仍返回 `128630` | 构建没跑到 / reload 没生效 | 回第 5 步重跑 `npm run build` + `pm2 reload nz315`；再 `curl -s https://www.nz315.cn/ \| grep -c 128630` 应为 `0` |
+| 🆕 `/trace` 页面搜不到「点此反馈」 | 同上 | 同上；另确认扫的是**本平台已绑定的码**（作废码故意没有入口） |
+| 🆕 `nearby?lng=999&lat=999` 返回 **400**（而不是 200 + `located:false`） | 包不对（旧版没有坐标校验） | 按 §2 重传新包；旧版是**透传给高德**的，会白烧配额 |
+| 🆕 N3 计划任务日志报 `command not found` / `Cannot find module` | 用了系统 `node`（v20） | 计划任务里**必须**写 `/usr/local/node22/bin/node` 绝对路径（第 7.2 步） |
+| 🆕 N3 第一次 `--apply` 就写了**几百上千条**预警 | 线上存量过期/证号缺失产品很多 | **不是故障**，但先停手贴我 —— 决定是保留还是清掉（`risk_alert` 里 `evidence` 带 `source:'daily-inspection'` 可精确识别） |
 
 ---
 
 ## 6'. 🔴 本次部署**不包含**的待办（别顺手一起做，风险要隔离）
 
+> 🆕 **先说清本次"包含了什么"**：26 号复查挖出的 **N2 / N3 / N4 / N5 / N6①②③ 六条已全部修完并随本包上线**
+> （提交 `27f1514`/`18b40f5`/`5a59478`/`d1dbf78`/`d38ba0a`，细节见 **28 号**）。
+> **仍然没做的**：**N1**（建档不校验登记证号 —— 存量由 N3 巡检类型 3 兜住）·
+> **N7**（`registry-lookup` 注释与实现相反，P2，实测当前不构成故障）·
+> **N6④** 拆高德 key 与 **N6-b** 搜索框（用户裁定：附近门店模块**可能整体下架**改农资记账，故不投入）。
+> ⚠️ **代价要知道**：N6④ 没做 ⇒ POI 与 `ip-geo` 仍共用一把 key ⇒ **配额被打爆时 `scan_log.province` 会静默写不进去，
+> P1-1 会退回死分支**（表现为「重复查询」不再触发，且不报错）。
+
 | 优先级 | 事项 | 说明 |
 |---|---|---|
-| 🔴 **禁令** | **绝对不要在生产跑 `node scripts/seed-abnormal-demo.mjs`** | 它的硬安全闸只拦「`DB_HOST` 不是本机」—— 而**服务器的 `DB_HOST` 正是 `127.0.0.1`** ⇒ **闸门会放行，脚本会往生产库写入演示企业/产品/批次/9 条演示码**。它是**开发库专用**工具，生产上永远不要执行 |
+| 🔴 **禁令** | **绝对不要在生产跑 `node scripts/seed-abnormal-demo.mjs`** | 它的硬安全闸只拦「`DB_HOST` 不是本机」—— 而**服务器的 `DB_HOST` 正是 `127.0.0.1`** ⇒ **闸门会放行，脚本会往生产库写入演示企业/产品/批次/9 条演示码**。它是**开发库专用**工具，生产上永远不要执行。<br>🆕 **注意与 N3 的区别**：`inspect-daily.mjs` 是**默认 dry-run、必须显式 `--apply`** 才写库，**取向相反**，那个是可以跑的 |
 | P1 | `X-Forwarded-Host` 可绕过 `assertSameOrigin` | 线上仍可绕过（`Origin: evil.com` + `X-Forwarded-Host: evil.com` → 未拦）。修法：nz315 server 块加一行 `proxy_set_header X-Forwarded-Host $host;`（**只影响 nz315，不动 cynx**，`nginx -s reload` 即可，**不需重建**）。**建议下一轮单独做** |
 | P1 | SSRF 防护实际失效 | `external-verification.ts` 的 `PRIVATE_HOST` 正则**末尾多了个 `$`** ⇒ 点分内网 IPv4（`127.0.0.1` / `10.x` / `192.168.x` / `169.254.169.254`）全放行。**本次带着这个缺陷上线**（该功能仅后台管理员可用），改法是把末尾 `$` 去掉 + IPv4 规范化 |
 | P1 | 产品名比对对真实平台误报并**落 `risk_alert`** | 真实第三方平台把「剂型 + 序号」写进产品名（如 `15%精草铵膦可溶液剂-2` vs 登记库 `精草铵膦`）⇒ 判 `mismatch` ⇒ 写预警。**改它等于改预警数据源，先定口径再动** |
@@ -577,7 +751,12 @@ gunzip -c $B/db-$DB_NAME.sql.gz | $M --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"
 **本次比 19 号多了一样有脾气的东西：第 4 步的数据库迁移。** 它本身是三条幂等语句，风险不在语句，而在**漏写 `--migrate-only`**。
 所以务必按「dump → `--migrate-only` → compare」三明治走，**看到「仅迁移」三个字再往下**。
 
-**最容易判的验收是 6.2**：同一个 URL `https://www.nz315.cn/trace?code=10929272000000000000000000000000`，
-**部署前是「未查询到」，部署后应变成「不是农资315签发」那一套页面**。这一条变了，说明②③两块真的上线了。
+**本次比 09-22 那版多了两件"容易漏"的事**：① **包换了**（`a573f09` / 655,237 B / `9a67f3dd…`，旧包**不含 N2–N6**）；
+② **第 7 步的宝塔计划任务**（不加它，N3 等于没上）。
+
+**最容易判的验收点（三条，逐个看数字就行）**：
+1. `https://www.nz315.cn/trace?code=10929272000000000000000000000000` —— 部署前「未查询到」，**部署后应变「不是农资315签发」**；
+2. `curl -s https://www.nz315.cn/ | grep -c 128630` —— **应为 `0`**（旧版是 1+）；
+3. `curl -s 'http://127.0.0.1:3100/api/stores/nearby?lng=999&lat=999'` —— **应为 `{"located":false,"rows":[]}` 且 <100ms**（旧版会白烧 2 次高德配额）。
 
 每步把输出贴我，我读。
