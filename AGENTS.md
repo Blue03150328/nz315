@@ -4,37 +4,36 @@
 > 本文件是项目的长期记忆：记录**用户全局偏好**（所有项目通用）与**本项目状态**（进度/架构/踩坑）。
 > 接手顺序：本文件 → `git log --oneline`（最近提交）→ PRD 需求文档（农药追溯码管理平台 PRD 纯净版.md）。
 
-> 🧭 **当前状态指针（2026-09-23 11:0x 更新）**：**新对话先读 `docs/handover/28-N2至N6实施记录（五条已修·待重打包上线·2026-09-23）.md`**（最新：**N2–N6 五条已全部实施完成**、逐条实测证据、上线前须知）；**要真动手上线就看 `docs/handover/24-部署执行单-ycdb整线上线.md`**（已同步新包指纹与 N2–N6 验收、N3 计划任务）。
-> 要接续上下文再读 `docs/handover/25-交接手册-新对话接续（ycdb·P1-1已修·上线包已备·2026-09-23）.md`。
-> 🔥 **本轮最要紧的一句**：26 号点出的 **N2/N3/N4/N5/N6①②③ 六条缺陷（原为「线上已存在」）现已全部修完并提交**（提交清单见 28 号 §0），**代码仍未上线** ⇒ ✅ **上线包已重打**（见下方 ⑤），**照 24 号执行单走即可**。
+> 🧭 **当前状态指针（2026-09-23 14:0x 更新）**：**新对话先读 `docs/handover/29-农资记账功能方案（2026-09-23）.md`**（最新一轮：**农资记账功能已实施完成** —— 新表 `farm_bill` + 5 个接口 + 2 个页面 + 3 个组件；**「附近门店」模块已彻底删除**（页/组件/composable/接口 5 文件 + 空目录）；**§11 是实施记录与实测证据**）；**要真动手上线就看 `docs/handover/24-部署执行单-ycdb整线上线.md`**。
+> N2–N6 那轮的结论与证据读 `docs/handover/28-N2至N6实施记录（五条已修·待重打包上线·2026-09-23）.md`；接续上下文读 25 号。
+> 🔥 **本轮最要紧的两句（部署现场状态）**：
+> (1) **上线已经开跑，停在第 4 步之后** —— 服务器**数据库结构变更（第 4 步）✅ 完整通过**（`external_verification` 建表 + `risk_alert` 补列补索引，`external_verification_rows = 0`；三明治第 ③ 步那条「出现基线中不存在的新表」是**假阳性**，处置见 `5e1face` + 当日日志 11:25 段）；**下一步 = 第 5 步 `npm install` → `npm run build` → `pm2 reload nz315`**，**线上仍是 09-19 那次构建的产物**。
+> (2) 🔴 **本轮记账功能改了运行代码 ⇒ 包 `nz315-ycdb-a573f09.tar.gz` 再次作废，必须重打包后才能跑第 5 步**；且**服务器上还没有 `farm_bill` 表**（本轮新增，`db-init.mjs` DDL 数组）⇒ 第 5 步**之前**要**补跑一次 `node scripts/db-init.mjs --migrate-only`**（`--migrate-only` 不可省）。
 > 🔴 **另必读 `docs/handover/26-功能漏洞复查（线上已存在·ycdb追加·2026-09-23）.md`** —— 该轮复查挖出 **N1–N6 共 6 条【线上已经存在】的功能缺陷**（**不是"待部署"**）：① 产品建档**不校验登记证号是否存在**（PRD 8类异常-3「建档时阻断」缺失，实测不存在的证号建档返回 200 且落库）；② 公众端「点此反馈」**入口不可达且功能是 stub**；③ **「每日定时巡检」机制整体不存在**（类型 3、6 无自动触发路径）；④ **「登记证过期⇒暂停绑定批次」未实现**；⑤ **公众首页在展示伪造统计数字**（线上 `/api/stats` 硬编码 `128630/42`，公网首页已渲染）；⑥ `/api/stores/nearby` **匿名可用 + 缓存无上限 + 与 `ip-geo` 共用高德 key**（配额被刷爆会**把 P1-1 打回死分支**）。**归属判定法**：`git diff --stat master..ycdb -- server/` **只列在动的文件** ⇒ **不在这份清单里的问题，线上（09-19 master 产物）都已经存在**。⚠️ **该清单已从 7 个变为 15 个**（本轮新增 `feedback.post.ts` / `product-guard.ts` / `rate-limit.ts` 等 8 个）—— **数字会随提交漂移，用前现测**，别背。⚠️ 同理：**已修 ≠ 已上线**，判定"线上还有没有这条毛病"要实测，不能看分支里改没改。
 > ✍️ **27 号是方案、28 号是结果**：`docs/handover/27-N2-N6修改方案（待确认·2026-09-23）.md`（2026-09-23 10:0x）四段式方案（方案/影响/边界/修改后的情况）、精确到文件行号，含 **4 个待用户拍板的口径**（用户已裁定：**N5 用 risk_alert 全量行数 · N2 真做 · N3 不含 type 5 · N6④ 暂缓**）；**更正了 26 号 N4 的拦截点清单**（真正的绑定入口是 `codes/batch-correct.post.ts` / `codes/[id]/correct.post.ts` / `codes/upload-batches/[id]/correct.post.ts` 共 3 文件 4 处，**`batches/[id].patch.ts` 不是绑定入口**）；并记录新发现的 **N6-b：附近门店搜索框失效**（服务端完全忽略 `keyword`）。✅ **方案已全部执行完毕（提交 `27f1514` / `18b40f5` / `5a59478` / `d1dbf78` / `d38ba0a`）**，**实施时相对 27 号改了 3 处**（N4 拦截点前移到新建批次分支开头 / N2 限流位置后移到入参校验之后 / N2 改按 `code` 字符串合并而非 `triggerAlert`），**细节与实测证据全在 28 号**。
-> ⚠️ **用户已表态：附近门店模块后续可能整体下架**，改做「类似微信支付账单的农资记账功能」⇒ **N6④（拆高德 key）与 N6-b（搜索框）刻意不投入**；代价是 **POI 配额被打爆时 `scan_log.province` 的写入仍会被连带绞杀（P1-1 回到死分支）**。
+> ✅ **「附近门店」模块已彻底删除（2026-09-23 本轮执行）** —— 原预判「可能整体下架、改做类似微信支付账单的农资记账功能」**已落地**：删 `app/pages/nearby-stores.vue` · `app/components/StoreMap.vue` · `app/composables/useAmapLoader.ts` · `app/composables/useGeoConvert.ts` · `server/api/stores/nearby.get.ts`（+ 空目录 `server/api/stores/`），底栏/顶栏第 3 项改「**账本 `/bill`**」（icon `i-lucide-receipt`）⇒ **N6④（拆高德 key）与 N6-b（搜索框失效）随之 CLOSED**（代码不存在，缺陷自然消失）。
+> **连带收益**：高德 **POI 调用彻底消失** ⇒ 「匿名刷爆配额 ⇒ 连带绞杀 `scan_log.province` 写入 ⇒ P1-1 回死分支」这条路径**物理消除**，`AMAP_WEB_KEY` 现仅 `ip-geo` 一个调用方。
+> ⚠️ **代价（已接受，上线时要注意）**：**24 号执行单 §6/§7 里用 `/api/stores/nearby` 做的三条验收项全部失效**（删接口后必 404）；上线判据改看 `/api/bill` 与 `scan_log.province`。同理 **`grep -c AMAP_WEB_KEY` 那条前置检查的含义变窄**（只剩 ip-geo 在用，缺 key 时表现为静默不写省份，不再有 POI 报错可看）。
 > 五条要点，避免踩空：
-> ① **工作副本在 `ycdb` 分支，不是 `master`**（**截至 `fc31eaf` 实测 = master + 46 提交 / 53 文件 / +6,674 −138**）。
+> ① **工作副本在 `ycdb` 分支，不是 `master`**（**截至 `d4d7a0a` 实测 = master + 53 提交 / 54 文件 / +6,828 −143**；记账那批提交后数字还会再涨）。
 > ⚠️ **这个数字每次提交都在动，用前现测**：`git rev-list --count master..ycdb` + `git diff --shortstat master...ycdb`。
-> `ycdb` 上是四件事：**外部二维码核验** + **公众端扫码接入登记库比对**（新结果类型 `external-reg`）+
-> **异常场景扫码测试码脚本** `scripts/seed-abnormal-demo.mjs` + **本轮 N2–N6 六条缺陷修复**（公众反馈接口 / 巡检脚本 /
-> 登记证过期守卫 / 首页真数 / nearby 防御加固）；**带 DDL**：新表 `external_verification` +
-> `risk_alert` 补列补索引（**本轮新增的 5 个提交零 DDL**）。**零依赖变化**——`package.json` / `package-lock.json` / `nuxt.config.ts` 与 master 无差异；
+> `ycdb` 上是**五件事**：**外部二维码核验** + **公众端扫码接入登记库比对**（新结果类型 `external-reg`）+
+> **异常场景扫码测试码脚本** `scripts/seed-abnormal-demo.mjs` + **N2–N6 缺陷修复**（公众反馈接口 / 巡检脚本 /
+> 登记证过期守卫 / 首页真数 / nearby 防御加固）+ **农资记账功能（含「附近门店」整体下线）**；**带 DDL**：新表
+> `external_verification` + **新表 `farm_bill`（本轮新增，16 列 + 2 索引）** + `risk_alert` 补列补索引。
+> **零依赖变化** —— `package.json` / `package-lock.json` 与 master 无差异；⚠️ **但 `nuxt.config.ts` 本轮已与 master 不再相同**（删了 `public.amapJsKey` / `amapSecurityCode`）⇒ **必须重新 build**（原来那句「与 master 无差异」已作废）；
 > ② ✅ **P1-1 已修复**（提交 **`66b0f6b`**）：`scan_log.province`/`city` 从「只读无写」补齐为**写入**
 > （新增 `server/utils/ip-geo.ts` 走**高德 IP 定位**，复用 `runtimeConfig.amapWebKey`，**零新依赖 / 零 DDL**）⇒
 > 「重复查询」那条死分支已打通，**随 `ycdb` 上线即生效**（服务器 `AMAP_WEB_KEY` 已实测在线可用）。
 > ⇒ **本文档下方「另有一条 P1 架构缺陷」的旧结论、以及 21 号 §2.4 的「未修」作废**；
 > ③ **master 上挂着一笔未提交的活儿**（`git stash@{0}` 里的 PROJECT_LOG 条目 + 未跟踪的 `docs/厂家后台使用说明/`（30 项）
 > 与 `scripts/generate-user-guide.mjs`（13,507 字节），**`stash pop` 必须在 master 上做**；备份目录已过时，别拿它盖工作区）；
-> ④ **线上仍停在 09-19 那次构建的产物上**（实测 `/_nuxt/builds/latest.json` 时间戳 = `1789812536370` = **2026-09-19 18:08:56**）⇒
-> **生成上限 50 万那版与 `ycdb` 整条线均未上线**（线上仍是 1 万）；✅ **裸域名 `https://nz315.cn` 已修复**（301→www、路径与 query 保留、严格校验通过）；
-> ⑤ ✅ **上线包已重打，可用**：新包 = `E:\software\workbuddy\文件存放处\2026-09-23-1057-ycdb重打上线包\nz315-ycdb-a573f09.tar.gz`
-> （**655,237 B** / SHA256 `9a67f3dd86c9e69595025bc71c240de72b1586cd7f435838cf878764a7bf37be` / **161 文件 + 54 目录**，
-> 基线 `a573f09`，**含本轮 N2–N6 全部 5 个提交**）。
-> ~~旧包 `nz315-ycdb-1c6730a.tar.gz`（875,337 B）作废~~ —— 它只到 `1c6730a`（不含本轮修复）⇒ **照它部署等于本轮白干**。
-> 🔎 **包的等价性（已实测证明，别重复打）**：`git archive` 会在包首写一条 `pax_global_header`，其内容就是 `comment=<提交 sha>`；
-> 而 `a573f09` 之后唯一的新提交只动了 `docs/handover/`（**已被 `export-ignore` 剔出包**）⇒ 解包逐条比对结果：
-> **两包均 216 条目、0 多 0 少、唯一差异就是那行 header** ⇒ **本包对当前 `ycdb` HEAD 同样有效**。
-> （**将来若有新提交动到运行代码，则必须重打。**）
-> 执行单仍是 **24 号**（`dump → db-init --migrate-only → compare` 三明治 + 补列→构建→`pm2 reload nz315`）；
-> **本轮零新增 DDL / 零 nginx 变更 / 零 `.env` 变更**，故 24 号流程无需改，只改包指纹（已改完）。
+> ④ **线上代码仍停在 09-19 那次构建的产物上**（实测 `/_nuxt/builds/latest.json` 时间戳 = `1789812536370` = **2026-09-19 18:08:56**）⇒
+> **生成上限 50 万那版与 `ycdb` 整条线的运行代码均未上线**（线上仍是 1 万）；**但"数据库那一半"已经先走了** —— 服务器第 4 步迁移（`external_verification` 建表 + `risk_alert` 补列补索引）**已 ✅ 通过**（见上方 (1)）；✅ **裸域名 `https://nz315.cn` 已修复**（301→www、路径与 query 保留、严格校验通过）；
+> ⑤ 🔴 **上线包当前【已作废，必须先重打】再跑第 5 步**：`nz315-ycdb-a573f09.tar.gz`（**655,237 B** / SHA256 `9a67f3dd…a7bf37be` / 161 文件 + 54 目录 / 基线 `a573f09`，含 N2–N6 全部 5 个提交）**只到记账功能之前** —— 本轮**改了运行代码**（新增 `server/api/bill*.ts` 5 个 · `app/pages/bill/*` 2 个 · 3 个记账组件 · `shared/utils/bill-category.ts` · `server/utils/bill-input.ts` · `scripts/db-init.mjs` 的 DDL · `nuxt.config.ts`，**并删除 5 个门店文件**）⇒ **拿它跑第 5 步 = 记账功能白做 + 线上仍挂着要下线的门店模块**。
+> ~~旧包 `nz315-ycdb-1c6730a.tar.gz`（875,337 B）~~ 同样作废。
+> 🔎 **「包是否过期」的判据（这条知识仍然有效，别丢）**：`git archive` 在包首写一条 `pax_global_header`，内容 = `comment=<提交 sha>` ⇒ **同内容、不同提交打出来的包 SHA256 必然不同** ⇒ **判过期必须逐文件比内容，绝不能比 SHA256**；反之，**只要新提交没碰运行代码（纯 `docs/`、`.workbuddy/` 已被 `export-ignore` 剔出）旧包就仍可用** —— 记账功能**碰了运行代码**，所以这次结论是「**必须重打**」。
+> 执行单仍是 **24 号**（`dump → db-init --migrate-only → compare` 三明治 + 补列→构建→`pm2 reload nz315`）；⚠️ **但「本轮无需改流程」这句话只对 N2–N6 那轮成立** —— **记账这轮带的 DDL（`farm_bill`）与 §6/§7 里那几条 `/api/stores/nearby` 验收项**都要求 24 号**再改一次**（👉 新增一次 `--migrate-only`、换掉失效验收项、换包指纹），**改动清单见 29 号 §11**。
 > 上线后额外一件事：到宝塔加 **N3 的每日 03:00 巡检计划任务**（命令见 **24 号第 7 步**，必须用 `/usr/local/node22/bin/node` 绝对路径，**首次先不加 `--apply` 看量**）。
 > 📌 ✅ **内部文件外溢已解决**：`.gitattributes` 加了 `export-ignore`（`.workbuddy/` + `docs/handover/`，提交 `a573f09`）⇒
 > **新包里不再带** AI 记忆与内部交接手册（旧包带，共 40 个文件）。包内无真 `.env`（只有该带的 `.env.example`）。
