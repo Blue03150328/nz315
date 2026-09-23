@@ -14,7 +14,7 @@ const router = useRouter()
       <UButton v-if="showBack" variant="ghost" color="neutral" square icon="i-lucide-arrow-left" aria-label="返回" @click="router.back()" />
     </div>
     <h1 class="text-base font-semibold text-default">{{ title }}</h1>
-    <div class="flex w-12 items-center justify-end">
+    <div class="flex min-w-12 items-center justify-end gap-1">
       <slot name="right" />
     </div>
   </header>
