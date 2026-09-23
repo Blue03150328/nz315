@@ -1,6 +1,6 @@
 # 24 · 部署执行单 —— ycdb 整线上线（外部二维码核验 + 公众端登记库比对 + P1-1 + 生成上限 50 万 + N2–N6 六条修复）
 
-> **生成时间**：2026-09-22 18:2x；**2026-09-23 11:0x 按重打的包全面更新（基线 `a573f09`）**；**2026-09-23 14:3x 按记账版包再次更新（基线 `f3c43e0`，见下方修订表）**
+> **生成时间**：2026-09-22 18:2x；**2026-09-23 11:0x 按重打的包全面更新（基线 `a573f09`）**；**2026-09-23 14:3x 按记账版包再次更新（基线 `39753e3` = v2，见下方修订表）**
 > **用途**：你（大大怪）在**宝塔终端里逐条粘贴**照做，我在旁边读你贴回来的输出。
 >
 > **与 17 / 19 号的关系**：
@@ -11,11 +11,11 @@
 >
 > 🔴 **2026-09-23 重打说明（原包已作废）**：原包 `nz315-ycdb-1c6730a.tar.gz` **只到 `1c6730a`**，
 > **不含 09-23 的 N2–N6 六条修复**（其中 4 个提交改动运行代码）⇒ **照原包部署等于这一轮白干**。
-> 现已以 `a573f09` 重打（**该包随后又被 `f3c43e0` 取代，见下方「2026-09-23 14:3x 修订」**），**指纹见 §0**。**两个旧包都请勿使用、勿上传。**
+> 现已以 `a573f09` 重打（**该包随后又被 `39753e3` 取代，见下方「2026-09-23 14:3x 修订」**），**指纹见 §0**。**两个旧包都请勿使用、勿上传。**
 >
 > | 项 | 值 |
 > |---|---|
-> | **本次代码基线** | **`f3c43e0`**（`ycdb` 分支；功能提交 = `66b0f6b`(P1-1) + 外码核验/登记库比对 一批 + **N2–N6 五笔 `27f1514`/`18b40f5`/`5a59478`/`d1dbf78`/`d38ba0a`** + **农资记账四笔 `86b4795`/`0542d72`/`1bb28df`/`4308da1`**，其后为文档/记忆提交） |
+> | **本次代码基线** | **`39753e3`**（`ycdb` 分支；功能提交 = `66b0f6b`(P1-1) + 外码核验/登记库比对 一批 + **N2–N6 五笔 `27f1514`/`18b40f5`/`5a59478`/`d1dbf78`/`d38ba0a`** + **农资记账四笔 `86b4795`/`0542d72`/`1bb28df`/`4308da1`** + **三明治白名单补 `farm_bill`（`39753e3`，v2 包才有）**，其后为文档/记忆提交） |
 > | **服务器当前基线** | `02f4d5c`（09-19 那次部署，**已公网实证**，见下「开工前的事实」） |
 > | 本次范围（相对 `02f4d5c`） | **75 个文件 / +8,941 −1,023** |
 > | 本次性质 | **代码增量 + 有 DDL**（新表 1 张 + `risk_alert` 补 1 列 1 索引）· **零依赖变化** · **零 nginx 变化** · **不需要重传 90MB 工具包** · **不要求用户重新登录** · **新增 1 条宝塔计划任务（N3）** |
@@ -24,7 +24,13 @@
 
 ## 🔴 2026-09-23 14:3x 修订 —— 「农资记账」上线插入，本单从第 5 步起有 **3 处替换**（**已执行到第 4 步的，务必先读这里再做第 5 步**）
 
-> ✅ **先给结论：你已做的第 0–4 步全部有效，不用重做。** 数据库结构变更（第 4 步）**已完整通过**
+> 🆕 **2026-09-23 14:50 现场更新：上一轮上线【已经完成】** —— 本机直连公网实测：构建指纹 `1790135393647` = **2026-09-23 11:49:53（东八区）**、
+> `/api/stats` → `{"totalQueries":28,"abnormalClues":0}`（真数）、`/trace?code=10929272…` → 含「不是农资315签发」+`PD20092927`（`external-reg` 生效）、
+> 恶意前缀 Origin → **403**、`/nearby-stores` → **200**、`/api/bill` → **404** ⇒ **线上 = `a573f09`，N2–N6 与 P1-1 都已生效**。
+> ⇒ **本文原来的口吻「你已做到第 4 步、接着做第 5 步」已过时**：本次是**一轮全新的上线窗口**，走完 §1–§8 全程。
+> **本次作业总纲以 `docs/handover/30-交接手册-上线记账功能（2026-09-23）.md` 为准**（含当时的实测评据与逐条命令）。
+>
+> ✅ **先给结论：上一轮你做的第 0–4 步全部有效，不用重做。** 数据库结构变更（第 4 步）**当时已完整通过**
 > （`external_verification` 建表 + `risk_alert` 补列补索引，`external_verification_rows = 0`）。
 > 其中三明治第 ③ 步报的「出现基线中不存在的新表」是**假阳性**（处置见提交 `5e1face`），**当时不必回滚**。
 >
@@ -34,13 +40,19 @@
 
 | 编号 | 原内容 | **改成** | 不改的后果 |
 |---|---|---|---|
-| **R1** | 第 2 步上传的包 = `nz315-ycdb-a573f09.tar.gz`（655,237 B / `9a67f3dd…`） | **换成 `nz315-ycdb-f3c43e0.tar.gz`**：<br>`E:\software\workbuddy\文件存放处\2026-09-23-1431-ycdb记账版上线包\nz315-ycdb-f3c43e0.tar.gz`<br>**670,620 B** / SHA256 **`3044320885a60188d97ede38e104ea46025eddf788f2ad434e3817fb68d08d59`**<br>（168 文件 + 55 目录；本机自验 **0 多 0 缺 0 泄漏**） | build 出来**没有记账功能**，且线上**仍挂着要下线的门店模块** |
+| **R1** | 第 2 步上传的包 = `nz315-ycdb-a573f09.tar.gz`（655,237 B / `9a67f3dd…`） | **换成 `nz315-ycdb-39753e3.tar.gz`**：<br>`E:\software\workbuddy\文件存放处\2026-09-23-1442-ycdb记账版上线包v2\nz315-ycdb-39753e3.tar.gz`<br>**671,250 B** / SHA256 **`40ff67453d5ce79c8f37e4a0d0d97f5132eb066e17a84e93b845bd946fa14b14`**<br>（168 文件 + 55 目录；本机自验 **0 多 0 缺 0 泄漏**） | build 出来**没有记账功能**，且线上**仍挂着要下线的门店模块** |
 | **R2** | 第 4 步（已做完）只建了 `external_verification` | 在第 5 步的 `npm run build` **之前**，**再补跑一次 `node scripts/db-init.mjs --migrate-only`** 建新表 **`farm_bill`**（`--migrate-only` **绝不能省**） | 5 个 `/api/bill*` 接口**全部 500**（表不存在），账本页 / 成本分析页**白屏** |
 | **R3** | §6.1 / §N6①②③ / §7' 里用 `/api/stores/nearby` 做的 **3 处验收** | **全部作废**（接口已删除 ⇒ **必 404**）；改用下方「R3 替换后的验收」 | 会被误判成「上线失败」而停手 |
 
-**⏱ 新的执行顺序（第 0–4 步已完成 ⇒ 从这里接）**：
-`上传 R1 新包 + sha256sum 校验（§2）` → `解包并核对（§3）` → **`R2：node scripts/db-init.mjs --migrate-only`** →
-`§5：npm install → npm run build → pm2 reload nz315` → `§6 验证（按 R3 替换后的判据）` → `§7 N3 计划任务` → `§8 写部署标记`。
+> 📌 **为什么又打了 v2（`39753e3`）**：v1 包（`f3c43e0`）里的 `scripts/verify-db-migration.mjs` **白名单只登记了 `external_verification`** ⇒ 本次三明治第 ③ 步会把新表 `farm_bill` 报成 **`FAIL 不在预期白名单里`（假 FAIL、退出码 1）**。
+> 已把 `farm_bill` 加进 `EXPECTED_NEW_TABLES`（新表必须存在且 **0 行**）与 `ACTIVE_TABLES`（上线后消费者记账会正常写行，不该被当成污染），
+> 并**用四个分支实测过**（白名单内非空→FAIL / 白名单内空→PASS / 白名单外→FAIL / 窗口期增长→不计 FAIL，四条全部符合预期）。v1 包已作废。
+> **⏱ 新的执行顺序（第 0–4 步已完成 ⇒ 从这里接）**：
+> `上传 R1 新包 + sha256sum 校验（§2）` → `解包并核对（§3）` → **`R2：node scripts/db-init.mjs --migrate-only`** →
+> `§5：npm install → npm run build → pm2 reload nz315` → `§6 验证（按 R3 替换后的判据）` → `§7 N3 计划任务` → `§8 写部署标记`。
+>
+> ⚠️ **R2 的写法已简化**：线上库已经有 `external_verification` 与 `risk_alert` 的新列，本次 `--migrate-only` **只需要建出 `farm_bill`**——
+> 但**命令照跑不误、`--migrate-only` 不可省**（它同时负责幂等地补齐其余结构，裸跑会 seed 污染生产）。
 
 **R3 替换后的验收（三条，照这个看数字）**：
 1. `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3100/api/bill` —— **应为 `401`**（记账接口要求消费者登录）；
@@ -75,16 +87,16 @@
 
 | # | 项 | 值 |
 |---|---|---|
-| ① | 代码包 | `E:\software\workbuddy\文件存放处\2026-09-23-1431-ycdb记账版上线包\nz315-ycdb-f3c43e0.tar.gz` |
-| | 字节数 | **670,620**（约 655 KB） |
-| | SHA256 | `3044320885a60188d97ede38e104ea46025eddf788f2ad434e3817fb68d08d59` |
-| | 包内 | **168 个文件 + 55 个目录**（核对方式：`git ls-tree -r f3c43e0` = 209 个跟踪文件，**减去 `.gitattributes` 里 `export-ignore` 掉的 41 个** = 168；双向核对 **多出 0 / 缺失 0 / 被 ignore 的 0 泄漏** ✅） |
+| ① | 代码包 | `E:\software\workbuddy\文件存放处\2026-09-23-1442-ycdb记账版上线包v2\nz315-ycdb-39753e3.tar.gz` |
+| | 字节数 | **671,250**（约 655 KB） |
+| | SHA256 | `40ff67453d5ce79c8f37e4a0d0d97f5132eb066e17a84e93b845bd946fa14b14` |
+| | 包内 | **168 个文件 + 55 个目录**（核对方式：`git ls-tree -r 39753e3` = 209 个跟踪文件，**减去 `.gitattributes` 里 `export-ignore` 掉的 41 个** = 168；双向核对 **多出 0 / 缺失 0 / 被 ignore 的 0 泄漏** ✅） |
 | | 不含 | `.env`（含就出大事）· `node_modules/` · `.output/` · `.nuxt/` · **`public/tools/*.exe`**（`git archive` 天然不带，本次也无需它）· **`.workbuddy/memory/` 与 `docs/handover/`（共 41 个文件，`export-ignore` 剔出）** |
 | | 依赖变化 | **依赖零变化、但 `nuxt.config.ts` 有改动** —— `package.json` / `package-lock.json` 相对服务器基线 `02f4d5c` **无差异**（`npm install` 应是秒级 `up to date`）；但 `nuxt.config.ts` 删掉了 `public.amapJsKey` / `amapSecurityCode` ⇒ **必须重新 build 才生效**（runtimeConfig 构建期内嵌） |
 
 > 🔴 **包又换了一次（2026-09-23 14:31）**：上一版包 `nz315-ycdb-a573f09.tar.gz`（655,237 B）**已作废并移入
 > `E:\software\workbuddy\文件存放处\_作废包-勿传（已过期）\`** —— 它**不含农资记账**，且**还带着本轮要下线的门店模块**。
-> 现包基线 `f3c43e0`，比它多 **7 个文件条目**（168 vs 161），本机自验通过。**旧包请勿使用、勿上传。**
+> 现包基线 `39753e3`，比它多 **7 个文件条目**（168 vs 161），本机自验通过。**旧包请勿使用、勿上传。**
 
 > 📌 **内部文件外溢已解决**：`.gitattributes` 的 `export-ignore` 会把 **AI 工作记忆（`.workbuddy/`）与
 > 内部交接手册（`docs/handover/`，本次共 41 个）** 剔出上线包 —— 原包会把它们一并解包到 `/var/www/nz315/`
@@ -199,7 +211,7 @@ $M --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NA
 ### 1.1 备份代码（整段粘贴）
 
 ```bash
-TS=$(date +%Y%m%d-%H%M%S); B=/root/nz315-backup-f3c43e0-$TS; mkdir -p $B
+TS=$(date +%Y%m%d-%H%M%S); B=/root/nz315-backup-39753e3-$TS; mkdir -p $B
 cd /var/www/nz315
 cp -a .env .deploy-version package.json package-lock.json $B/
 cp -a deploy $B/deploy-server-corrected
@@ -210,7 +222,7 @@ pm2 save
 echo "====== 备份目录: $B ======"; ls -lh $B; echo "TS=$TS"
 ```
 
-**期望**：打印 `备份目录: /root/nz315-backup-f3c43e0-20260923-xxxxxx`，里面能看到 `.env`、`src.tar.gz`、
+**期望**：打印 `备份目录: /root/nz315-backup-39753e3-20260923-xxxxxx`，里面能看到 `.env`、`src.tar.gz`、
 `deploy-server-corrected/`、`pm2-describe.txt`。
 
 > 👉 **把打印出来的 `TS=...` 记到手机备忘录** —— 回滚全靠它。
@@ -245,12 +257,12 @@ ls -lh $B/db-$DB_NAME.sql.gz
 ## 第 2 步 · 上传代码包 + 校验
 
 1. 宝塔面板 → **文件** → 地址栏输入 `/tmp` 回车
-2. 点 **上传** → 选 `E:\software\workbuddy\文件存放处\2026-09-23-1431-ycdb记账版上线包\nz315-ycdb-f3c43e0.tar.gz`
+2. 点 **上传** → 选 `E:\software\workbuddy\文件存放处\2026-09-23-1442-ycdb记账版上线包v2\nz315-ycdb-39753e3.tar.gz`
 3. 传完回终端：
 
 ```bash
 ls -l /tmp/*.tar.gz
-sha256sum /tmp/nz315-ycdb-f3c43e0.tar.gz
+sha256sum /tmp/nz315-ycdb-39753e3.tar.gz
 ```
 
 **先做一次清理（防手滑解错包 —— 尤其别把 09-22 那个旧包传上去）**：
@@ -263,21 +275,21 @@ ls -l /tmp/*.tar.gz
 **期望（必须逐字符一致）**
 
 ```
-3044320885a60188d97ede38e104ea46025eddf788f2ad434e3817fb68d08d59  /tmp/nz315-ycdb-f3c43e0.tar.gz
--rw-r--r-- ... 670620 ... /tmp/nz315-ycdb-f3c43e0.tar.gz
+40ff67453d5ce79c8f37e4a0d0d97f5132eb066e17a84e93b845bd946fa14b14  /tmp/nz315-ycdb-39753e3.tar.gz
+-rw-r--r-- ... 671250 ... /tmp/nz315-ycdb-39753e3.tar.gz
 ```
 
-且清理后 `/tmp/*.tar.gz` **只剩 `nz315-ycdb-f3c43e0.tar.gz` 这一个**。
+且清理后 `/tmp/*.tar.gz` **只剩 `nz315-ycdb-39753e3.tar.gz` 这一个**。
 
 👉 **SHA256 对不上就别往下走**，删掉重传（640 KB 的东西传坏概率不小，传坏了极难排查）。
-👉 ⚠️ **别只看文件名，务必核对"字节数"**：本次包 **670,620**；`655,237`（`a573f09`）与 `875,337`（`1c6730a`）**都已是作废包**，见一个就停手重传。
+👉 ⚠️ **别只看文件名，务必核对"字节数"**：本次包 **671,250**；`655,237`（`a573f09`）与 `875,337`（`1c6730a`）**都已是作废包**，见一个就停手重传。
 
 ---
 
 ## 第 3 步 · 解包 + 核对四件事
 
 ```bash
-tar xzf /tmp/nz315-ycdb-f3c43e0.tar.gz -C /var/www/nz315
+tar xzf /tmp/nz315-ycdb-39753e3.tar.gz -C /var/www/nz315
 echo "解包完成"
 grep -nE "PORT|interpreter" /var/www/nz315/deploy/ecosystem.config.cjs
 ls -l /var/www/nz315/public/tools/
@@ -729,7 +741,7 @@ SELECT alert_type, COUNT(*) FROM risk_alert WHERE alert_type IN (3,4,6) GROUP BY
 ```bash
 cat > /var/www/nz315/.deploy-version <<EOF
 deploy_time=$(date '+%Y-%m-%d %H:%M:%S %z')
-code_base=02f4d5c → f3c43e0 (ycdb 分支：外部二维码核验 + 公众端扫码接入登记资料库比对(新结果类型 external-reg) + P1-1 补齐 scan_log.province/city 写入 + N2 公众反馈入口 + N3 每日巡检脚本 + N4 登记证过期不绑批次 + N5 首页真实统计 + 农资记账 farm_bill/账本页/成本分析页(并彻底下线「附近门店」模块) ; 本包同时含 68163bb 的生成上限 1万→50万)
+code_base=02f4d5c → 39753e3 (ycdb 分支：外部二维码核验 + 公众端扫码接入登记资料库比对(新结果类型 external-reg) + P1-1 补齐 scan_log.province/city 写入 + N2 公众反馈入口 + N3 每日巡检脚本 + N4 登记证过期不绑批次 + N5 首页真实统计 + 农资记账 farm_bill/账本页/成本分析页(并彻底下线「附近门店」模块) ; 本包同时含 68163bb 的生成上限 1万→50万)
 backup_dir=$B
 previous_dir=/var/www/nz315/.output.bak-$TS
 note=含 DDL（新表 external_verification + risk_alert 补列 external_verification_id 与索引 idx_external_verification，已用 --migrate-only + verify-db-migration 三明治证明零写入）；零依赖变化；未改 nginx；未重传 public/tools；未动 token 格式故不要求用户重新登录；包内已 export-ignore 掉 .workbuddy/ 与 docs/handover/；已加宝塔计划任务 nz315 每日巡检（03:00）；回滚只需切回 .output.bak-$TS
@@ -741,7 +753,7 @@ cat /var/www/nz315/.deploy-version
 > 换过终端导致变量丢了就重取：
 > ```bash
 > TS=$(ls -d /var/www/nz315/.output.bak-* | sed 's|.*/\.output\.bak-||' | tail -1)
-> B=$(ls -d /root/nz315-backup-f3c43e0-* | tail -1)
+> B=$(ls -d /root/nz315-backup-39753e3-* | tail -1)
 > echo "TS=$TS"; echo "B=$B"
 > ```
 
@@ -761,7 +773,7 @@ pm2 reload nz315
 **彻底回到改动前（约 5 分钟：恢复源码 + 恢复数据库 + 重建）**
 
 ```bash
-B=/root/nz315-backup-f3c43e0-<你的TS>
+B=/root/nz315-backup-39753e3-<你的TS>
 cd /var/www/nz315
 tar xzf $B/src.tar.gz -C /var/www/nz315
 cp -a $B/.env .env
@@ -793,7 +805,7 @@ gunzip -c $B/db-$DB_NAME.sql.gz | $M --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | `grep -c '^AMAP_WEB_KEY='` 输出 `0`（第 0 步） | 服务器 `.env` 里没有高德 key | **停手贴我**。P1-1 与「附近门店」都靠它；需从本机 `.env` 复制该行（`AMAP_WEB_KEY=...`）补进服务器 `.env`，**改完必须重新 build 才生效** |
-| 解包后新文件找不到 / `trace.get.ts` 不含 `province, city` | 包传错或没解包成功 | 停手贴我；先 `ls -l /tmp/*.tar.gz` 看字节数：**本次包 `670620`**（比对 `655237` / `875337` = 作废包） |
+| 解包后新文件找不到 / `trace.get.ts` 不含 `province, city` | 包传错或没解包成功 | 停手贴我；先 `ls -l /tmp/*.tar.gz` 看字节数：**本次包 `671250`**（比对 `655237` / `875337` = 作废包） |
 | `grep` 里 `PORT` 是 `3000` / 没有 `interpreter` | 包里那份配置与线上不同 | 用备份里那份盖回：`cp -a $B/deploy-server-corrected/ecosystem.config.cjs /var/www/nz315/deploy/` |
 | `db-init` 打印 `含演示数据`（**没看到「仅迁移」**） | **`--migrate-only` 被漏了** 🔴 | 立刻按 §4.3 跑 `compare`；若有业务表行数变化 → 用 §4' 的库恢复命令回滚，**不要继续第 5 步** |
 | `compare` 报 FAIL | 先看是**哪一条** | ① `FAIL 出现了基线中不存在的新表: external_verification` → **正常**（本次迁移本来就要建这张表，详见 §4.3，退出码 1 属预期）；② `scan_log` / `operation_log` 行数增长 → **正常**（活跃日志，判据"只增不减"）；③ 企业/产品/批次/`trace_code` 行数出现 `x -> y`、`MAX(id)` 被推进、快照不一致、或**新表不是 0 行** → **停手贴我** |
@@ -807,7 +819,7 @@ gunzip -c $B/db-$DB_NAME.sql.gz | $M --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"
 | **cynx 打不开了** | ⚠️ 危险信号 | 立刻检查有没有执行过 `pm2 kill` / `pm2 delete all`；把 `/root/nz315-backup-*/pm2-describe.txt` 贴我 |
 | `pm2: command not found` | 登录 shell 的 PATH 异常 | 先 `which pm2`；**千万别**给它加 `env PATH=...` 前缀（Node 版本不一致会让 PM2 重建 daemon，cynx 跟着挂） |
 | 🆕 `bash: --no-defaults: command not found` | **不是路径错、也不是数据库问题** —— `$M` 展开成了**空串**：`$M` 与 `$DB_*` 是「当前终端窗口内」的变量，**换终端 / 重连 SSH / 关掉宝塔终端再开就没了** | 粘「**第 6 步开头那三行**」（或 §4.4 开头那三行）再重跑。**别只粘最后那条命令** |
-| 🆕 解包后 `server/api/feedback.post.ts` 等 5 个文件**不存在** | **你传的是 09-22 的旧包** 🔴 | 停手。`ls -l /tmp/*.tar.gz` 看字节数：**本次包 670620**（`655237` / `875337` 均已作废）。删掉重传 `nz315-ycdb-f3c43e0.tar.gz`（本文 §2） |
+| 🆕 解包后 `server/api/feedback.post.ts` 等 5 个文件**不存在** | **你传的是 09-22 的旧包** 🔴 | 停手。`ls -l /tmp/*.tar.gz` 看字节数：**本次包 671250**（`655237` / `875337` 均已作废）。删掉重传 `nz315-ycdb-39753e3.tar.gz`（本文 §2） |
 | 🆕 服务器上出现了 `docs/handover/` 或 `.workbuddy/` | 包不对（`export-ignore` 没生效） | 同上：传的是旧包。新包**不该**含这两个目录（第 3 步有核对命令） |
 | 🆕 `/api/stats` 仍返回 `128630` | 构建没跑到 / reload 没生效 | 回第 5 步重跑 `npm run build` + `pm2 reload nz315`；再 `curl -s https://www.nz315.cn/ \| grep -c 128630` 应为 `0` |
 | 🆕 `/trace` 页面搜不到「点此反馈」 | 同上 | 同上；另确认扫的是**本平台已绑定的码**（作废码故意没有入口） |
@@ -847,7 +859,7 @@ gunzip -c $B/db-$DB_NAME.sql.gz | $M --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"
 **本次比 19 号多了一样有脾气的东西：第 4 步的数据库迁移。** 它本身是三条幂等语句，风险不在语句，而在**漏写 `--migrate-only`**。
 所以务必按「dump → `--migrate-only` → compare」三明治走，**看到「仅迁移」三个字再往下**。
 
-**本次比 09-22 那版多了三件"容易漏"的事**：① **包又换了**（`f3c43e0` / **670,620 B** / `30443208…`，
+**本次比 09-22 那版多了三件"容易漏"的事**：① **包又换了**（`39753e3` / **671,250 B** / `40ff6745…`，
 旧包 `a573f09` **不含农资记账、且还带着要下线的门店模块**）；② **第 5 步之前要补跑一次 `--migrate-only`**
 （建新表 `farm_bill`）；③ **第 7 步的宝塔计划任务**（不加它，N3 等于没上）。
 
