@@ -83,27 +83,17 @@ const handleShare = async () => {
 }
 
 // ---------------- 记一笔 ----------------
-// 🔁 2026-09-23 已**统一到 `TraceBillEntry` 组件**（用户裁定「和新组件统一」）。
-// 此前本文件里有一份内联实现，与组件版行为不一致：未登录会引导去 `/profile` 绕一圈，
-// 且不支持「授权回跳后自动打开表单」；弹窗文案也少一句。
-// 统一后：未登录直达微信授权、回跳带 `bill=1` 自动开预填表单，文案与其它结果页一致。
-// 组件说明与设计取舍见 `TraceBillEntry.vue` 顶部注释。
+// 🔁 2026-09-23 两次收口，现由 `TraceBillEntry` 组件承担（入口在页面底部操作区、撑满一行）：
+//   ① 内联实现删除 → 改走组件（未登录直达微信授权、支持 `bill=1` 回跳自动开表单，文案与其它页一致）；
+//   ② 入口从页头 `size="xs"` 小按钮**移到操作区并撑满一行**（用户裁定「也做成这样」）
+//      ⇒ 四个结果页（正品 / 外码 / 异常 / 查无此码）形态与位置统一。
+// 组件说明与各页预填口径见 `TraceBillEntry.vue` 顶部注释。
 </script>
 
 <template>
   <div class="pb-6 lg:mx-auto lg:w-full lg:max-w-2xl">
     <PageHeader title="追溯查询结果" :show-back="true">
       <template #right>
-        <TraceBillEntry
-          label="记一笔"
-          variant="soft"
-          color="primary"
-          size="xs"
-          icon="i-lucide-receipt"
-          :code="outcome.code"
-          :product-name="product?.name || ''"
-          :category="product?.category || ''"
-        />
         <UButton variant="ghost" color="neutral" square icon="i-lucide-share-2" aria-label="分享" @click="handleShare" />
       </template>
     </PageHeader>
@@ -226,6 +216,17 @@ const handleShare = async () => {
           size="sm"
         />
       </div>
+
+      <!-- 记一笔账（2026-09-23 17:3x 用户裁定「这个页面的记一笔也做成这样」）：
+           此前只在页头右上角放一个 `size="xs"` 的小按钮 —— 正品页信息量最大、页面最长，
+           那个小按钮恰恰最不起眼。现移到操作区、撑满一行，与其它三个结果页
+           （外码 / 异常 / 查无此码）**形态与位置完全一致**。 -->
+      <TraceBillEntry
+        :code="outcome.code"
+        :product-name="product?.name || ''"
+        :category="product?.category || ''"
+        block
+      />
 
       <!-- 操作 -->
       <UButton variant="outline" color="neutral" size="lg" icon="i-lucide-arrow-left" class="w-full" @click="router.back()">
