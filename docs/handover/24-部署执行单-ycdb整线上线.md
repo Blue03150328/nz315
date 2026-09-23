@@ -348,9 +348,16 @@ FAIL  出现了基线中不存在的新表: external_verification
 
 ### 4.4 确认结构真的落地了（只读）
 
+> 🔴 **`$M` 与 `$DB_*` 是「当前这个终端窗口内」的变量** —— 换一个终端 / 重新 SSH 连进来 / 关掉宝塔终端再开，它们**就没了**。
+> 症状：`bash: --no-defaults: command not found`（说明 `$M` 展开成了空串，**不是路径错、也不是数据库问题**）。
+> ⇒ 下面这段**自带变量赋值**，**任何终端都能直接整段粘贴**（2026-09-23 上线现场踩到，原本只写 `$M` 是不自包含的）。
+
 ```bash
 cd /var/www/nz315
-$M --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" -e "
+while IFS='=' read -r k v; do v=${v%$'\r'}; case "$k" in DB_HOST|DB_PORT|DB_USER|DB_PASSWORD|DB_NAME) export "$k=$v";; esac; done < .env
+M=/www/server/mysql80/bin/mysql
+echo "M=[$M]  目标库=[$DB_USER@$DB_HOST:$DB_PORT/$DB_NAME]"
+"$M" --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" -e "
 SHOW TABLES LIKE 'external_verification';
 SHOW COLUMNS FROM risk_alert LIKE 'external_verification_id';
 SHOW INDEX FROM risk_alert WHERE Key_name='idx_external_verification';
@@ -358,6 +365,10 @@ SELECT COUNT(*) AS external_verification_rows FROM external_verification;
 SELECT COUNT(*) AS trace_code_rows FROM trace_code;
 SELECT id,name FROM enterprise ORDER BY id;"
 ```
+
+> ✅ **先看 `echo` 那行**：应打印 `M=[/www/server/mysql80/bin/mysql]  目标库=[nz315@127.0.0.1:3307/nz315]`。
+> 若 `M=[]` 是空的 —— 说明那段 `while`/`M=` 没进去，**把这三行连同后面一起重新整段粘贴**（别只粘最后那条命令）。
+> 若报 `No such file or directory` —— 才是路径问题：`ls -l /www/server/mysql80/bin/` 看实际有啥，贴我。
 
 **期望**：三个结构查询**都有输出**；`external_verification_rows` = **0**（新表就该是空的）；
 `trace_code_rows` 与**第 0 步记下的数一模一样**；企业名单**没有多出任何一行**。
@@ -399,6 +410,17 @@ pm2 reload nz315
 ---
 
 ## 第 6 步 · 验证（别用"应该好了"交差）
+
+> 🔴 **本步多处要用 `$M` / `$DB_*`，而它们是「当前终端窗口内」的变量** —— 换终端 / 重连 SSH / 关掉宝塔终端再开，**就没了**。
+> 症状固定是 **`bash: --no-defaults: command not found`**（说明 `$M` 展开成了空串，**不是路径错、也不是数据库问题**）。
+> ⇒ 只要换过终端，**先把下面这三行粘一遍**（§4.4 已内置同样三行，可直接整段粘贴）：
+
+```bash
+cd /var/www/nz315
+while IFS='=' read -r k v; do v=${v%$'\r'}; case "$k" in DB_HOST|DB_PORT|DB_USER|DB_PASSWORD|DB_NAME) export "$k=$v";; esac; done < .env
+M=/www/server/mysql80/bin/mysql
+echo "M=[$M]  DB=[$DB_USER@$DB_HOST:$DB_PORT/$DB_NAME]"
+```
 
 ### 6.1 终端（整段粘贴）
 
@@ -526,7 +548,8 @@ SELECT COUNT(*) AS external_verification_rows FROM external_verification;"
 **期望**：企业名单与第 0 步**完全一致**（**不该多出「山东绿丰生物科技有限公司」**）；
 `trace_code_rows` 与第 0 步一致；`external_verification_rows` 是个**小数字**（第 6.4 步你核验了几次就是几行，属正常业务数据）。
 
-> 若 `$M` / `$DB_*` 换了终端丢了，重跑第 4.4 步开头那两行赋值。
+> 若 `$M` / `$DB_*` 换了终端丢了（症状：`bash: --no-defaults: command not found`），
+> 先粘「**第 6 步开头那三行**」（等同 §4.4 开头那三行）再重跑。
 
 ---
 
@@ -722,10 +745,10 @@ gunzip -c $B/db-$DB_NAME.sql.gz | $M --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"
 | 现象 | 原因 | 处理 |
 |---|---|---|
 | `grep -c '^AMAP_WEB_KEY='` 输出 `0`（第 0 步） | 服务器 `.env` 里没有高德 key | **停手贴我**。P1-1 与「附近门店」都靠它；需从本机 `.env` 复制该行（`AMAP_WEB_KEY=...`）补进服务器 `.env`，**改完必须重新 build 才生效** |
-| 解包后新文件找不到 / `trace.get.ts` 不含 `province, city` | 包传错或没解包成功 | 停手贴我；确认 `/tmp/*.tar.gz` 只剩 `-1c6730a` 那个 |
+| 解包后新文件找不到 / `trace.get.ts` 不含 `province, city` | 包传错或没解包成功 | 停手贴我；先 `ls -l /tmp/*.tar.gz` 看字节数：**新包 `655237` / 旧包 `875337`** |
 | `grep` 里 `PORT` 是 `3000` / 没有 `interpreter` | 包里那份配置与线上不同 | 用备份里那份盖回：`cp -a $B/deploy-server-corrected/ecosystem.config.cjs /var/www/nz315/deploy/` |
 | `db-init` 打印 `含演示数据`（**没看到「仅迁移」**） | **`--migrate-only` 被漏了** 🔴 | 立刻按 §4.3 跑 `compare`；若有业务表行数变化 → 用 §4' 的库恢复命令回滚，**不要继续第 5 步** |
-| `compare` 报 FAIL | 先看是哪张表 | 若是 `scan_log` / `operation_log` → **正常**（活跃日志，判据是"只增不减"）；若是企业/产品/批次/`trace_code` → **停手贴我** |
+| `compare` 报 FAIL | 先看是**哪一条** | ① `FAIL 出现了基线中不存在的新表: external_verification` → **正常**（本次迁移本来就要建这张表，详见 §4.3，退出码 1 属预期）；② `scan_log` / `operation_log` 行数增长 → **正常**（活跃日志，判据"只增不减"）；③ 企业/产品/批次/`trace_code` 行数出现 `x -> y`、`MAX(id)` 被推进、快照不一致、或**新表不是 0 行** → **停手贴我** |
 | `SHOW COLUMNS` 没输出（`external_verification_id` 不在） | 迁移没跑成功 | 别继续；贴我输出 |
 | `nz315` 重启后不是 online | — | `pm2 logs nz315 --lines 50` 贴我；**先别做任何 pm2 的 delete/kill** |
 | `npm run build` 被 killed | 内存不够 | 确认 2G swap 在（`swapon --show`），停掉吃内存的进程重跑 |
@@ -735,6 +758,7 @@ gunzip -c $B/db-$DB_NAME.sql.gz | $M --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"
 | 6.6 的 `province` 仍为空 | ① 高德 key 没生效；② 扫的码不是本平台码（只读分支不写日志）；③ 异步补齐还没跑完 | 先 `SELECT ip_location FROM scan_log ORDER BY id DESC LIMIT 1` 看是不是你的公网 IP —— 若是 `127.0.0.1` 说明请求没走 nginx（贴我）；若是公网 IP 但 `province` 空 → 等 2 秒再看，仍空则贴我 |
 | **cynx 打不开了** | ⚠️ 危险信号 | 立刻检查有没有执行过 `pm2 kill` / `pm2 delete all`；把 `/root/nz315-backup-*/pm2-describe.txt` 贴我 |
 | `pm2: command not found` | 登录 shell 的 PATH 异常 | 先 `which pm2`；**千万别**给它加 `env PATH=...` 前缀（Node 版本不一致会让 PM2 重建 daemon，cynx 跟着挂） |
+| 🆕 `bash: --no-defaults: command not found` | **不是路径错、也不是数据库问题** —— `$M` 展开成了**空串**：`$M` 与 `$DB_*` 是「当前终端窗口内」的变量，**换终端 / 重连 SSH / 关掉宝塔终端再开就没了** | 粘「**第 6 步开头那三行**」（或 §4.4 开头那三行）再重跑。**别只粘最后那条命令** |
 | 🆕 解包后 `server/api/feedback.post.ts` 等 5 个文件**不存在** | **你传的是 09-22 的旧包** 🔴 | 停手。`ls -l /tmp/*.tar.gz` 看字节数：**新包 655237 / 旧包 875337**。删掉重传 `nz315-ycdb-a573f09.tar.gz`（本文 §2） |
 | 🆕 服务器上出现了 `docs/handover/` 或 `.workbuddy/` | 包不对（`export-ignore` 没生效） | 同上：传的是旧包。新包**不该**含这两个目录（第 3 步有核对命令） |
 | 🆕 `/api/stats` 仍返回 `128630` | 构建没跑到 / reload 没生效 | 回第 5 步重跑 `npm run build` + `pm2 reload nz315`；再 `curl -s https://www.nz315.cn/ \| grep -c 128630` 应为 `0` |
