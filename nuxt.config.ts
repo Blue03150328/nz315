@@ -54,16 +54,17 @@ export default defineNuxtConfig({
     // 微信公众号网页授权（消费者登录）：未配置时登录入口整体不可用，不做模拟登录
     wechatAppId: process.env.WECHAT_APP_ID || '',
     wechatAppSecret: process.env.WECHAT_APP_SECRET || '',
-    // 高德 Web服务 key：公众端「附近农资店」POI 周边搜索（仅服务端调用，不下发浏览器）
+    // 高德 Web服务 key：**仅服务端**用于 IP 定位（server/utils/ip-geo.ts → 写 scan_log 的省/市）。
+    // 2026-09-23 公众端「附近门店」（POI 周边搜索）整体下线后，本 key 只剩这一个调用方
+    // ⇒ 配额被 POI 刷爆而绞杀省份写入的风险（P1-1 死穴）**物理消除**
     amapWebKey: process.env.AMAP_WEB_KEY || '',
 
     // 扫码 URL 前缀（PRD 3.3：https://{域名}/trace?code={32位码}），部署环境可用 NUXT_PUBLIC_TRACE_BASE_URL 覆盖
     public: {
       traceBaseUrl: process.env.NUXT_PUBLIC_TRACE_BASE_URL || 'https://www.nz315.cn/trace?code=',
-      // 高德地图 JS API（仅用于「附近农资店」地图展示；门店数据与距离均由本平台自建库计算，
-      // 未配置时页面自动降级为纯列表，功能不受影响）
-      amapJsKey: process.env.NUXT_PUBLIC_AMAP_JS_KEY || '',
-      amapSecurityCode: process.env.NUXT_PUBLIC_AMAP_SECURITY_CODE || '',
+      // 2026-09-23：「附近门店」整体下线（原地改为农资记账），高德 JS API（地图展示）一并移除 ⇒
+      // 原先的 amapJsKey / amapSecurityCode 已删除（如服务器 .env 仍残留这两个变量，属无害死变量，
+      // 不必特意去清理）。服务端的 amapWebKey 保留 —— ip-geo 还在用。
     },
   },
 

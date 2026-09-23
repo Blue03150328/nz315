@@ -5,8 +5,10 @@
 //   而「重复查询」的判据是 `queryCount >= 3 && COUNT(DISTINCT province) >= 2`
 //   ⇒ 该分支在真实扫码链路上**永远触发不了**（线上一直如此），PRD「8 类异常-1」是死分支。
 //
-// 数据来源：高德 IP 定位 `restapi.amap.com/v3/ip`，复用 runtimeConfig.amapWebKey
-//   ⇒ **零新依赖**（与 server/api/stores/nearby.get.ts 同一个 key、同一套调用范式）。
+// 数据来源：高德 IP 定位 `restapi.amap.com/v3/ip`，使用 runtimeConfig.amapWebKey
+//   ⇒ **零新依赖**（与已下线的 `server/api/stores/nearby.get.ts` 曾是同一把 key、同一套调用范式；
+//   2026-09-23「附近门店」整体下线后，本模块成为该 key 的**唯一**调用方 ⇒ 配额争抢风险消失，
+//   原先「POI 被刷爆会连带绞杀省份写入」的 P1-1 死穴已物理消除）。
 //
 // 🔴 三条硬性约束，全部是本机实测出来的，改这个文件前先看：
 //   1. **QPS 极小，且限流时 HTTP 仍是 200**：实测连续第 4 次调用即返回

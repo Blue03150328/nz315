@@ -5,7 +5,8 @@ const route = useRoute()
 const NAV = [
   { path: '/', label: '首页', icon: 'i-lucide-home', action: 'link' },
   { path: '/scan', label: '扫码查询', icon: 'i-lucide-scan-search', action: 'scan' },
-  { path: '/nearby-stores', label: '附近门店', icon: 'i-lucide-store', action: 'link' },
+  // 2026-09-23：「附近门店」整体下线，原地替换为「账本」（农资记账，见 docs/handover/29 号）
+  { path: '/bill', label: '账本', icon: 'i-lucide-receipt', action: 'link' },
   { path: '/profile', label: '我的', icon: 'i-lucide-user-round', action: 'link' },
 ]
 
