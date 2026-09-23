@@ -82,54 +82,28 @@ const handleShare = async () => {
   }
 }
 
-// ---------------- 记一笔（2026-09-23 新增，见 docs/handover/29 号） ----------------
-// 入口放在结果页右上角：消费者刚扫完码、手里正拿着这瓶药，此刻记账成本最低。
-// 产品名与类别直接预填（扫码已知），用户只需补数量单价 —— 也允许什么都不填，先把这条存下来。
-//
-// 🔴 未登录时不直接开表单，先弹「需要微信登录」再跳「我的」：
-//    记账数据强绑定 `consumer_id`（只有本人可见），匿名记账无处可存；
-//    用户已明确否决"本地暂存后合并"的方案（换机会丢、还要处理冲突）。
-const { data: meData } = useFetch<any>('/api/consumer/me', { key: 'consumer-me' })
-const loggedIn = computed(() => !!meData.value?.loggedIn)
-
-const billOpen = ref(false)
-const loginTipOpen = ref(false)
-
-/** 预填：产品名 + 类别（后端按白名单归一化）+ 来源追溯码 */
-const billInitial = computed(() => ({
-  productName: product.value?.name || '',
-  category: product.value?.category || '',
-  code: props.outcome.code,
-}))
-
-const openBill = () => {
-  if (!loggedIn.value) {
-    loginTipOpen.value = true
-    return
-  }
-  billOpen.value = true
-}
-
-const goLogin = () => {
-  loginTipOpen.value = false
-  navigateTo('/profile')
-}
+// ---------------- 记一笔 ----------------
+// 🔁 2026-09-23 已**统一到 `TraceBillEntry` 组件**（用户裁定「和新组件统一」）。
+// 此前本文件里有一份内联实现，与组件版行为不一致：未登录会引导去 `/profile` 绕一圈，
+// 且不支持「授权回跳后自动打开表单」；弹窗文案也少一句。
+// 统一后：未登录直达微信授权、回跳带 `bill=1` 自动开预填表单，文案与其它结果页一致。
+// 组件说明与设计取舍见 `TraceBillEntry.vue` 顶部注释。
 </script>
 
 <template>
   <div class="pb-6 lg:mx-auto lg:w-full lg:max-w-2xl">
     <PageHeader title="追溯查询结果" :show-back="true">
       <template #right>
-        <UButton
+        <TraceBillEntry
+          label="记一笔"
           variant="soft"
           color="primary"
           size="xs"
           icon="i-lucide-receipt"
-          aria-label="记一笔"
-          @click="openBill"
-        >
-          记一笔
-        </UButton>
+          :code="outcome.code"
+          :product-name="product?.name || ''"
+          :category="product?.category || ''"
+        />
         <UButton variant="ghost" color="neutral" square icon="i-lucide-share-2" aria-label="分享" @click="handleShare" />
       </template>
     </PageHeader>
@@ -262,23 +236,5 @@ const goLogin = () => {
       </p>
     </div>
 
-    <!-- 记一笔表单：产品名 / 类别 / 追溯码已预填，用户只补数量单价（也可全跳过直接存） -->
-    <BillFormModal v-model:open="billOpen" :initial="billInitial" />
-
-    <!-- 未登录：先弹提示，再引导去「我的」做微信登录 -->
-    <UModal v-model:open="loginTipOpen">
-      <template #content>
-        <div class="p-5">
-          <h3 class="text-base font-semibold text-default">记账需要先登录</h3>
-          <p class="mt-1 text-xs text-muted">
-            账目保存在你的微信账号下，只有你自己能看。登录后每次扫码都能顺手记一笔。
-          </p>
-          <div class="mt-5 flex justify-end gap-2">
-            <UButton variant="outline" color="neutral" @click="loginTipOpen = false">取消</UButton>
-            <UButton color="primary" @click="goLogin">去登录</UButton>
-          </div>
-        </div>
-      </template>
-    </UModal>
   </div>
 </template>
