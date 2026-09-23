@@ -227,6 +227,16 @@ echo "====== 备份目录: $B ======"; ls -lh $B; echo "TS=$TS"
 
 > 👉 **把打印出来的 `TS=...` 记到手机备忘录** —— 回滚全靠它。
 > `mv .output .output.bak-$TS` 是把旧构建产物**改名保留**（不是删），万一新版有问题 10 秒切回。
+>
+> ### 🔴 但这一步有副作用：**从这一刻起，线上的 JS/CSS 与 `public/` 静态资源立刻挂掉**（2026-09-23 实测）
+> Nitro（node-server preset）的静态资源是**运行期从 `.output/public/` 读盘**的，**不是打进进程内存** ⇒ `.output` 一改名：
+> `/`、`/trace` 这类 **SSR 页面照旧 `200`**（服务端代码已在内存里），但
+> `/_nuxt/*.js`、`/_nuxt/*.css` **连接中断**、`/tools/nz315-qr-tool-v1.2.0.exe` **`500`**
+> ⇒ 用户看到的是「**页面有字、但没样式没交互**」，离线工具也下不动。
+> ⇒ **窗口 = 第 1 步的 `mv` → 第 5 步 `npm run build` 把产物重新写完**，通常 2–3 分钟。
+> ⇒ 🔴 **所以第 4 步的迁移一通过，就立刻接着做第 5 步的 build，不要在窗口里停顿做别的验证。**
+> ⚠️ 凡说「构建期间站点仍可访问、只有 reload 才闪断」的说法**都不准确**，以本段为准。
+> 💡 想彻底消除窗口：把构建输出指到 `.output.new` 再原子替换 —— **本单不采用**（属改部署流程，另开窗口评估）。
 
 ### 1.2 备份数据库（整段粘贴）
 
@@ -291,6 +301,23 @@ ls -l /tmp/*.tar.gz
 ```bash
 tar xzf /tmp/nz315-ycdb-39753e3.tar.gz -C /var/www/nz315
 echo "解包完成"
+
+echo "---- 🔴 3.0 删掉本轮【已从代码库移除】的 5 个文件（tar 不会替你删！）----"
+cd /var/www/nz315
+rm -f app/pages/nearby-stores.vue \
+      app/components/StoreMap.vue \
+      app/composables/useAmapLoader.ts \
+      app/composables/useGeoConvert.ts \
+      server/api/stores/nearby.get.ts
+rmdir server/api/stores 2>/dev/null && echo "空目录 server/api/stores/ 已收掉" || echo "⚠️ server/api/stores/ 不空或不存在 —— 贴我看"
+echo "---- 复核：下面 5 个都必须报 No such file ----"
+ls -d app/pages/nearby-stores.vue app/components/StoreMap.vue \
+      app/composables/useAmapLoader.ts app/composables/useGeoConvert.ts \
+      server/api/stores 2>&1
+echo "---- 复核：代码树里不该再有引用（两个数都应为 0）----"
+echo "nearby-stores 引用数     : $(grep -rl 'nearby-stores' app server shared 2>/dev/null | wc -l)"
+echo "StoreMap/useAmap* 引用数 : $(grep -rlE 'StoreMap|useAmapLoader|useGeoConvert' app server 2>/dev/null | wc -l)"
+
 grep -nE "PORT|interpreter" /var/www/nz315/deploy/ecosystem.config.cjs
 ls -l /var/www/nz315/public/tools/
 ls -l /var/www/nz315/server/utils/ip-geo.ts /var/www/nz315/server/utils/registry-lookup.ts \
@@ -300,7 +327,15 @@ echo "---- 以下 5 个是 09-23 新增（N2–N6），旧包没有 ----"
 ls -l /var/www/nz315/server/api/feedback.post.ts /var/www/nz315/app/components/TraceFeedback.vue \
       /var/www/nz315/server/utils/product-guard.ts /var/www/nz315/server/utils/rate-limit.ts \
       /var/www/nz315/scripts/inspect-daily.mjs
-node -e "const fs=require('fs');const R=(p)=>fs.readFileSync(p,'utf8');console.log('trace.get.ts 含 province 写入:', R('/var/www/nz315/server/api/trace.get.ts').includes('province, city'));console.log('含 clientIpOf:', R('/var/www/nz315/server/api/trace.get.ts').includes('clientIpOf'));console.log('stats.get.ts 已去硬编码:', !R('/var/www/nz315/server/api/stats.get.ts').includes('128630'));console.log('nearby 含限流:', R('/var/www/nz315/server/api/stores/nearby.get.ts').includes('allowRequest'));console.log('feedback 接口存在:', fs.existsSync('/var/www/nz315/server/api/feedback.post.ts'));"
+echo "---- 内容级抽查（改用 grep：交互式 bash 里 node -e 中的 ! 会触发历史展开而报错）----"
+echo "trace.get.ts 写 province（应 1）   : $(grep -c 'province, city' /var/www/nz315/server/api/trace.get.ts)"
+echo "trace.get.ts 含 clientIpOf（应 ≥1）: $(grep -c 'clientIpOf' /var/www/nz315/server/api/trace.get.ts)"
+echo "stats.get.ts 无 128630（应 0）     : $(grep -c '128630' /var/www/nz315/server/api/stats.get.ts)"
+echo "bill.get.ts 读 farm_bill（应 ≥1）  : $(grep -c 'farm_bill' /var/www/nz315/server/api/bill.get.ts)"
+echo "db-init.mjs 含 farm_bill（应 ≥1）  : $(grep -c 'farm_bill' /var/www/nz315/scripts/db-init.mjs)"
+echo "三明治白名单含 farm_bill（应 ≥1）  : $(grep -c 'farm_bill' /var/www/nz315/scripts/verify-db-migration.mjs)"
+echo "nuxt.config 已删 amapJsKey（应 0） : $(grep -c 'amapJsKey *:' /var/www/nz315/nuxt.config.ts)"
+echo "nuxt.config 保留 amapWebKey（应 1）: $(grep -c 'amapWebKey *:' /var/www/nz315/nuxt.config.ts)"
 echo "---- 确认内部文档没被解包到服务器（应为 No such file） ----"
 ls -d /var/www/nz315/docs/handover /var/www/nz315/.workbuddy 2>&1 | tail -2
 ```
@@ -310,11 +345,12 @@ ls -d /var/www/nz315/docs/handover /var/www/nz315/.workbuddy 2>&1 | tail -2
 | 检查 | 期望 |
 |---|---|
 | 解包 | 打印 `解包完成` |
+| 🔴 **3.0 删除已移除文件** | 5 个路径**全部报 `No such file`**，且「nearby-stores 引用数」「StoreMap/useAmap\* 引用数」**都是 `0`**。**缺这条 ⇒ 门店模块在解包后继续活在线上**（`/nearby-stores` 与 `/api/stores/nearby` 照旧 200），§6 的 `nearby 应 404` 必然失败 |
 | PM2 配置 | 同时出现 **`PORT: 3100`** 和 **`interpreter: '/usr/local/node22/bin/node'`**（该文件与线上相同，属核对性质） |
 | `public/tools/` | **仍只列出 `nz315-qr-tool-v1.2.0.exe`（`95035957` 字节）** —— 解包不会删它（tar 里没有这个文件，只覆盖同名文件） |
 | 6 个（外码/P1-1）新文件 | 全部**存在**（`ip-geo.ts` 约 8353 B · `registry-lookup.ts` 约 6694 B · `unit-code.ts` 约 3016 B · `trace-code.ts` 约 2464 B · `TraceExternal.vue` 约 11911 B · `seed-abnormal-demo.mjs` 约 29428 B） |
 | 🆕 5 个 N2–N6 新文件 | `feedback.post.ts` 约 7859 B · `TraceFeedback.vue` 约 4624 B · `product-guard.ts` 约 3196 B · `rate-limit.ts` 约 2346 B · `inspect-daily.mjs` 约 13894 B —— **缺任一 ⇒ 你传的是旧包** |
-| `node -e` 五行 | **全部 `true`** ⇒ P1-1 / N2 / N5 / N6 的代码确实落地了 |
+| grep 内容抽查 8 行 | 依次应为 **`1 / ≥1 / 0 / ≥1 / ≥1 / ≥1 / 0 / 1`** ⇒ P1-1 / N5 / 记账 / 三明治白名单 的代码确实落地了（⚠️ 原来那版用 `node -e` 且含 `!`，**交互式 bash 里 `!` 会触发历史展开而报 `event not found`**，已换成 grep） |
 | 最后一个 `ls -d` | **两行都是 `No such file or directory`** ⇒ `export-ignore` 生效，内部手册与 AI 记忆**没有**被解包到服务器 ✅ |
 
 🔴 **若有任一文件不存在、或五行里出现 `false`** → 包传错了或没解包成功，**停手贴我**，别往下走。
@@ -599,8 +635,14 @@ SELECT COUNT(*) AS trace_code_rows FROM trace_code;
 SELECT COUNT(*) AS external_verification_rows FROM external_verification;"
 ```
 
-**期望**：企业名单与第 0 步**完全一致**（**不该多出「山东绿丰生物科技有限公司」**）；
+**期望**：企业名单与第 0 步**完全一致**；
 `trace_code_rows` 与第 0 步一致；`external_verification_rows` 是个**小数字**（第 6.4 步你核验了几次就是几行，属正常业务数据）。
+
+> 🔴 **判据修正（2026-09-23 15:4x 上线现场）**：本行原文写的是「**不该多出「山东绿丰生物科技有限公司」**」—— **这句会把人带沟里**。
+> 事实：线上库 `enterprise` **本来就有一行**「山东绿丰生物科技有限公司」（**建库时 `seed()` 落的演示企业**，实测从 11:25 那次迁移前后到现在**一直是 1 行**）。
+> ⇒ **正确判据是「行数仍是 1、且内容不变」，不是「这个名字不该出现」**。不该发生的是**从 1 变 2**（或冒出**别的**企业名）。
+> ⚠️ 另注意：`seed()` 第一步就是 `SELECT id FROM enterprise WHERE name = ?`（**存在即复用**）⇒ **光看企业行数根本区分不出"有没有误 seed"**。
+> 真正能证明「`--migrate-only` 零写入」的是**三明治的明细快照**（企业名单 / 账号 / 追溯码前 30 条 全 `OK`）+ **`farm_bill` 为 0 行** + `trace_code_rows` 与基线一致。
 
 > 若 `$M` / `$DB_*` 换了终端丢了（症状：`bash: --no-defaults: command not found`），
 > 先粘「**第 6 步开头那三行**」（等同 §4.4 开头那三行）再重跑。
@@ -724,27 +766,53 @@ env PATH=/usr/local/node22/bin:/usr/bin:/bin node scripts/inspect-daily.mjs
 ### 7.3 加完手动触发一次，确认真的能跑
 
 ```bash
-/usr/local/node22/bin/node /var/www/nz315/scripts/inspect-daily.mjs --apply
-echo "退出码: $?"
-tail -5 /www/wwwlogs/nz315-inspect.log
-$M --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" -e "
-SELECT alert_type, COUNT(*) FROM risk_alert WHERE alert_type IN (3,4,6) GROUP BY alert_type;"
-```
-**期望**：退出码 `0`；日志里出现一次巡检记录；`risk_alert` 里出现 `alert_type` 为 3/4/6 的行（**之前的库这些类型通常是 0 行**）。
+cd /var/www/nz315
+while IFS='=' read -r k v; do v=${v%$'\r'}; case "$k" in DB_HOST|DB_PORT|DB_USER|DB_PASSWORD|DB_NAME) export "$k=$v";; esac; done < .env
+M=/www/server/mysql80/bin/mysql
 
-👉 **再来一次 `--apply` 应该「待写入 0 条」**（30 天冷却生效）—— 这是幂等性判据，**强烈建议跑两次确认**。
+echo "===== ① 手动触发一次（输出直接看）====="
+/usr/local/node22/bin/node /var/www/nz315/scripts/inspect-daily.mjs --apply
+echo "第一次退出码: $?"
+
+echo "===== ② 立刻复跑（幂等判据：30 天冷却应把它挡住）====="
+/usr/local/node22/bin/node /var/www/nz315/scripts/inspect-daily.mjs --apply >> /www/wwwlogs/nz315-inspect.log 2>&1
+echo "第二次退出码: $?"
+tail -6 /www/wwwlogs/nz315-inspect.log
+
+echo "===== ③ 查库：确认真的落到 risk_alert ====="
+"$M" --no-defaults -h"$DB_HOST" -P"$DB_PORT" -u"$DB_USER" -p"$DB_PASSWORD" "$DB_NAME" -e "
+SELECT alert_type, COUNT(*) AS 条数 FROM risk_alert WHERE alert_type IN (3,4,6) GROUP BY alert_type;
+SELECT id, alert_type, product_id, handle_status, LEFT(evidence,120) AS evidence FROM risk_alert WHERE alert_type=6 ORDER BY id DESC LIMIT 3;"
+```
+
+**期望**：两次退出码都是 `0`；**库里 `alert_type` 为 3/4/6 的行出现了**（**之前的库这些类型通常是 0 行**）；
+第二次跑**必然**是「命中 N 条；冷却期内跳过 N 条；**待写入 0 条**」+ `【APPLY】无待写入项，数据库未变更。`（30 天冷却生效 = 幂等）。
+
+> 🔴 **判据修正（2026-09-23 15:5x 上线现场实测）**：**第 ① 次跑也可能是「待写入 0 条」** —— 只要在此之前已经有人跑过一次 `--apply`。
+> 最常见的情形：**在宝塔面板加计划任务时点了那一行的「执行」按钮** —— 它带 `>>` 日志、与定时执行**逐字同一条命令**，所以它写完之后，你再手动跑当然「无待写入项」。
+> ⇒ **"这条修复是否真的生效"要看第 ③ 步查库**（`alert_type=6` 有行 + `evidence` 里带 `"source": "daily-inspection"` + `handle_status=0`），
+> **不是**看第 ① 次屏幕上那个"待写入"数字。反之，**"待写入 0 条"只证明「冷却期生效（幂等）」，不能证明"这次没写"**。
+
+> ⚠️ 旧版本步（**已弃用**）的第一条命令**没有 `>>` 重定向** ⇒ 日志文件不会被创建 ⇒ 紧接着的 `tail /www/wwwlogs/nz315-inspect.log` **必报 `No such file`**（不是故障）。
+> 现已改为带 `>>`：手动跑的命令与计划任务里那一行**逐字一致**，跑完日志文件也就顺手建好了。
 
 ---
 
 ## 第 8 步 · 写部署标记（沿用服务器现有键名）
 
 ```bash
+cd /var/www/nz315
+TS=20260923-150643
+B=/root/nz315-backup-39753e3-20260923-150643
+echo "=== 先确认这两个路径存在（不存在就先停手，别写进去）==="
+ls -ld /var/www/nz315/.output.bak-$TS $B
+
 cat > /var/www/nz315/.deploy-version <<EOF
 deploy_time=$(date '+%Y-%m-%d %H:%M:%S %z')
 code_base=02f4d5c → 39753e3 (ycdb 分支：外部二维码核验 + 公众端扫码接入登记资料库比对(新结果类型 external-reg) + P1-1 补齐 scan_log.province/city 写入 + N2 公众反馈入口 + N3 每日巡检脚本 + N4 登记证过期不绑批次 + N5 首页真实统计 + 农资记账 farm_bill/账本页/成本分析页(并彻底下线「附近门店」模块) ; 本包同时含 68163bb 的生成上限 1万→50万)
 backup_dir=$B
 previous_dir=/var/www/nz315/.output.bak-$TS
-note=含 DDL（新表 external_verification + risk_alert 补列 external_verification_id 与索引 idx_external_verification，已用 --migrate-only + verify-db-migration 三明治证明零写入）；零依赖变化；未改 nginx；未重传 public/tools；未动 token 格式故不要求用户重新登录；包内已 export-ignore 掉 .workbuddy/ 与 docs/handover/；已加宝塔计划任务 nz315 每日巡检（03:00）；回滚只需切回 .output.bak-$TS
+note=含 DDL（新表 external_verification + farm_bill；risk_alert 补列 external_verification_id 与索引 idx_external_verification，已用 --migrate-only + verify-db-migration 三明治证明零写入）；零依赖变化；未改 nginx；未重传 public/tools；未动 token 格式故不要求用户重新登录；包内已 export-ignore 掉 .workbuddy/ 与 docs/handover/；已加宝塔计划任务 nz315 每日巡检（03:00，已手动触发并验证「待写入 0 条」幂等）；遗留项：服务器 /var/www/nz315 下尚有早年解包留下的 docs/handover 与 .workbuddy 目录（公网实测全 404、不构成泄露，待择期清理）；回滚只需切回 .output.bak-$TS
 EOF
 cat /var/www/nz315/.deploy-version
 ```
