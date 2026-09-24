@@ -8,6 +8,7 @@
 //           ④ 不越界 —— 登记资料命中 ≠ 产品为正品。
 import type { TraceOutcome, TraceRegistryCandidate } from '#shared/types/trace'
 import { isUnitCodeStructureValid, unitCodeCategoryText, unitCodeProductionTypeText } from '#shared/utils/unit-code'
+import { summarizeExternal } from '#shared/utils/external-summary'
 
 const props = defineProps<{ outcome: TraceOutcome }>()
 const router = useRouter()
@@ -15,6 +16,7 @@ const toast = useToast()
 
 const parts = computed(() => props.outcome.codeParts)
 const candidates = computed<TraceRegistryCandidate[]>(() => props.outcome.registryCandidates || [])
+const summary = computed(() => summarizeExternal(props.outcome, new Date().toISOString().slice(0, 10)))
 // 后六位撞车时会出现多个候选：唯一候选直接给结论式表格，多候选则逐条列出、由用户按标签核对
 const single = computed(() => (candidates.value.length === 1 ? candidates.value[0] : undefined))
 
@@ -37,6 +39,7 @@ const candidateFields = (c: TraceRegistryCandidate) => [
   { label: '登记证号', value: c.registrationNo || '-' },
   { label: '剂型', value: c.formulation || '-' },
   { label: '毒性', value: c.toxicity || '-' },
+  { label: '总有效成分含量', value: c.content || '-' },
   { label: '有效成分', value: c.ingredientMain || '-' },
   { label: '登记证有效期至', value: c.expireDate || '-' },
 ]
@@ -55,53 +58,25 @@ const copyCode = async () => {
   <div class="pb-6 lg:mx-auto lg:w-full lg:max-w-2xl">
     <PageHeader title="追溯查询结果" :show-back="true" />
 
-    <!-- 顶部橙色横幅：中性偏警示，不是「假货」结论 -->
-    <div class="bg-gradient-to-br from-warning to-orange-700 px-5 py-8 text-white">
+    <!-- 汇总已完成的比对，资料不足不当作异常，也不作产品合格鉴定。 -->
+    <div class="bg-gradient-to-br px-5 py-8 text-white" :class="summary.tone === 'success' ? 'from-green-700 to-emerald-800' : summary.tone === 'warning' ? 'from-warning to-orange-700' : 'from-slate-600 to-slate-800'">
       <div class="flex items-center gap-3">
-        <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/15"><UIcon name="i-lucide-shield-question" class="h-7 w-7 text-white" /></span>
+        <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/15"><UIcon :name="summary.tone === 'success' ? 'i-lucide-shield-check' : 'i-lucide-shield-question'" class="h-7 w-7 text-white" /></span>
         <div>
-          <div class="text-[26px] font-extrabold leading-tight">该码不是农资315签发的</div>
-          <div class="mt-1 text-sm text-white/90">本平台无该码生产记录，以下为来源声明与登记核对</div>
+          <div class="text-[26px] font-extrabold leading-tight">{{ summary.title }}</div>
+          <div class="mt-2 text-xs text-white/90">此页面仅为农资315数据与外部对比页</div>
+          <div class="mt-1 text-xs text-white/80">该码不是由农资315签发，本平台无该码生产记录</div>
         </div>
       </div>
     </div>
 
     <div class="-mt-4 space-y-4 px-4">
-      <!-- 追溯码 -->
-      <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
-        <div class="flex items-center justify-between">
-          <div class="text-xs text-muted">您查询的代码</div>
-          <UButton variant="ghost" color="neutral" size="xs" icon="i-lucide-copy" aria-label="复制追溯码" @click="copyCode">
-            复制
-          </UButton>
-        </div>
-        <div class="mt-1 font-code text-sm font-medium break-all text-default">{{ outcome.formattedCode }}</div>
-      </div>
-
-      <!-- 编码结构解析 -->
-      <div v-if="parts" class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
-        <div class="flex items-center gap-2 border-b border-border/60 px-4 py-3 text-sm font-semibold">
-          <UIcon name="i-lucide-binary" class="h-4 w-4 text-primary" />
-          32位码前8位结构解析
-        </div>
-        <div class="divide-y divide-border/60">
-          <div v-for="f in structureFields" :key="f.label" class="flex text-sm">
-            <div class="w-36 shrink-0 border-r border-border/60 bg-muted/40 px-4 py-2.5 text-muted">{{ f.label }}</div>
-            <div class="min-w-0 flex-1 px-4 py-2.5 font-medium break-words text-default">{{ f.value }}</div>
-          </div>
-        </div>
-        <div class="flex items-start gap-2 border-t border-border/60 px-4 py-3 text-xs" :class="structureValid ? 'bg-muted/30 text-muted' : 'bg-error/5 text-error'">
-          <UIcon :name="structureValid ? 'i-lucide-check-circle-2' : 'i-lucide-alert-octagon'" class="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>{{ structureValid ? '编码结构符合农业农村部第1049号公告的32位单元识别代码规则。' : '编码结构不符合32位单元识别代码规则，请高度警惕该产品。' }}</span>
-        </div>
-      </div>
-
-      <TraceSourceSnapshot :snapshot="outcome.sourceSnapshot" />
+      <p class="relative rounded-xl border border-border bg-elevated p-4 text-sm text-default shadow-sm">{{ summary.detail }}</p>
       <!-- 登记资料比对结果 -->
       <div class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
         <div class="flex items-center gap-2 border-b border-border/60 px-4 py-3 text-sm font-semibold">
           <UIcon name="i-lucide-library" class="h-4 w-4 text-primary" />
-          本地登记资料库候选参考
+          农资315登记资料库信息
         </div>
 
         <!-- 唯一候选：直接给结论式表格 -->
@@ -136,7 +111,40 @@ const copyCode = async () => {
             </div>
           </div>
         </div>
+        <p v-else class="p-4 text-sm text-muted">本地登记资料库暂未找到对应登记资料，请核对包装上的完整登记证号。</p>
       </div>
+
+      <TraceSourceSnapshot :snapshot="outcome.sourceSnapshot" />
+
+      <!-- 追溯码 -->
+      <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
+        <div class="flex items-center justify-between">
+          <div class="text-xs text-muted">您查询的代码</div>
+          <UButton variant="ghost" color="neutral" size="xs" icon="i-lucide-copy" aria-label="复制追溯码" @click="copyCode">
+            复制
+          </UButton>
+        </div>
+        <div class="mt-1 font-code text-sm font-medium break-all text-default">{{ outcome.formattedCode }}</div>
+      </div>
+
+      <!-- 编码结构解析 -->
+      <div v-if="parts" class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
+        <div class="flex items-center gap-2 border-b border-border/60 px-4 py-3 text-sm font-semibold">
+          <UIcon name="i-lucide-binary" class="h-4 w-4 text-primary" />
+          32位码前8位结构解析
+        </div>
+        <div class="divide-y divide-border/60">
+          <div v-for="f in structureFields" :key="f.label" class="flex text-sm">
+            <div class="w-36 shrink-0 border-r border-border/60 bg-muted/40 px-4 py-2.5 text-muted">{{ f.label }}</div>
+            <div class="min-w-0 flex-1 px-4 py-2.5 font-medium break-words text-default">{{ f.value }}</div>
+          </div>
+        </div>
+        <div class="flex items-start gap-2 border-t border-border/60 px-4 py-3 text-xs" :class="structureValid ? 'bg-muted/30 text-muted' : 'bg-error/5 text-error'">
+          <UIcon :name="structureValid ? 'i-lucide-check-circle-2' : 'i-lucide-alert-octagon'" class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{{ structureValid ? '编码结构符合农业农村部第1049号公告的32位单元识别代码规则。' : '编码结构不符合32位单元识别代码规则，请高度警惕该产品。' }}</span>
+        </div>
+      </div>
+
 
       <!-- 必须说清的边界：本平台给不了什么 + 不能据此认定真伪 -->
       <div class="rounded-xl border border-warning/30 bg-warning-soft/60">

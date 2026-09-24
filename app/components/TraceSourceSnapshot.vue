@@ -3,6 +3,7 @@ import type { SourceSnapshot } from '#shared/types/source-snapshot'
 const props = defineProps<{ snapshot?: SourceSnapshot; historical?: boolean }>()
 const source = computed(() => props.snapshot?.source)
 const labels = { match: '一致', mismatch: '存在差异', insufficient: '资料不足', review: '待人工核实' }
+const comparisonCounts = computed(() => Object.entries(labels).map(([status, label]) => ({ label, count: props.snapshot?.comparisons.filter(item => item.status === status).length || 0 })))
 const retry = () => reloadNuxtApp()
 const production = computed(() => [
   { label: '生产日期', value: source.value?.produceDate || '来源页未提供具体日期' },
@@ -20,6 +21,7 @@ const production = computed(() => [
         <p class="mt-2 break-words">{{ snapshot.message }}</p>
         <p class="mt-2 text-xs text-muted">获取时间：{{ new Date(snapshot.fetchedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) }}（北京时间）</p>
         <p class="mt-1 text-xs text-muted">{{ snapshot.saved ? '本次内容和比对结果已保存' : '本次历史快照未保存' }}</p>
+        <p v-if="snapshot.comparisons.length" class="mt-2 text-xs text-muted">已完成 {{ snapshot.comparisons.length }} 项登记资料比对，逐项结果见下方。</p>
         <div class="mt-3 flex flex-wrap gap-4">
           <a v-if="snapshot.sourceUrl" :href="snapshot.sourceUrl" target="_blank" rel="noopener noreferrer" class="break-all text-primary underline">查看原查询页（{{ snapshot.platform || '外部页面' }}）</a>
           <NuxtLink v-if="snapshot.saved && snapshot.id && !historical" :to="'/trace-snapshot/' + snapshot.id" class="text-primary underline">查看本次历史快照</NuxtLink>
@@ -45,10 +47,11 @@ const production = computed(() => [
     </template>
     <section v-if="snapshot?.comparisons.length" class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
       <h2 class="text-sm font-semibold">与本地登记资料逐项比对</h2>
+      <div class="mt-3 flex flex-wrap gap-2 text-xs"><span v-for="item in comparisonCounts" :key="item.label" class="rounded-md bg-muted px-2 py-1">{{ item.label }} {{ item.count }} 项</span></div>
       <p class="mt-2 text-xs text-muted">登记资料来自本地导入数据，可能存在更新滞后；命中登记证不能证明商品为正品。</p>
       <div v-for="(item, index) in snapshot.comparisons" :key="index" class="mt-3 rounded-lg border border-border p-3 text-sm">
         <div class="flex flex-wrap justify-between gap-2 font-medium"><span>{{ item.label }}</span><span :class="item.status === 'mismatch' ? 'text-error' : item.status === 'match' ? 'text-primary' : 'text-warning'">{{ labels[item.status] }}</span></div>
-        <p class="mt-2 break-words"><span class="text-muted">来源页：</span>{{ item.sourceValue || '未提供' }}</p><p class="mt-1 break-words"><span class="text-muted">登记参考：</span>{{ item.referenceValue || '无可比对资料' }}</p><p class="mt-2 text-xs text-muted">{{ item.reason }}</p>
+        <p class="mt-2 break-words"><span class="text-muted">{{ item.label === '来源页单元识别码' ? '本次查询码' : '农资315登记资料' }}：</span>{{ item.referenceValue || '无可比对资料' }}</p><p class="mt-1 break-words"><span class="text-muted">{{ item.label === '码内登记类别及后六位' ? '查询码编码' : '外部来源页' }}：</span>{{ item.sourceValue || '未提供' }}</p><p class="mt-2 text-xs text-muted">{{ item.reason }}</p>
       </div>
     </section>
   </div>
