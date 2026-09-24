@@ -16,7 +16,7 @@
 - 工作副本在 **`ycdb`**（非 master），未合入未推送，带 DDL ⇒ 上线必须 `--migrate-only`。
 - 本机 git 两个老毛病（写不了嵌套引用 `a/b`；`checkout`/`merge` 后只落地差异文件、`git status` 报一堆 ` D`，`git reset --hard HEAD` 即铺回）⇒ 详见用户级记忆与 AGENTS 踩坑表。
 - 🔴 ycdb 上**绝不用 `-A`/`.`**（工作区常驻两个 master 线未跟踪项）。**索引还会残留**别处的已暂存项（`git add <路径>` 挡不住）⇒ 看 `git diff --cached --name-only`，**最硬用 `git commit -m "…" -- <路径>`（pathspec 绕过索引）** + `git show --name-status` 复核。误提交回退 = `git reset --soft HEAD~1`。
-- 🔴 **`ycdb` 工作区长期有「未提交的第二条功能线」，别把它当成脏文件误提交/误清**（2026-09-24 11:2x 状态）：**「外码来源页快照与比对」** —— 13 个已跟踪文件被改 + 12 个未跟踪新文件（`shared/types/source-snapshot.ts` · `server/utils/source-{fetch,parser,compare,snapshot}.ts` · `server/api/admin/source-snapshots.get.ts` · `server/api/trace-snapshots/[id].get.ts` · `app/components/TraceSourceSnapshot.vue` · `app/pages/admin/source-snapshots.vue` · `app/pages/trace-snapshot/[id].vue` · `tests/source-snapshot.test.mjs` + `tests/fixtures/ddspp.html`）。**已完成：单测 5/5 绿 + 12 项集成验收 `passed`**（`logs/source-acceptance.json`）；**未做：提交 / 文档 / 打包 / 上线**。
+- 🔴 **「外码来源页快照与比对」这条功能线已于 2026-09-24 提交为 `0598e2d`**（⚠️ **仍未推送、未上线**）：`feat(核验): 外码来源页快照与比对，并把 M7 外部核验解析器并入同一内核` —— 27 文件 / +1,562 −280（新增 13 / 修改 14），基线 `affe459`。含 `shared/types/source-snapshot.ts` · `server/utils/source-{fetch,parser,compare,snapshot}.ts` · `server/api/admin/source-snapshots.get.ts` · `server/api/trace-snapshots/[id].get.ts` · `app/components/TraceSourceSnapshot.vue` · `app/pages/admin/source-snapshots.vue` · `app/pages/trace-snapshot/[id].vue` · `tests/`（`source-snapshot.test.mjs` 8 例 + `fixtures/ddspp.html`）。**验证：单测 8/8 + 12 项集成验收 `passed` + `/api/admin/external-verify` 四路回归 22/22。**
 - 🔴 该线**含新 DDL**（表 `external_source_snapshot`，已同步进 `db-init.mjs` 的 `DDL` 数组与 `verify-db-migration.mjs` 的 `ACTIVE_TABLES`/`EXPECTED_NEW_TABLES` 白名单）⇒ **33 号执行单（零 DDL）不适用**，要上线必须另出执行单。**33 号的包 `35da7cc` 不含这批改动 = 两条独立线，别混淆**。
 - ⚠️ 该线已知待接线/待裁定：`TraceNotFound.vue` 的「外部页面信息」块读 `outcome.externalSource`，而**服务端从未赋值**（`server/` 全目录零赋值）⇒ 死代码、永不显示；`trace.get.ts` 的 `resultType: hasReg || sourceSnapshot` 会让「带 `source` 但抓取失败」也判 `external-reg`；码页不符（mismatch）时仍把整页原文（约 233KB）落库。
 
@@ -34,7 +34,7 @@
 - 写接口 `requireWritableUser` + 按钮 `v-if="canWrite"`，**别散落 `role==='viewer'`**。取客户端 IP 一律 `clientIpOf(event)`（优先 `x-real-ip`）。
 - 限流用 `server/utils/rate-limit.ts`（**进程内**）；`feedback.post.ts` 是**首个匿名写接口**，限流须放**入参校验之后**。
 - 高德 `amapWebKey` 现**仅 `ip-geo.ts` 一个调用方**（POI 调用已随「附近门店」删除，2026-09-23）⇒ 配额被刷爆 = **省份静默写不进** = P1-1 死穴；**配额用尽 HTTP 仍 200**（须判 `status==='1'`）、**未命中返 `[]`**。
-- 🔴 **「抓外部页面并解析」原有两套并行实现，2026-09-24 已合并为一套**（⚠️ **在 `ycdb` 工作区、未提交、未上线**）：
+- 🔴 **「抓外部页面并解析」原有两套并行实现，2026-09-24 已合并为一套**（提交 **`0598e2d`**；⚠️ **未推送、未上线**）：
   ① **M1 公众侧** = `server/utils/source-parser.ts`（`sourceText`/`labelKey`/`actualDate`/`parseSourceDocument`，带 `SOURCE_PARSER_VERSION`）+ `source-compare.ts`（**4 态，含 `review` 降级**）+ 落表 `external_source_snapshot`；消费者看 `TraceSourceSnapshot.vue` / `/trace-snapshot/[id]`。
   ② **M7 后台侧** = `server/utils/external-verification.ts`，现**只保留** `fetchWla1`（`productionType` 唯一来源）· `toExternalSource()`（字段映射 `productExpiry`→`expireDate`）· `extractOriginalsFromJson()` · `verifyExternalCode`（**6 项判定 + 触发预警 3/5/6/7，一字未动**）+ 落表 `external_verification`；**内联解析实现已全删**，改调 `parseSourceDocument`。
   ③ **合并后新增能力**（原 M7 有、内核没有，现并入）：同义词表 `FIELD_ALIASES`（12 字段中文标签 + JS/JSON 键名）· 全角转半角 `normalizeLabel` · 脚本键提取 `extractScriptKeys` · `spec` 字段；`pick()` 三层取值 = **精确标签 → 同义词别名 → 脚本键**（精确层命中时结果与合并前完全一致）。
