@@ -57,16 +57,17 @@ const copyCode = async () => {
 <template>
   <div class="pb-6 lg:mx-auto lg:w-full lg:max-w-2xl">
     <PageHeader title="追溯查询结果" :show-back="true" />
-    <!-- 顶部紧凑操作区；仅唯一登记候选时预填记账产品，避免多候选误填。 -->
-    <div class="flex flex-wrap items-center gap-2 px-4 pb-4">
+    <!-- 顶部三列等宽操作区；仅唯一登记候选时预填记账产品，避免多候选误填。 -->
+    <div class="grid grid-cols-3 items-stretch gap-2 px-4 pb-4">
       <TraceBillEntry
         :code="outcome.code"
         :product-name="single ? (single.productName || '') : ''"
         :category="single ? (single.productName || single.ingredientMain || '') : ''"
-        size="sm"
+        size="lg"
+        block
       />
-      <TraceReport :code="outcome.code" size="sm" />
-      <UButton class="ml-auto" color="primary" variant="outline" size="sm" icon="i-lucide-scan-line" @click="router.push('/scan')">
+      <TraceReport :code="outcome.code" size="lg" block />
+      <UButton color="primary" variant="outline" size="lg" block icon="i-lucide-scan-line" @click="router.push('/scan')">
         重新扫码
       </UButton>
     </div>
