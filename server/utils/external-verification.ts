@@ -14,12 +14,19 @@
 //      真实抓取已收口 source-fetch 的 BlockList + 固定地址校验 ⇒ 当前不可利用，属独立待裁定项，
 //      不与本次合并混在一起改。
 //
+// 🔴 2026-09-24 收口（第二笔）：登记库候选取数不再在本文件内联 SQL，改调
+//    `registry-lookup.ts` 的 `findRegistryRowsByUnitCode()`（与公众端 /api/trace 兜底共用同一
+//    「后六位 + 类别过滤」实现）。理由与影响面见该函数文档与下方调用点注释（实测零截断）。
+//    刻意**不用** `lookupRegistryByCode()`：那个带展示口径的 `slice(0,5)` 与进程内缓存，
+//    本端需要完整候选集做「证号完全相等」匹配 —— 截断会造成误判不一致。
+//
 // 判定边界（保持合并前不变）：只核验单元识别码前 8 位（登记类别 + 登记证后六位 + 生产类型），
 // 第 9 位以后保留原码但不参与判定；原药信息**不参与判定**，仅随来源声明展示与留档。
 import { fetchSourceDocument } from './source-fetch'
 import { lookup } from 'node:dns/promises'
 import { query } from './db'
-import { regCategoryOf, normalizeOrgName } from './regdata'
+import { normalizeOrgName } from './regdata'
+import { findRegistryRowsByUnitCode } from './registry-lookup'
 import { parseSourceDocument } from './source-parser'
 import { extractTraceCode, isHttpUrl, isTraceCode } from '#shared/utils/trace-code'
 import { parseUnitCode } from '#shared/utils/unit-code'
@@ -239,10 +246,20 @@ export async function verifyExternalCode(input: { sourceUrl?: string; code?: str
   const source: ExternalSourceData = pageFetched
     ? await fetchExternalSource(sourceUrl, code, pageText)
     : { sourceUrl, platform: '未提供来源页面', code }
-  const candidatesRaw = codeParts.registrationLast6 && codeParts.validCategory
-    ? await query<any[]>('SELECT registration_no, product_name, company, expire_date FROM pesticide_reg WHERE RIGHT(registration_no, 6) = ?', [codeParts.registrationLast6])
-    : []
-  const registrationCandidates = candidatesRaw.filter(r => regCategoryOf(String(r.registration_no)) === Number(codeParts.categoryCode)).map(r => ({ registrationNo: String(r.registration_no), productName: String(r.product_name || ''), holderName: String(r.company || ''), expireDate: cleanDate(r.expire_date), categoryCode: Number(codeParts.categoryCode) }))
+  // 2026-09-24 收口：「后六位 + 类别过滤」取候选改为共用原语 findRegistryRowsByUnitCode
+  //   （与公众端 /api/trace 的登记库兜底 registry-lookup.ts 同一实现）。
+  //   原先本文件内联 SQL：SELECT ... WHERE RIGHT(registration_no, 6) = ? —— 无 LIMIT、无 ORDER BY、
+  //   无缓存，且与公众端各写一遍同样的 regCategoryOf 过滤 ⇒ 一处改另一处忘就会漂移。
+  //   收口后本端行为差异仅两处（均已实测为**零影响**，2026-09-24 本机 97,471 行）：
+  //     · 取数带上限 20（原无上限）：该上限管的是「仅按后六位」的桶，实测最大 **6 条**
+  //       （分布 1条:66776 / 2条:9096 / 3条:3174 / 4条:720 / 5条:19 / 6条:1）⇒ 3 倍余量、零截断；
+  //       ⚠️ 若将来登记库导入让某个后六位桶 >20 条，须同步上调 registry-lookup 的 MAX_ROW_SCAN。
+  //     · 加 ORDER BY registration_no（原无序）：本端只用 `.find` 取「证号完全相等」那条，
+  //       顺序无关；且桶 ≤6 条时排序不改变集合。
+  //   刻意**不**改用 lookupRegistryByCode：那会把候选统一截到 5 条（展示口径），
+  //   而本端要用**完整候选集**做精确匹配 —— 截断会让「真实证号排在 5 条之外」时把一致误判为不一致。
+  const candidateRows = await findRegistryRowsByUnitCode(codeParts)
+  const registrationCandidates = candidateRows.map(r => ({ registrationNo: String(r.registration_no), productName: String(r.product_name || ''), holderName: String(r.company || ''), expireDate: cleanDate(r.expire_date), categoryCode: Number(codeParts.categoryCode) }))
   const matchedRegistration = source.registrationNo
     ? registrationCandidates.find(r => normalizeText(r.registrationNo) === normalizeText(source.registrationNo))
     : registrationCandidates.length === 1 ? registrationCandidates[0] : undefined
