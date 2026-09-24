@@ -29,6 +29,8 @@
 
 ## 关键实现（别自己重写）
 - 32 位码：结构 `shared/utils/unit-code.ts` · 提取 `shared/utils/trace-code.ts`，**别自己 slice**；比对**必须先按类别过滤**（1→PD/PDN/LS/EX；2→WP/WPN/WL）。
+- 🔴 **登记库「后六位 + 类别过滤」的唯一实现 = `registry-lookup.ts` 的 `findRegistryRowsByUnitCode(codeParts)`**（2026-09-24 收口，提交 `797407c`）：**公众端兜底（`queryRegistry`）与后台 M7 核验（`external-verification.ts`）共用**，改它就是同时改两端。守卫 = `validCategory && registrationLast6`（**刻意不含 `validLength`** —— 公众端调用前自判，两处都不加会让「≥32 位」失效）。`LIMIT 20` 加在**类别过滤之前** ⇒ 管的是「仅按后六位」的桶（实测最大 **6** 条）⇒ **`MAX_ROW_SCAN` 与 `MAX_CANDIDATES` 必须联动上调**；同后六位**跨类别**的桶有 **4,389** 个 ⇒ 类别过滤不可省。🔴 **M7 刻意不用 `lookupRegistryByCode()`**（带 `slice(0,5)` + 10 分钟缓存）：M7 要完整候选集做 `.find(证号完全相等)`，截断会把**一致误判成不一致**。
+- ⚠️ **判「重构有没有改变行为」不能只跑既有断言**：断言覆盖不到「截断边界」这类分支。**全表穷举集合比较**才作数（范例 `logs/_equivalence-proof.mjs`：159,572 个「桶 × 类别」对比较新旧候选集）；且**探测脚本里不能用近似口径替代真实函数口径**，否则结论直接作废（本轮第一版就栽在 `LIKE 'PD%'` 近似上）。另：**"回归全绿"证明不了服务在跑新代码** ⇒ 需**金丝雀**（临时改行为 → 观察接口变化 → 撤销），且**同码复测会命中缓存**必须换码。
 - `/api/trace` 未命中 → 登记库兜底 `external-reg`，再未命中 `not-found`。**只读：不写 `scan_log`、不触发预警**。
 - 上限取 `shared/utils/code-limits.ts`（50万/20万），硬边界在文件顶部（**MySQL 占位符已贴 65535，CHUNK 只能减不能加**）；线上 PM2 仅 800M ⇒ **线上验收只跑 5 万**。
 - 写接口 `requireWritableUser` + 按钮 `v-if="canWrite"`，**别散落 `role==='viewer'`**。取客户端 IP 一律 `clientIpOf(event)`（优先 `x-real-ip`）。
@@ -44,6 +46,7 @@
   ⚠️ 一刀切 `.replace(/\r?\n/g, ' ')` 会让纯文本整段并成一行、**登记证号与持有人全部取不到**（2026-09-24 实测踩到，属真回归，`SOURCE_PARSER_VERSION` 因此 `.2` → **`.3`**）。**纯文本特有的兜底一律挂在那个 `plain` 探测下面**，才能保证公众端零变化。
   📌 **回归入口**：单测 `node --test tests/source-snapshot.test.mjs`（**8 例**，含 ddspp 真实页面用例 = HTML 侧零变化的证据）· 四路 HTTP 回归 `node logs/_m7-regression.mjs`（自登录 + 查库取真实样本 + 22 项断言，结果落 `logs/m7-regression-result.json`）。**该接口会真写库**（`external_verification` 一行/次，mismatch 还会触发 `risk_alert`）⇒ 跑完按 `id > 基线 AND created_at >= 今天` 清理。**「判包/判回归基线」都别用 `MAX(id)`** —— 本机库有 44 行 09-22 的历史测试残留。
   ⚠️ **`wla1` 与通用 HTML 抓取两路在本机不可测**（本机出口经代理 ⇒ 域名被解析到非公网地址 ⇒ 硬化抓取主动拒绝；wla1 表现为 **500 裸错**、通用页 **502**）⇒ 只能到能直连外网的机器上验；`productionType` 只由 wla1 路产出，它从键名合集里消失属环境限制、**不是回归**。
+- 🔴 **登记库候选查询同日收口**（提交 **`797407c`**，2 文件 / +79 −14；⚠️ 未推送、未上线）：M7 直连 `pesticide_reg` 的内联 SQL 与其自建类别过滤**已删除**，与公众端共用 `registry-lookup.ts` 新导出的 **`findRegistryRowsByUnitCode()`**。用户裁定走**保守收口**（两端各自保留截断 / 缓存 / 映射形状）⇒ **零语义变化**；**穷举等价证明 159,572 个「后六位桶 × 类别」对：新旧候选集不一致 0 对、顺序变化 0 对**。🔴 **刻意不改成 `lookupRegistryByCode()`**（带 `slice(0,5)` + 10 分钟缓存 ⇒ 截断会让 M7 把「一致」误判成「不一致」）。口径细节与上下限联动见上文「关键实现」。**该线仍含新 DDL ⇒ 33 号执行单不适用。**
   ℹ️ `raw.extracted` 形状已变（旧＝9 字段对象 → 新＝数字），**全库零消费者**，仅供留档 ⇒ 安全，但记录在案。
 
 
