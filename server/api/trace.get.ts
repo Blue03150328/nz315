@@ -8,6 +8,7 @@ import { getCurrentConsumer } from '../utils/consumer-auth'
 import { lookupRegistryByCode } from '../utils/registry-lookup'
 import { collectSourceSnapshot } from '../utils/source-snapshot'
 import { allowRequest } from '../utils/rate-limit'
+import { extractTraceCode } from '#shared/utils/trace-code'
 import type { TraceOutcome, TraceResultType } from '#shared/types/trace'
 
 const CODE_RE = /^\d{32}$/
@@ -39,12 +40,16 @@ export default defineEventHandler(async (event) => {
   const canFetch = /^https?:\/\//i.test(sourceUrl) && sourceUrl.length <= 2048
   let sourceSnapshot: Awaited<ReturnType<typeof collectSourceSnapshot>> | undefined
   const collect = async () => {
-    if (!allowRequest('source-scan:' + clientIpOf(event), 20, 60000) || !allowRequest('source-scan-global', 60, 60000)) return { fetchedAt: new Date().toISOString(), parserVersion: '', status: 'unavailable' as const, message: '来源查询过于频繁，请稍后重试', comparisons: [], saved: false }
+    let platform: string | undefined
+    try { platform = new URL(sourceUrl).hostname } catch { /* 非标准网址不提供平台名 */ }
+    if (!allowRequest('source-scan:' + clientIpOf(event), 20, 60000) || !allowRequest('source-scan-global', 60, 60000)) return { fetchedAt: new Date().toISOString(), parserVersion: '', status: 'unavailable' as const, message: '来源查询过于频繁，请稍后重试', comparisons: [], saved: false, sourceUrl, platform }
     return collectSourceSnapshot(sourceUrl, code)
   }
   if (!code && canFetch) {
+    // 先从来源网址提码，避免外页抓取失败连带短路登记资料比对。
+    code = extractTraceCode(sourceUrl)
     sourceSnapshot = await collect()
-    code = sourceSnapshot.source?.code || ''
+    code = code || sourceSnapshot.source?.code || ''
   }
   const formatValid = CODE_RE.test(code)
 

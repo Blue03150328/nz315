@@ -7,11 +7,14 @@ import type { SourceSnapshot } from '../../shared/types/source-snapshot'
 
 const pending = new Map<string, Promise<SourceSnapshot>>()
 const json = (v: any) => typeof v === 'string' ? JSON.parse(v) : v
+function hostOf(sourceUrl: string): string | undefined {
+  try { return new URL(sourceUrl).hostname } catch { /* 非标准网址不提供平台名 */ }
+}
 export async function collectSourceSnapshot(sourceUrl: string, code: string): Promise<SourceSnapshot> {
   const key = createHash('sha256').update(sourceUrl + '\n' + code + '\n' + SOURCE_PARSER_VERSION).digest('hex')
   const existing = pending.get(key)
   if (existing) return existing
-  if (pending.size >= 8) return { fetchedAt: new Date().toISOString(), parserVersion: SOURCE_PARSER_VERSION, status: 'unavailable', message: '来源查询繁忙，请稍后重试', comparisons: [], saved: false }
+  if (pending.size >= 8) return { fetchedAt: new Date().toISOString(), parserVersion: SOURCE_PARSER_VERSION, status: 'unavailable', message: '来源查询繁忙，请稍后重试', comparisons: [], saved: false, sourceUrl, platform: hostOf(sourceUrl) }
   const work = collect(key, sourceUrl, code)
   pending.set(key, work)
   try { return await work } finally { pending.delete(key) }
@@ -23,6 +26,9 @@ async function collect(key: string, sourceUrl: string, code: string): Promise<So
     if (cached) return json(cached.payload)
   } catch { /* 未迁移时仍能查询，但明确告知没有保存历史 */ }
   const snapshot: SourceSnapshot = { id: randomUUID(), fetchedAt: new Date().toISOString(), parserVersion: SOURCE_PARSER_VERSION, status: 'unavailable', message: '', comparisons: [], saved: false }
+  // 无论抓取或解析成败，都保留用户前往原查询页的入口。
+  snapshot.sourceUrl = sourceUrl
+  snapshot.platform = hostOf(sourceUrl)
   let document = ''
   let references: unknown = null
   try {

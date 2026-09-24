@@ -35,6 +35,10 @@ export interface SourceSnapshot {
   parserVersion: string
   status: 'ok' | 'partial' | 'unavailable'
   message: string
+  /** 来源网址：抓取或解析失败时仍提供原页入口。 */
+  sourceUrl?: string
+  /** 来源平台域名，用于原页链接文案。 */
+  platform?: string
   source?: SourceDeclaration
   comparisons: SourceComparison[]
   saved: boolean

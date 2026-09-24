@@ -21,7 +21,7 @@ const production = computed(() => [
         <p class="mt-2 text-xs text-muted">获取时间：{{ new Date(snapshot.fetchedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) }}（北京时间）</p>
         <p class="mt-1 text-xs text-muted">{{ snapshot.saved ? '本次内容和比对结果已保存' : '本次历史快照未保存' }}</p>
         <div class="mt-3 flex flex-wrap gap-4">
-          <a v-if="source" :href="source.sourceUrl" target="_blank" rel="noopener noreferrer" class="break-all text-primary underline">查看原查询页（{{ source.platform }}）</a>
+          <a v-if="snapshot.sourceUrl" :href="snapshot.sourceUrl" target="_blank" rel="noopener noreferrer" class="break-all text-primary underline">查看原查询页（{{ snapshot.platform || '外部页面' }}）</a>
           <NuxtLink v-if="snapshot.saved && snapshot.id && !historical" :to="'/trace-snapshot/' + snapshot.id" class="text-primary underline">查看本次历史快照</NuxtLink>
           <UButton v-if="snapshot.status === 'unavailable' && !historical" size="xs" variant="outline" @click="retry">重新查询</UButton>
         </div>
