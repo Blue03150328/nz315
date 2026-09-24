@@ -57,6 +57,19 @@ const copyCode = async () => {
 <template>
   <div class="pb-6 lg:mx-auto lg:w-full lg:max-w-2xl">
     <PageHeader title="追溯查询结果" :show-back="true" />
+    <!-- 顶部紧凑操作区；仅唯一登记候选时预填记账产品，避免多候选误填。 -->
+    <div class="flex flex-wrap items-center gap-2 px-4 pb-4">
+      <TraceBillEntry
+        :code="outcome.code"
+        :product-name="single ? (single.productName || '') : ''"
+        :category="single ? (single.productName || single.ingredientMain || '') : ''"
+        size="sm"
+      />
+      <TraceReport :code="outcome.code" size="sm" />
+      <UButton class="ml-auto" color="primary" variant="outline" size="sm" icon="i-lucide-scan-line" @click="router.push('/scan')">
+        重新扫码
+      </UButton>
+    </div>
 
     <!-- 汇总已完成的比对，资料不足不当作异常，也不作产品合格鉴定。 -->
     <div class="bg-gradient-to-br px-5 py-8 text-white" :class="summary.tone === 'success' ? 'from-green-700 to-emerald-800' : summary.tone === 'warning' ? 'from-warning to-orange-700' : 'from-slate-600 to-slate-800'">
@@ -168,30 +181,6 @@ const copyCode = async () => {
         </div>
       </div>
 
-      <!-- 记一笔账（2026-09-23 新增）：本页同样是「刚买完扫的码」，也有产品信息（登记库比对结果），
-           消费者不会因为码不是本平台签发的就不需要记账 ⇒ 外码页也要有入口。
-           预填只在**唯一候选**时带产品名 —— 后六位撞车（多候选）时无法确定是哪一个产品，
-           预填错了会把错误产品名写进账单，那比不预填更糟。 -->
-      <TraceBillEntry
-        :code="outcome.code"
-        :product-name="single ? (single.productName || '') : ''"
-        :category="single ? (single.productName || single.ingredientMain || '') : ''"
-        block
-      />
-
-      <!-- 一键举报（2026-09-23 新增）：本页是典型的「异常结果」——
-           码不是本平台签发的，消费者看完只会更疑惑「那我该找谁」。给一条明确的主管渠道。 -->
-      <TraceReport :code="outcome.code" block />
-
-      <!-- 操作 -->
-      <div class="grid grid-cols-2 gap-3">
-        <UButton variant="outline" color="neutral" size="lg" icon="i-lucide-arrow-left" @click="router.back()">
-          返回
-        </UButton>
-        <UButton color="primary" size="lg" icon="i-lucide-scan-line" @click="router.push('/scan')">
-          重新扫码
-        </UButton>
-      </div>
       <p class="px-2 text-center text-xs text-muted">
         查询结果仅供参考，如有疑问请联系生产企业或购买渠道核实
       </p>
