@@ -10,7 +10,7 @@
 //   2. 生产日期 / 生产批次 **登记库里没有**，只能来自包装标签实物或该码所属平台；
 //   3. 本模块只读，不写 scan_log、不触发风险预警（不是本平台的码，不该污染本平台统计）。
 import { query } from './db'
-import { regCategoryOf, findOriginalCandidates } from './regdata'
+import { regCategoryOf } from './regdata'
 import { parseUnitCode } from '#shared/utils/unit-code'
 import type { ExternalCodeParts } from '#shared/types/external-verification'
 
@@ -45,7 +45,6 @@ export interface RegistryLookupResult {
 
 const MAX_CANDIDATES = 5        // 后六位多候选时最多返回条数（前端逐条展示）
 const MAX_ROW_SCAN = 20         // SQL 侧预取上限（先按类别过滤再截断）
-const MAX_ORIGINAL_LOOKUP = 3   // 候选多于这个数就不再逐个查原药信息（避免 N+1 查询）
 const CACHE_MAX = 500           // 进程内缓存条数上限
 const CACHE_TTL_MS = 10 * 60 * 1000
 
@@ -101,43 +100,7 @@ async function queryRegistry(code: string): Promise<RegistryLookupResult> {
       expired: Boolean(r.expire_date) && String(r.expire_date).slice(0, 10) < today,
       originals: [] as RegistryOriginal[],
     }))
-  // 原药（母药）信息：制剂按有效成分去登记库找有效期内的原药/母药；命中多条时最多留 3 条
-  if (candidates.length && candidates.length <= MAX_ORIGINAL_LOOKUP) {
-    for (const c of candidates) c.originals = await lookupOriginals(c.registrationNo)
-  }
+  // 原药实际来源只能来自厂家声明，禁止用同成分候选推导。
   return { codeParts, candidates }
 }
 
-/** 取某登记证的原药（母药）来源：登记证号 + 生产企业名称 + 有效成分（失败不抛错，原药信息属增强项） */
-async function lookupOriginals(registrationNo: string): Promise<RegistryOriginal[]> {
-  try {
-    const { reg, isOriginal, candidates } = await findOriginalCandidates(registrationNo)
-    if (!reg) return []
-    // 原药/母药产品自身即原药来源（原药登记证号 = 自身登记证号）
-    if (isOriginal) {
-      return [{
-        regNo: registrationNo,
-        productName: String(reg.product_name || ''),
-        company: String(reg.company || ''),
-        ingredient: String(reg.ingredient_main || ''),
-      }]
-    }
-    const seen = new Set<string>()
-    const out: RegistryOriginal[] = []
-    for (const c of candidates as any[]) {
-      const no = String(c.registration_no)
-      if (seen.has(no)) continue
-      seen.add(no)
-      out.push({
-        regNo: no,
-        productName: String(c.product_name || ''),
-        company: String(c.company || ''),
-        ingredient: String(c.ingredient_main || ''),
-      })
-      if (out.length >= 3) break
-    }
-    return out
-  } catch {
-    return []
-  }
-}

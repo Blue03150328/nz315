@@ -30,6 +30,9 @@ const structureFields = computed(() => {
 const structureValid = computed(() => isUnitCodeStructureValid(parts.value))
 // 接口给出的动态原因：含「登记资料库比对是否命中」的结论，比静态的 4 条通用原因更贴近本次扫码
 const apiReasons = computed(() => props.outcome.reasons || [])
+const externalSource = computed(() => props.outcome.externalSource)
+const sourceFields = computed(() => externalSource.value?.productFields || [])
+const sourceOriginals = computed(() => externalSource.value?.originals || [])
 
 // 静态可能原因：第 2 条要随「结构是否合规」切换说法 ——
 // 否则会出现「结构卡说结构合规、原因 2 却说不符合编码规则」的自相矛盾（实测踩到）
@@ -62,6 +65,7 @@ const reasons = computed(() => {
     </div>
 
     <div class="-mt-4 space-y-4 px-4">
+      <TraceSourceSnapshot v-if="outcome.sourceSnapshot" :snapshot="outcome.sourceSnapshot" />
       <!-- 输入的码 -->
       <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
         <div class="flex items-center justify-between">
@@ -112,6 +116,22 @@ const reasons = computed(() => {
               <div class="text-sm font-medium text-default">{{ item.title }}</div>
               <div class="mt-0.5 text-xs text-muted">{{ item.desc }}</div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="sourceFields.length || sourceOriginals.length" class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
+        <div class="flex items-center gap-2 border-b border-border/60 px-4 py-3 text-sm font-semibold">
+          <UIcon name="i-lucide-copy-check" class="h-4 w-4 text-primary" />
+          外部页面信息（已复制展示）
+        </div>
+        <div v-if="sourceFields.length" class="divide-y divide-border/60">
+          <div v-for="f in sourceFields" :key="f.label" class="flex text-sm"><div class="w-36 shrink-0 border-r border-border/60 bg-muted/40 px-4 py-2.5 text-muted">{{ f.label }}</div><div class="min-w-0 flex-1 px-4 py-2.5 font-medium break-words text-default">{{ f.value }}</div></div>
+        </div>
+        <div v-if="sourceOriginals.length" class="space-y-2 p-4">
+          <div class="text-xs font-semibold text-muted">原药信息（来源页原文）</div>
+          <div v-for="(o, idx) in sourceOriginals" :key="o.regNo + '-' + idx" class="rounded-lg border border-border p-3 text-sm leading-6">
+            {{ o.ingredient || '-' }} · {{ o.regNo || '-' }} · {{ o.company || '-' }}
           </div>
         </div>
       </div>

@@ -43,7 +43,7 @@ export const useQrScanner = () => {
   let lastDecodeAt = 0
   let stopped = true
   let decoding = false   // 帧解码进行中标记（防并发重入）
-  let resultCb: ((code: string) => void) | null = null
+  let resultCb: ((code: string, raw?: string) => void) | null = null
   let rawResultCb: ((raw: string) => void) | null = null
   // 原生扫码器实例（惰性创建；能力不足时为 null 走 zxing 兜底）
   let nativeDetector: any = null
@@ -56,7 +56,7 @@ export const useQrScanner = () => {
   }
 
   /** 注册识别成功回调（页面用于跳转 /trace?code=） */
-  const onResult = (cb: (code: string) => void) => { resultCb = cb }
+  const onResult = (cb: (code: string, raw?: string) => void) => { resultCb = cb }
   /** 外部核验页接收二维码原始内容（不限制网址域名） */
   const onRawResult = (cb: (raw: string) => void) => { rawResultCb = cb }
 
@@ -174,7 +174,7 @@ export const useQrScanner = () => {
       const raw = await decodeCanvasRaw(cv)
       if (raw) {
         const code = traceCodeOf(raw)
-        if (code) hitCode(code)
+        if (code) hitCode(code, raw)
         else if (rawResultCb) hitRaw(raw)
         return
       }
@@ -185,11 +185,11 @@ export const useQrScanner = () => {
   }
 
   // 识别命中：停循环、释放相机、回调页面
-  const hitCode = (code: string) => {
+  const hitCode = (code: string, raw?: string) => {
     stopLoop()
     stopStream()
     phase.value = 'success'
-    if (resultCb) resultCb(code)
+    if (resultCb) resultCb(code, raw)
   }
 
   const hitRaw = (raw: string) => {
@@ -274,7 +274,7 @@ export const useQrScanner = () => {
   }
 
   /** 相册/拍照选图识别：返回追溯码（非追溯二维码返回 null），全环境可用（含 iOS 微信） */
-  const decodeImageFile = (file: File): Promise<string | null> => {
+  const decodeImageFile = (file: File, returnRaw = false): Promise<string | null> => {
     return new Promise((resolve) => {
       const url = URL.createObjectURL(file)
       const img = new Image()
@@ -291,7 +291,7 @@ export const useQrScanner = () => {
           if (!ctx) { resolve(null); return }
           // 现代浏览器 drawImage 会自动应用照片 EXIF 方向
           ctx.drawImage(img, 0, 0, w, h)
-          const code = await decodeCanvas(cv)
+          const code = returnRaw ? await decodeCanvasRaw(cv) : await decodeCanvas(cv)
           resolve(code)
         } catch { resolve(null) }
         finally { URL.revokeObjectURL(url) }

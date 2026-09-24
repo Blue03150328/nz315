@@ -42,6 +42,20 @@ const DB = {
 
 // 建表 DDL 全集（核心业务表 + message 消息 + consumer 消费者 + product_original/upload_batch/pesticide_reg 扩展表；表数 = DDL.length 自动统计）
 const DDL = [
+  // 公众扫码来源快照：只追加，保存原始文档、当次登记参考及解析结果。
+  `CREATE TABLE IF NOT EXISTS external_source_snapshot (
+    id CHAR(36) PRIMARY KEY,
+    cache_key CHAR(64) NOT NULL,
+    code VARCHAR(64) NOT NULL,
+    source_url TEXT NOT NULL,
+    parser_version VARCHAR(40) NOT NULL,
+    raw_document MEDIUMTEXT NULL,
+    reference_data JSON NULL,
+    payload JSON NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_cache_time (cache_key, created_at),
+    KEY idx_code_time (code, created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公众扫码外页历史快照'`, 
   `CREATE TABLE IF NOT EXISTS enterprise (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL COMMENT '企业名称',

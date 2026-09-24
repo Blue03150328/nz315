@@ -6,6 +6,8 @@ import { backfillScanGeo, peekIpGeo } from '../utils/ip-geo'
 import { triggerAlert } from '../utils/risk-alert'
 import { getCurrentConsumer } from '../utils/consumer-auth'
 import { lookupRegistryByCode } from '../utils/registry-lookup'
+import { collectSourceSnapshot } from '../utils/source-snapshot'
+import { allowRequest } from '../utils/rate-limit'
 import type { TraceOutcome, TraceResultType } from '#shared/types/trace'
 
 const CODE_RE = /^\d{32}$/
@@ -31,7 +33,19 @@ async function recentScans(code: string, limit = 5) {
 }
 
 export default defineEventHandler(async (event) => {
-  const code = String(getQuery(event).code || '')
+  setHeader(event, 'Cache-Control', 'no-store')
+  let code = String(getQuery(event).code || '')
+  const sourceUrl = String(getQuery(event).source || '').trim()
+  const canFetch = /^https?:\/\//i.test(sourceUrl) && sourceUrl.length <= 2048
+  let sourceSnapshot: Awaited<ReturnType<typeof collectSourceSnapshot>> | undefined
+  const collect = async () => {
+    if (!allowRequest('source-scan:' + clientIpOf(event), 20, 60000) || !allowRequest('source-scan-global', 60, 60000)) return { fetchedAt: new Date().toISOString(), parserVersion: '', status: 'unavailable' as const, message: '来源查询过于频繁，请稍后重试', comparisons: [], saved: false }
+    return collectSourceSnapshot(sourceUrl, code)
+  }
+  if (!code && canFetch) {
+    sourceSnapshot = await collect()
+    code = sourceSnapshot.source?.code || ''
+  }
   const formatValid = CODE_RE.test(code)
 
   // 基础响应
@@ -40,7 +54,7 @@ export default defineEventHandler(async (event) => {
   // 1) 格式校验：非 32 位数字 → 查无此码
   if (!formatValid) {
     const out: TraceOutcome = {
-      ...baseOutcome, resultType: 'not-found', status: null, abnormalFlag: 0,
+      ...baseOutcome, sourceSnapshot, resultType: 'not-found', status: null, abnormalFlag: 0,
       queryCount: 0, firstQuery: false, recentScans: [],
       reasons: ['追溯码格式不符合 32 位阿拉伯数字规则'], generatedReport: null,
     }
@@ -56,6 +70,7 @@ export default defineEventHandler(async (event) => {
     // 「国家农药登记资料库」比对：命中就摆出登记资料供核对，未命中则明确告知结构无对应登记证。
     // ⚠️ 只读、不写 scan_log、不触发风险预警（不是本平台的码，不污染本平台统计与预警）。
     const registry = await lookupRegistryByCode(code)
+    if (canFetch && !sourceSnapshot) sourceSnapshot = await collect()
     const hasReg = registry.candidates.length > 0
     const p = registry.codeParts
     const structureOk = p.validLength && p.validCategory && p.validProductionType
@@ -66,7 +81,7 @@ export default defineEventHandler(async (event) => {
       : '该码前 8 位编码结构不符合32位单元识别代码规则（第1位应为1=PD类/2=WP类，第8位应为1/2/3=生产类型）'
     const out: TraceOutcome = {
       ...baseOutcome,
-      resultType: (hasReg ? 'external-reg' : 'not-found') as TraceResultType,
+      resultType: (hasReg || sourceSnapshot ? 'external-reg' : 'not-found') as TraceResultType,
       status: null, abnormalFlag: 0,
       queryCount: 0, firstQuery: false, recentScans: [],
       codeParts: {
@@ -78,6 +93,7 @@ export default defineEventHandler(async (event) => {
         validProductionType: p.validProductionType,
       },
       registryCandidates: registry.candidates,
+      sourceSnapshot,
       reasons: hasReg
         ? [
             '该追溯码不是本平台（农资315）签发的追溯码，本平台没有该码的生成与生产记录',

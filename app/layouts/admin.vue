@@ -10,7 +10,7 @@ const { user, roleLabel, logout, canWrite } = useUser()
 
 // 已实现菜单（可点击）：展示顺序与文案按用户指定，路径/图标/权限不随排序改动
 // writeOnly：纯写流程页面（只读账号看进去只剩空白，直接在菜单层隐藏，2026-09-19）
-const MENU_READY: { path: string; label: string; icon: string; writeOnly?: boolean }[] = [
+const MENU_READY: { path: string; label: string; icon: string; writeOnly?: boolean; platformOnly?: boolean }[] = [
   { path: '/admin', label: '数据概览', icon: 'i-lucide-layout-dashboard' },
   { path: '/admin/products', label: '产品管理', icon: 'i-lucide-package' },
   { path: '/admin/specs', label: '规格管理', icon: 'i-lucide-ruler' },
@@ -21,12 +21,13 @@ const MENU_READY: { path: string; label: string; icon: string; writeOnly?: boole
   { path: '/admin/statistics', label: '扫码统计', icon: 'i-lucide-bar-chart-3' },
   { path: '/admin/alerts', label: '风险预警', icon: 'i-lucide-shield-alert' },
   { path: '/admin/external-verify', label: '外部二维码核验', icon: 'i-lucide-scan-line', writeOnly: true },
+  { path: '/admin/source-snapshots', label: '外页历史快照', icon: 'i-lucide-history', platformOnly: true },
   { path: '/admin/messages', label: '消息中心', icon: 'i-lucide-bell' },
   { path: '/admin/settings', label: '系统设置', icon: 'i-lucide-settings' },
 ]
 
 /** 按角色可见菜单：只读账号隐藏纯写流程条目 */
-const visibleMenu = computed(() => MENU_READY.filter(item => canWrite.value || !item.writeOnly))
+const visibleMenu = computed(() => MENU_READY.filter(item => (!item.platformOnly || user.value?.role === 'platform_admin') && (canWrite.value || !item.writeOnly)))
 
 // V1.0 规划菜单（模块建设中）
 const MENU_PLANNED: { label: string; icon: string }[] = []

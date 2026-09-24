@@ -17,6 +17,10 @@ export interface ExternalSourceData {
   produceDate?: string
   batchNo?: string
   expireDate?: string
+  /** 来源页面全部可识别的产品字段，供公众查询页原样展示 */
+  productFields?: Array<{ label: string; value: string }>
+  /** 来源页面明确列出的原药信息，不能用登记库候选替代 */
+  originals?: Array<{ ingredient?: string; regNo: string; company: string }>
   raw?: Record<string, unknown>
 }
 

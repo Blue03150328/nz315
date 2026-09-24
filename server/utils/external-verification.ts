@@ -1,20 +1,35 @@
 // 外部二维码核验：来源适配、前 8 位解析、登记资料和本平台档案比对
+//
+// 🔴 2026-09-24 合并解析器（本次改动）：本文件原自带一套 HTML 解析实现 —— stripHtmlToText /
+//    normalizeLabel / FIELD_ALIASES / cleanFieldValue / extractLabeledFields / extractOriginals /
+//    normalizeProduceDate，与 server/utils/source-parser.ts（公众端 /api/trace 的外页快照用）功能重复，
+//    且两侧口径已经分叉：
+//      · 原药三字段配对用的是**下标拼装**（Math.max 取长度 + 同下标拼装），而公众侧早已改成
+//        **组边界配对**（缺字段不串组）—— 缺证号时会把企业与证号错配；
+//      · 生产日期口径更宽松；
+//      · 吃不到 SOURCE_PARSER_VERSION ⇒ 核验工单无法追溯当时用的是哪版解析规则。
+//    ⇒ 通用 HTML 抓取与「手工粘贴页面内容」两条输入现统一走 parseSourceDocument；本文件只保留
+//      「平台专用适配器（wla1 结构化接口）+ 6 项判定规则 + 触发预警」，不再自建解析。
+//    ⚠️ 刻意**未动** PRIVATE_HOST 正则（其 IP 前缀分支因末尾 `$` 失效，只剩 localhost/*.local 有效）：
+//      真实抓取已收口 source-fetch 的 BlockList + 固定地址校验 ⇒ 当前不可利用，属独立待裁定项，
+//      不与本次合并混在一起改。
+//
+// 判定边界（保持合并前不变）：只核验单元识别码前 8 位（登记类别 + 登记证后六位 + 生产类型），
+// 第 9 位以后保留原码但不参与判定；原药信息**不参与判定**，仅随来源声明展示与留档。
+import { fetchSourceDocument } from './source-fetch'
 import { lookup } from 'node:dns/promises'
 import { query } from './db'
 import { regCategoryOf, normalizeOrgName } from './regdata'
+import { parseSourceDocument } from './source-parser'
 import { extractTraceCode, isHttpUrl, isTraceCode } from '#shared/utils/trace-code'
 import { parseUnitCode } from '#shared/utils/unit-code'
+import type { SourceDeclaration } from '#shared/types/source-snapshot'
 import type { ExternalSourceData, ExternalVerificationResult, VerificationItem, VerificationItemStatus } from '#shared/types/external-verification'
 
 const PRIVATE_HOST = /^(localhost|.*\.localhost|.*\.local|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)$/i
 
 function normalizeText(value: unknown): string {
   return String(value ?? '').replace(/[\s　、，。,.：:；;（）()［］\[\]「」]/g, '').trim()
-}
-
-function cleanDate(value: unknown): string | undefined {
-  const text = String(value ?? '').trim()
-  return text && !/^见|未知|无$/i.test(text) ? text.slice(0, 32) : undefined
 }
 
 /**
@@ -24,6 +39,29 @@ function cleanDate(value: unknown): string | undefined {
  */
 function normalizeProductName(value: unknown): string {
   return normalizeText(String(value ?? '').replace(/[\d．.]+[%％]/g, '')).toLowerCase()
+}
+
+function cleanDate(value: unknown): string | undefined {
+  const text = String(value ?? '').trim()
+  // “见喷码/见瓶盖”等是来源页面的有效业务文案，必须原样保留。
+  return text && !/^未知|无$/i.test(text) ? text.slice(0, 32) : undefined
+}
+
+/** 生产日期标签口径（wla1 结构化字段用）：有具体日期就保留；写“见喷码/见瓶盖”等时显示“见喷码”。 */
+function normalizeProduceDate(value: unknown): string | undefined {
+  const text = String(value ?? '').trim()
+  if (!text) return undefined
+  if (/\d{4}[年./-]\d{1,2}[月./-]\d{1,2}日?/.test(text) || /^\d{4}-\d{2}-\d{2}$/.test(text)) return text.slice(0, 32)
+  if (/喷码|瓶盖|瓶体|包装|标签/.test(text)) return '见喷码'
+  return cleanDate(text)
+}
+
+/** 生产日期展示口径（通用解析路径用）：优先严格日期；无具体日期时沿用来源页“见喷码”类业务文案。
+ *  与合并前的 normalizeProduceDate 展示效果一致，但日期本体来自 source-parser 的严格校验。 */
+function produceDateLabel(decl: SourceDeclaration): string | undefined {
+  if (decl.produceDate) return decl.produceDate
+  const note = String(decl.productionNote || '').trim()
+  return /喷码|瓶盖|瓶体|包装|标签/.test(note) ? '见喷码' : undefined
 }
 
 // 32 位码结构解析已抽到 server/utils/unit-code.ts（公众端 /api/trace 的登记库兜底比对共用同一套规则）
@@ -39,122 +77,70 @@ async function assertSafeUrl(input: string): Promise<URL> {
   return url
 }
 
-// ---------- 通用来源字段提取 ----------
-// 目标：不针对任何单一外部平台写死解析规则，而是把「任意来源文本 / 内嵌脚本数据」归一到 1049 六项所需字段。
-// 覆盖四类常见写法：① 表格单元格相邻（td/th）② 同一格「标签：值」③ 同一行多格 ④ 标签与值分行；
-// 另覆盖 JS / JSON 键值对（外部平台常把数据放在页面脚本里，如 goodsName:"xxx"）。
+/**
+ * 统一来源声明（SourceDeclaration）→ 后台核验页字段集（ExternalSourceData）。
+ * 🔴 字段名与语义**必须保持合并前不变**：`app/pages/admin/external-verify/index.vue` 逐项展示
+ *    `spec` / `produceDate` / `batchNo` / `registrationNo` / `formulation` / `toxicity` / `expireDate`，
+ *    丢任何一个该页就显示“来源页面未提供”。两个名字不同的同义字段在此处显式映射：
+ *    `productExpiry`（公众侧）→ `expireDate`（后台侧）。
+ */
+function toExternalSource(decl: SourceDeclaration, extra: { productionType?: string; raw: Record<string, unknown> }): ExternalSourceData {
+  return {
+    sourceUrl: decl.sourceUrl,
+    platform: decl.platform,
+    code: decl.code,
+    productName: decl.productName,
+    registrationNo: decl.registrationNo,
+    holderName: decl.holderName,
+    productionType: extra.productionType,
+    spec: decl.spec,
+    formulation: decl.formulation,
+    toxicity: decl.toxicity,
+    produceDate: produceDateLabel(decl),
+    batchNo: decl.batchNo,
+    expireDate: decl.productExpiry,
+    productFields: decl.productFields,
+    originals: decl.originals,
+    raw: extra.raw,
+  }
+}
 
-/** 剥标签：块级元素结束换行、单元格边界制表符，顺带去掉脚本/样式与 HTML 实体 */
-export function stripHtmlToText(html: string): string {
-  return String(html || '')
-    .replace(/<script[\s\S]*?<\/script>/gi, '\n')
-    .replace(/<style[\s\S]*?<\/style>/gi, '\n')
-    .replace(/<!--[\s\S]*?-->/g, '\n')
-    .replace(/<\/(td|th|dt|dd)\s*>/gi, '\t')
-    .replace(/<(br|hr)\s*\/?>/gi, '\n')
-    .replace(/<\/(tr|p|div|li|h[1-6]|label|caption|section|article)\s*>/gi, '\n')
+/**
+ * 从来源 JSON 文本提取原药三字段（**仅 wla1 专用接口使用**：其响应是结构化 JSON，不走 HTML 解析管线）。
+ * 配对采用**组边界**语义（与 source-parser 一致）：按出现顺序归组，缺字段不跨组补位
+ * —— 合并前这里是 `Math.max(names, companies, regNos)` + 同下标拼装，缺字段时会串组。
+ */
+function extractOriginalsFromJson(text: string): Array<{ ingredient?: string; regNo: string; company: string }> {
+  const lines = String(text || '')
+    .replace(/<\/?(td|th|dt|dd)>/gi, '\t')
+    .replace(/<\/(tr|p|div|li)>/gi, '\n')
     .replace(/<[^>]*>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&#(\d+);/g, (_all, d: string) => String.fromCharCode(Number(d)))
-    .replace(/[ \u00a0]{2,}/g, ' ')
-}
-
-/** 标签归一：全角转半角、去空白与常见标点，便于同义词比对 */
-function normalizeLabel(value: unknown): string {
-  return String(value ?? '')
-    .replace(/[\uff01-\uff5e]/g, (ch: string) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
-    .replace(/[\s\u3000:：,，.。;；、()\[\]{}（）【】「」《》"'`*_-]/g, '')
-    .toLowerCase()
-}
-
-type ExtractableField = 'productName' | 'registrationNo' | 'holderName' | 'spec' | 'formulation' | 'toxicity' | 'produceDate' | 'batchNo' | 'expireDate'
-
-// 同义词表：中文标签按优先级从高到低（先命中者胜），keys 为 JS / JSON 常见键名
-const FIELD_ALIASES: Array<{ field: ExtractableField; labels: string[]; keys: string[] }> = [
-  { field: 'productName', labels: ['农药名称', '产品名称', '农药商品名称', '商品名称', '品名', '产品名'], keys: ['productname', 'goodsname', 'product_name', 'goods_name', 'pname'] },
-  { field: 'registrationNo', labels: ['农药登记证号', '农药登记证', '登记证号', '登记证号码', '农药登记证号码'], keys: ['fullproductnum', 'registrationno', 'registration_no', 'regno', 'reg_no', 'pesticideregno'] },
-  { field: 'holderName', labels: ['登记证持有人名称', '登记证持有人', '持有人名称', '持有人', '委托生产企业名称', '生产企业名称', '生产企业', '生产厂家'], keys: ['ownername', 'owner_name', 'holdername', 'holder_name', 'company', 'companyname', 'enterprise'] },
-  { field: 'spec', labels: ['产品规格', '规格', '净含量', '包装规格'], keys: ['specname', 'spec_name', 'spec', 'netcontent', 'net_content', 'package'] },
-  { field: 'formulation', labels: ['剂型', '农药剂型'], keys: ['formulation', 'dosageform'] },
-  { field: 'toxicity', labels: ['毒性', '毒性级别', '毒性等级'], keys: ['toxicity', 'toxicitylevel'] },
-  { field: 'produceDate', labels: ['生产日期'], keys: ['productdate', 'produce_date', 'productiondate', 'manufacturedate', 'mfgdate'] },
-  { field: 'batchNo', labels: ['生产批次', '生产批号', '批号', '批次'], keys: ['batch', 'batchno', 'batch_no', 'lotno', 'lot_no'] },
-  { field: 'expireDate', labels: ['有效期至', '有效期', '保质期'], keys: ['losedate', 'expire_date', 'expiredate', 'validuntil', 'shelflife'] },
-]
-
-// 明确不属于目标字段的标签（多为说明书段落段标题），命中即不作为「标签 + 值」处理，避免把正文吞成字段值
-const NOISE_LABELS = new Set([
-  '使用方法', '产品性能', '使用技术要求', '中毒急救', '注意事项', '储存和运输', '储存运输', '警示',
-  '执行标准', '农药生产许可证', '服务热线', '扫码位置', '扫描次数', '追溯网址', '单元识别代码', '质量检测',
-])
-
-/** 值清洗：去首尾噪声与包裹引号；段落级长文本、纯链接、无意义占位值一律丢弃 */
-function cleanFieldValue(raw: unknown): string | undefined {
-  const text = String(raw ?? '').replace(/^[\s:：\-—|\t]+/, '').replace(/[\s\t]+$/, '').replace(/^["'「『]+|["'」』]+$/g, '').trim()
-  if (!text) return undefined
-  if (/^(见(喷码|包装|标签|瓶身|实物)?|未知|未提供|不详|待补充|待定|无|-|—|\/)$/.test(text)) return undefined
-  if (text.length > 80) return undefined
-  if (/^https?:\/\//i.test(text)) return undefined
-  return text.slice(0, 64)
-}
-
-/** 从任意来源文本（HTML 或纯文本）中按同义词表提取目标字段 */
-export function extractLabeledFields(text: string): Partial<Record<ExtractableField, string>> {
-  const out: Partial<Record<ExtractableField, string>> = {}
-  if (!text) return out
-  const labelIndex = new Map<string, ExtractableField>()
-  const keyIndex = new Map<string, ExtractableField>()
-  for (const group of FIELD_ALIASES) {
-    for (const label of group.labels) {
-      const k = normalizeLabel(label)
-      if (!labelIndex.has(k)) labelIndex.set(k, group.field)
-    }
-    for (const key of group.keys) {
-      const k = normalizeLabel(key)
-      if (!keyIndex.has(k)) keyIndex.set(k, group.field)
-    }
+    .split(/[\r\n\t]+| {2,}/)
+    .map(v => v.trim().replace(/^["'\s,{]+|["'\s,}]+$/g, ''))
+    .filter(Boolean)
+  const fieldOf = (line: string): 'ingredient' | 'regNo' | 'company' | undefined => {
+    const key = line.replace(/[\s：:（）()]/g, '')
+    if (/^(原药名称|原药母药名称)$/.test(key)) return 'ingredient'
+    if (/^(原药证件号|原药登记证号|原药母药登记证号)$/.test(key)) return 'regNo'
+    if (/^(原药厂家名称|原药生产企业名称)$/.test(key)) return 'company'
+    return undefined
   }
-  const put = (field: ExtractableField, raw: unknown) => {
-    if (out[field] !== undefined) return // 同义词表按优先级排列，先命中者胜
-    const value = cleanFieldValue(raw)
-    if (value) out[field] = value
+  const out: Array<{ ingredient?: string; regNo: string; company: string }> = []
+  let current: { ingredient?: string; regNo: string; company: string } | undefined
+  let pending: 'ingredient' | 'regNo' | 'company' | undefined
+  for (const line of lines) {
+    const field = fieldOf(line)
+    if (field) { pending = field; continue }
+    if (!pending) continue
+    // 「原药名称」是组边界：遇到新的一组名称就先把上一组落定
+    if (pending === 'ingredient' && current) { out.push(current); current = undefined }
+    current ||= { regNo: '', company: '' }
+    if (pending === 'ingredient') current.ingredient = line
+    else if (pending === 'regNo') current.regNo = line
+    else current.company = line
+    pending = undefined
   }
-
-  // ① JS / JSON 键值对：goodsName:"xxx" / "productname": "xxx"
-  const keyRe = /["']?([A-Za-z_][A-Za-z0-9_]{1,40})["']?\s*[:=]\s*["']([^"'\n]{1,80})["']/g
-  for (const m of text.matchAll(keyRe)) {
-    const field = keyIndex.get(normalizeLabel(m[1]))
-    if (field) put(field, m[2])
-  }
-
-  // ② 逐行解析「标签 + 值」
-  const lines = text.split(/\r?\n/)
-  for (let i = 0; i < lines.length; i++) {
-    const cells = lines[i].split(/\t| {2,}/).map(s => s.trim()).filter(Boolean)
-    for (let c = 0; c < cells.length; c++) {
-      const cell = cells[c]
-      // 形式 A：同一格内「标签：值」
-      const inline = cell.match(/^([^:：]{1,20})[:：]\s*(.+)$/)
-      if (inline) {
-        const inlineField = labelIndex.get(normalizeLabel(inline[1]))
-        if (inlineField) { put(inlineField, inline[2]); continue }
-      }
-      // 形式 B/C：本格是纯标签 → 值取同格右侧（表格 td 相邻），否则取下一非空行
-      const field = labelIndex.get(normalizeLabel(cell))
-      if (!field) continue
-      const sameRow = cells[c + 1]
-      if (sameRow) { put(field, sameRow); continue }
-      for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
-        const next = lines[j].trim()
-        if (next) { put(field, next); break }
-      }
-    }
-  }
+  if (current) out.push(current)
   return out
 }
 
@@ -163,7 +149,8 @@ async function fetchWla1(url: URL, code: string): Promise<ExternalSourceData> {
   apiUrl.searchParams.set('code', code)
   // 用 follow 而不是 error：来源站点若把 http 301 到 https（或对 /api 前缀做跳转），error 会当场抛错、接口变 500。
   // apiUrl 由 url.origin 构造（必然同源），且调用前已过 assertSafeUrl，跟随后不会引入内网访问风险。
-  const response = await fetch(apiUrl, { signal: AbortSignal.timeout(12000), redirect: 'follow', headers: { accept: 'application/json' } })
+  const fetched = await fetchSourceDocument(apiUrl.href)
+  const response = new Response(fetched.body, { status: 200 })
   if (!response.ok) throw new Error('来源平台接口返回 HTTP ' + response.status)
   const body = await response.json() as any
   const result = body?.result
@@ -173,8 +160,9 @@ async function fetchWla1(url: URL, code: string): Promise<ExternalSourceData> {
     sourceUrl: url.toString(), platform: url.hostname, code,
     productName: product.productname, registrationNo: product.fullproductnum,
     holderName: product.ownername, productionType: product.createtype,
-    spec: result.heSpec?.specname, produceDate: cleanDate(result.productdate),
+    spec: result.heSpec?.specname, produceDate: normalizeProduceDate(result.productdate),
     batchNo: cleanDate(result.batch), expireDate: cleanDate(result.losedate),
+    originals: extractOriginalsFromJson(JSON.stringify(result)),
     raw: { product, spec: result.heSpec, code: result.heQrcodeD, attributes: result.heProductAttributes },
   }
 }
@@ -184,18 +172,9 @@ async function fetchWla1(url: URL, code: string): Promise<ExternalSourceData> {
  * 原先用 redirect:'error'，现实里 http→https 的 301 极常见 → 直接抛 `unexpected redirect` 变成 500。
  * 跨站重定向仍一律拒绝，避免被用来探测内网。
  */
-async function fetchSourcePage(url: URL, accept: string): Promise<Response> {
-  const headers = { accept }
-  const first = await fetch(url, { signal: AbortSignal.timeout(12000), redirect: 'manual', headers })
-  if (first.status < 300 || first.status >= 400) return first
-  const location = first.headers.get('location')
-  if (!location) return first
-  const next = new URL(location, url)
-  const bare = (h: string) => h.toLowerCase().replace(/^www\./, '')
-  if (bare(next.hostname) !== bare(url.hostname)) {
-    throw createError({ statusCode: 400, statusMessage: `来源页面跳转到其他站点（${next.hostname}），已拒绝抓取` })
-  }
-  return await fetch(next, { signal: AbortSignal.timeout(12000), redirect: 'error', headers })
+async function fetchSourcePage(url: URL, _accept: string): Promise<Response> {
+  const result = await fetchSourceDocument(url.href)
+  return new Response(result.body, { status: 200 })
 }
 
 async function fetchGenericPage(url: URL, code: string): Promise<ExternalSourceData> {
@@ -211,42 +190,26 @@ async function fetchGenericPage(url: URL, code: string): Promise<ExternalSourceD
   if (!response.ok) throw createError({ statusCode: 502, statusMessage: `来源页面返回 HTTP ${response.status}` })
   const html = await response.text()
   const title = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]?.trim()
-  const fields = extractLabeledFields(stripHtmlToText(html))
   // 刻意不用「页面标题」兜底当产品名：外部平台标题多为平台名（如「农药追溯二维码管理平台」），
   // 拿它当产品名会让「产品名称」核验项得出假结论 —— 宁可为空并由上层给出明确提示。
-  return {
-    sourceUrl: url.toString(), platform: url.hostname, code,
-    productName: fields.productName,
-    registrationNo: fields.registrationNo,
-    holderName: fields.holderName,
-    spec: fields.spec,
-    formulation: fields.formulation,
-    toxicity: fields.toxicity,
-    produceDate: fields.produceDate,
-    batchNo: fields.batchNo,
-    expireDate: fields.expireDate,
-    raw: { htmlLength: html.length, pageTitle: title, extracted: fields, rendered: Object.keys(fields).length > 0 },
-  }
+  const decl = parseSourceDocument(html, url.toString(), code)
+  return toExternalSource(decl, { raw: { htmlLength: html.length, pageTitle: title, extracted: decl.productFields.length } })
 }
 
 /** 由用户手工粘贴的来源页面内容解析（部分外部平台纯脚本异步渲染，服务端抓不到正文，用它兜底） */
 function fetchFromProvidedText(sourceUrl: string, code: string, pageText: string): ExternalSourceData {
-  const fields = extractLabeledFields(stripHtmlToText(pageText))
   let platform = '手工提供内容'
-  try { if (sourceUrl) platform = new URL(sourceUrl).hostname } catch { /* 来源网址缺失或非法时保留默认平台名 */ }
-  return {
-    sourceUrl, platform, code,
-    productName: fields.productName,
-    registrationNo: fields.registrationNo,
-    holderName: fields.holderName,
-    spec: fields.spec,
-    formulation: fields.formulation,
-    toxicity: fields.toxicity,
-    produceDate: fields.produceDate,
-    batchNo: fields.batchNo,
-    expireDate: fields.expireDate,
-    raw: { manual: true, extracted: fields },
-  }
+  let baseUrl = 'https://manual.invalid/'
+  // parseSourceDocument 需要合法 URL 才能解析 platform ⇒ 有真实来源网址就用它，否则用占位域名再覆盖 platform
+  try {
+    if (sourceUrl) {
+      const parsed = new URL(sourceUrl)
+      platform = parsed.hostname
+      baseUrl = parsed.toString()
+    }
+  } catch { /* 来源网址缺失或非法时保留默认平台名 */ }
+  const decl = parseSourceDocument(pageText, baseUrl, code)
+  return toExternalSource({ ...decl, sourceUrl, platform }, { raw: { manual: true, extracted: decl.productFields.length } })
 }
 
 export async function fetchExternalSource(sourceUrl: string, code: string, pageText = ''): Promise<ExternalSourceData> {

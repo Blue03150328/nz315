@@ -3,10 +3,13 @@ import type { TraceOutcome } from '#shared/types/trace'
 
 const route = useRoute()
 const code = String(route.query.code || '')
+const source = String(route.query.source || '')
 
 // SSR 阶段即完成查询，首屏直接呈现结果（扫码场景秒开）
-const { data, error } = await useFetch<TraceOutcome>(`/api/trace?code=${encodeURIComponent(code)}`, {
-  key: 'trace-' + code,
+const traceQuery = new URLSearchParams({ code })
+if (source) traceQuery.set('source', source)
+const { data, error } = await useFetch<TraceOutcome>(`/api/trace?${traceQuery.toString()}`, {
+  key: 'trace-' + code + '-' + source,
 })
 
 useHead({

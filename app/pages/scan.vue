@@ -3,8 +3,9 @@
 // 能力分层（见 useQrScanner）：BarcodeDetector 优先 → zxing 兜底；另提供「相册选图」与「手动输入」降级，
 // 微信内置浏览器（iOS 无法网页调起相机）自动展示引导文案。
 // 识别命中后跳转 /trace?code={码}（SSR 秒开查询，与扫码 URL 官方格式一致）。
-import { useQrScanner, traceCodeOf } from '~/composables/useQrScanner'
+import { useQrScanner } from '~/composables/useQrScanner'
 import { extractTraceCode } from '#shared/utils/trace-code'
+import { isHttpUrl } from '#shared/utils/trace-code'
 
 definePageMeta({ layout: 'fullbleed' })
 useHead({ title: '扫码查询' })
@@ -24,29 +25,21 @@ onMounted(() => { mount(videoRef.value) })
 // 页面销毁时释放相机与解码循环（防摄像头指示灯常亮/占用）
 onBeforeUnmount(() => { stop() })
 
-// 识别成功 → 跳转追溯查询页
-onResult((code) => {
-  router.push('/trace?code=' + encodeURIComponent(code))
-})
-
-// 扫到的内容不是本平台追溯码（例如别的追溯平台的链接、纯文本）：
-// 原先这里是静默忽略，用户看到的是「扫了半天没反应」。现在改为尽力而为 + 明确告知：
-// 先从内容里抠 32 位单元识别代码（多数外部平台的链接里也带码），抠到就照常送查询，
-// /trace 会走「登记资料库比对」给出有用结论；确实没有码才提示，并继续扫描。
-onRawResult((raw) => {
+// 三种入口共用原始内容处理，完整保存来源网址（包括短链接）。
+const navigateRaw = (raw: string) => {
   const code = extractTraceCode(raw)
-  if (code) {
-    router.push('/trace?code=' + encodeURIComponent(code))
-    return
-  }
-  if (raw === lastRejected.value) { start(); return } // 同一张码仍在镜头里：只重启扫描，不重复提示
+  if (!/^\d{32}$/.test(code) && !isHttpUrl(raw)) return false
+  const query = new URLSearchParams({ code })
+  if (isHttpUrl(raw)) query.set('source', raw.trim())
+  router.push('/trace?' + query.toString())
+  return true
+}
+onResult((code, raw) => { navigateRaw(raw || code) })
+onRawResult((raw) => {
+  if (navigateRaw(raw)) return
+  if (raw !== lastRejected.value) toast.add({ title: '未识别到追溯码或查询网址', color: 'warning' })
   lastRejected.value = raw
-  toast.add({
-    title: '这不是农资315的追溯二维码',
-    description: '已识别到二维码内容，但其中不含 32 位追溯码，无法查询。请对准瓶身标签上的农药追溯二维码。',
-    color: 'warning',
-  })
-  start() // 识别命中时已释放相机与解码循环，这里重新开启继续扫
+  start()
 })
 
 const goBack = () => { router.back() }
@@ -64,10 +57,10 @@ const onFileChange = async (e: Event) => {
   if (!file) return
   decodingImage.value = true
   try {
-    const code = await decodeImageFile(file)
+    const code = await decodeImageFile(file, true)
     if (code) {
       toast.add({ title: '识别成功，正在查询', color: 'success' })
-      router.push('/trace?code=' + encodeURIComponent(code))
+      navigateRaw(code)
     } else {
       toast.add({ title: '未识别到追溯码', description: '请确认图片中包含清晰的农药追溯二维码（可稍近拍摄）', color: 'warning' })
     }
@@ -84,14 +77,8 @@ const submitManual = () => {
     toast.add({ title: '请输入32位追溯码', color: 'warning' })
     return
   }
-  // 输入容错：粘贴了完整查询 URL 时自动提取码值
-  const parsed = traceCodeOf(code) || (code.includes('?code=') ? code.split('?code=')[1]?.slice(0, 32) || null : null)
-  const final = (parsed || code).trim()
-  if (!/^\d{32}$/.test(final)) {
-    toast.add({ title: '追溯码格式不正确', description: '追溯码为 32 位数字，请核对后重试（可打开相机直接扫码）', color: 'warning' })
-    return
-  }
-  router.push('/trace?code=' + encodeURIComponent(final))
+  if (!navigateRaw(code)) toast.add({ title: '请输入32位追溯码或完整查询网址', color: 'warning' })
+
 }
 </script>
 

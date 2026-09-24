@@ -74,11 +74,14 @@ export interface TraceRegistryCandidate {
   content?: string
   ingredientMain?: string
   expireDate?: string
+  produceDate?: string
+  batchNo?: string
   expired: boolean
   originals: { regNo: string; productName?: string; company: string; ingredient?: string }[]
 }
 
 export interface TraceOutcome {
+  sourceSnapshot?: import('./source-snapshot').SourceSnapshot
   resultType: TraceResultType
   code: string
   formattedCode: string
@@ -96,4 +99,20 @@ export interface TraceOutcome {
   codeParts?: TraceCodeParts
   /** 非本平台码：登记资料库比对到的候选登记证（0 条表示登记资料库也查不到对应登记证） */
   registryCandidates?: TraceRegistryCandidate[]
+  /** 外部二维码来源页提取到的实际字段（登记库候选仅作参考） */
+  externalSource?: {
+    platform: string
+    sourceUrl: string
+    productName?: string
+    registrationNo?: string
+    holderName?: string
+    spec?: string
+    formulation?: string
+    toxicity?: string
+    expireDate?: string
+    produceDate?: string
+    batchNo?: string
+    productFields?: { label: string; value: string }[]
+    originals?: { ingredient?: string; regNo: string; company: string }[]
+  }
 }
