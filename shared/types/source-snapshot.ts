@@ -35,6 +35,10 @@ export interface SourceSnapshot {
   parserVersion: string
   status: 'ok' | 'partial' | 'unavailable'
   message: string
+  /** 失败原因分类：把「打不开页面」与「页面读不出内容」分开，好给消费者不同指引（旧快照无此字段） */
+  issue?: SourceIssue
+  /** 失败的技术原因原文，仅供后台排查，不面向消费者展示 */
+  detail?: string
   /** 来源网址：抓取或解析失败时仍提供原页入口。 */
   sourceUrl?: string
   /** 来源平台域名，用于原页链接文案。 */
@@ -43,3 +47,13 @@ export interface SourceSnapshot {
   comparisons: SourceComparison[]
   saved: boolean
 }
+
+/**
+ * 外页取数失败的原因分类（仅影响文案，不影响任何判定与预警）。
+ * - blocked-address：网址不可访问（SSRF 拦截、非 http(s)、跳转过多）
+ * - empty-shell：抓到了页面但读不到内容（JS 空壳）
+ * - code-mismatch：来源页声明的码与本次查询不一致
+ * - busy：并发闸门满
+ * - unreachable：其余（超时、非 200、非网页、超大小等）
+ */
+export type SourceIssue = 'blocked-address' | 'empty-shell' | 'code-mismatch' | 'busy' | 'unreachable'

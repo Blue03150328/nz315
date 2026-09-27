@@ -21,7 +21,7 @@ const production = computed(() => [
         <p class="mt-2 break-words">{{ snapshot.message }}</p>
         <p class="mt-2 text-xs text-muted">获取时间：{{ new Date(snapshot.fetchedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) }}（北京时间）</p>
         <p class="mt-1 text-xs text-muted">{{ snapshot.saved ? '本次内容和比对结果已保存' : '本次历史快照未保存' }}</p>
-        <p v-if="snapshot.comparisons.length" class="mt-2 text-xs text-muted">已完成 {{ snapshot.comparisons.length }} 项登记资料比对，逐项结果见下方。</p>
+        <p v-if="snapshot.comparisons.length" class="mt-2 text-xs text-muted">已与本平台登记资料逐项核对 {{ snapshot.comparisons.length }} 项，结果见下方。</p>
         <div class="mt-3 flex flex-wrap gap-4">
           <a v-if="snapshot.sourceUrl" :href="snapshot.sourceUrl" target="_blank" rel="noopener noreferrer" class="break-all text-primary underline">查看原查询页（{{ snapshot.platform || '外部页面' }}）</a>
           <NuxtLink v-if="snapshot.saved && snapshot.id && !historical" :to="'/trace-snapshot/' + snapshot.id" class="text-primary underline">查看本次历史快照</NuxtLink>
@@ -29,7 +29,7 @@ const production = computed(() => [
         </div>
         <p v-if="historical" class="mt-2 text-xs text-muted">这是当时保存的结果，不重新抓取外站，也不按当前登记资料重算。</p>
       </template>
-      <p v-else class="mt-2 text-muted">未提供原查询网址，无法获取厂家声明的原药、生产日期和批号。请扫描原始二维码或粘贴完整链接。</p>
+      <p v-else class="mt-2 text-muted">没有拿到这个码的来源页面网址，暂时看不到厂家声明的原药、生产日期与批号。请以包装标签实物为准。</p>
     </section>
     <template v-if="source">
       <section v-for="section in [{ title: '产品信息（来源页声明）', fields: source.productFields }, { title: '生产信息（来源页声明）', fields: production }]" :key="section.title" class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">

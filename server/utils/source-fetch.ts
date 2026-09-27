@@ -13,7 +13,13 @@ export function isPublicAddress(ip: string): boolean {
   return family === 4 ? !blocked.check(ip, 'ipv4') : family === 6 && !blockedV6.check(ip, 'ipv6')
 }
 let active = 0
-export async function fetchSourceDocument(input: string): Promise<{ url: string; body: string }> {
+/**
+ * @param input 来源网址（调用方已做最基础的形状校验）
+ * @param extraHeaders 宿主适配器需要的**固定**请求头（如某站的租户头 X-Tenant-ID）。
+ *   🔴 只允许传适配器里写死的常量；**绝不能**把用户输入拼进请求头，否则等于开放请求头注入。
+ *   向后兼容：不传时与既有行为逐字节一致。
+ */
+export async function fetchSourceDocument(input: string, extraHeaders?: Record<string, string>): Promise<{ url: string; body: string }> {
   if (active >= 4) throw new Error('来源查询繁忙，请稍后重试')
   active++
   const deadline = Date.now() + 8000
@@ -33,7 +39,7 @@ export async function fetchSourceDocument(input: string): Promise<{ url: string;
       const chosen = records[0]!
       const response = await new Promise<{ location?: string; body: string }>((resolve, reject) => {
         const req = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
-          headers: { accept: 'text/html,application/json', 'accept-encoding': 'identity' },
+          headers: { accept: 'text/html,application/json', 'accept-encoding': 'identity', ...(extraHeaders || {}) },
           // 固定已校验地址，避免校验后再次解析指向内网。
           lookup: ((_name: string, options: any, cb: any) => options.all ? cb(null, [chosen]) : cb(null, chosen.address, chosen.family)) as any,
           agent: false,
