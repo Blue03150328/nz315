@@ -60,10 +60,12 @@
 - 🔴 `curl` 默认走系统代理 ⇒ 连本机也要 `--noproxy '*'`；真浏览器验证用 skill `browser-ui-screenshot` 的 `scripts/ui-shot.js`，输出路径必须 ASCII（`C:/shots/`）。
 - 🔴 本机 DNS 被代理接管为 fake-ip（`198.18.x`），恰在 `source-fetch.ts` SSRF 黑名单内。**已修**：DoH 取真 IP 写 `hosts` 映射块（`# === nz315-dev-source-fetch BEGIN/END ===`，含 mashangzhuisu/ddspp/nyzs315/www.wla1/**cx.jilinhengda**，备份 `logs/hosts.bak-*.txt`，删块即回退）⇒ 本机**能真实验收外码抓取**；仅 `www.wla1.cn` 真实 403 不可测。
 - 🔴 Git Bash coreutils 全瘫 ⇒ node 绝对路径 + `fs.writeFileSync` 落盘再 Read；PowerShell stdout 常被吞。临时脚本放 `~/.workbuddy/binaries/node/workspace`。`node --experimental-strip-types` 可 import 项目 `.ts`。
+- 🔴 **本机 `npm run build` 跑不了**（shim 里 `/usr/bin/env: 'bash': No such file or directory`）⇒ 绕开 npm 脚本，直接 **`node node_modules/nuxt/bin/nuxt.mjs build`**（实测 exit 0 / 约 1 分 10 秒）。打包自验脚本范例：`~/.workbuddy/binaries/node/workspace/_verify-pkg.mjs`、`_cmp-pkg.mjs`（**包对包逐文件比内容**，判「包只变了哪几个文件」的正确口径）、`_scan-output.mjs`（产物级正/反向 grep）。
+- 项目内**文档是纯 CRLF**（`AGENTS.md`/`PROJECT_LOG.md`/`docs/handover/*.md`），而 `.workbuddy/memory/*.md` 是 **LF**；要给 CRLF 文档做多行插入，**别用 Edit**（多行匹配会失手）⇒ 用 node 脚本 `split('\r\n')` 后 splice 再 join 写回。
 
 ## 待办（易漂移，用前现测）
 1. 🔴 `external_source_snapshot` 存储放大修复（匿名可写 + 失败也落 1MB）—— 建议优先。
-2. 🔴 **`3bf3042` 已提交、未上线、未推送** ⇒ 待用户放行（零 DDL，需 rebuild；缓存键已升版）。
+2. 🔴 **`3bf3042` 的上线包已备（40 号执行单），等用户放行**：包 `nz315-ycdb-bf6ae7e.tar.gz` **742,679 B / SHA256 `b2029918…bbebac` / 187 文件**；范围 `47bcbd7..bf6ae7e`，**运行时代码仅 4 个**（`source-parser.ts`/`source-snapshot.ts`/`shared/types/source-snapshot.ts`/`tests/source-snapshot.test.mjs`）；**零 DDL**（判据 = **不出现任何 `[db] 迁移：` 行** + 表数仍 17）；上线 = 服务器 `npm run build` + `pm2 reload nz315`。⚠️ `bf6ae7e` **未推送**（本地 `ycdb` 领先 `origin/ycdb` 13 个提交）。
 3. 同族盲区其它未登记标签（部门/查询次数/质量检验/地址/电话）未排查；`productName` 别名表仍含「商品名称」的既有隐患；「只在用户点『查看原查询页』时才查」这个更小污染口径未做。
 4. 外码页记账预填类别恒「其他」（用户裁定先不管）· P2「内容不符」提示位 · 数据治理（线上仍演示数据）。
 5. 线 B 自带缺口：死代码 `outcome.externalSource` · `trace.get.ts` 的 `resultType` 隐式真值 · `PRIVATE_HOST` 正则末尾多 `$`。
