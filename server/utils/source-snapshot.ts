@@ -88,7 +88,10 @@ async function collect(key: string, sourceUrl: string, code: string): Promise<So
     // 短链接必须从页面明确的码字段识别；不从任意长数字猜测码值。
     if (!code && /^\d{32}$/.test(source.pageCode || '')) source.code = source.pageCode!
     if (source.pageCode && source.code && source.pageCode !== source.code) throw new Error('来源页面的单元识别码与本次查询不一致，未展示产品声明')
-    if (!source.productName && !source.registrationNo && !source.originals.length) throw new Error('来源页面未提取到产品信息，可能需要平台适配或页面由脚本加载')
+    // 「读不出内容」判据：原只看 productName / registrationNo / originals 三项，
+    // 会把「只给了商品名与生产企业」的页面也误判成空壳（实例 cx.jilinhengda.com）。
+    // 现加入 commodityName —— 仍保持「读到展示字段也算读到内容」，不放松到任意单字段。
+    if (!source.productName && !source.commodityName && !source.registrationNo && !source.originals.length) throw new Error('来源页面未提取到产品信息，可能需要平台适配或页面由脚本加载')
     snapshot.source = source
     const product = await referenceProductFor(source, Boolean(adapted))
     const nos = [...new Set(source.originals.map(o => o.regNo).filter(Boolean))].slice(0, 50)

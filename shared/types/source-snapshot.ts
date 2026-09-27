@@ -5,6 +5,10 @@ export interface SourceDeclaration {
   code: string
   pageCode?: string
   productName?: string
+  /** 商品名 / 品种名（来源页常写作「品种名称」）。**只作展示**：它通常不是登记库里的农药名称，
+   *  一旦并入 `productName` 参与「产品名称」一致性比对，正规药会被误报成「与登记资料不一致」。
+   *  （2026-09-27 新增，实例 cx.jilinhengda.com 写「亨达美田」，见 39 号） */
+  commodityName?: string
   registrationNo?: string
   holderName?: string
   manufacturer?: string

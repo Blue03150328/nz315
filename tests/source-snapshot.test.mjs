@@ -89,9 +89,9 @@ test('手工粘贴的纯文本必须按行解析：换行不得被压平', () =>
   assert.equal(h.productName, '甲维盐')
   assert.equal(h.spec, '100ml')
 })
-test('纯文本支持「标签与值分行」与双空格分隔（HTML 侧口径不动）', () => {
+test('标签与值分行：纯文本与含标签 HTML 两侧一致支持（2026-09-27 裁定并落地）', () => {
   // 合并前后台核验页的失败提示原文承诺「标签与值之间用冒号、Tab 或换行分隔」，
-  // 故纯文本必须支持「标签一行、值一行」；含标签的输入走另一条路（见下），口径与公众端快照一致。
+  // 故纯文本必须支持「标签一行、值一行」。
   const split = ['农药名称', '0.5%溴敌隆母液', '农药登记证号', 'PD20001183', '登记证持有人', '河南远见农业科技有限公司'].join('\n')
   const s = parseSourceDocument(split, url, code)
   assert.equal(s.productName, '0.5%溴敌隆母液')
@@ -103,7 +103,23 @@ test('纯文本支持「标签与值分行」与双空格分隔（HTML 侧口径
   const next = parseSourceDocument(['产品名称', '规格', '500ml'].join('\n'), url, code)
   assert.equal(next.productName, undefined)
   assert.equal(next.spec, '500ml')
-  // 边界（刻意保留，待裁定）：含标签的 HTML 不启用「分行」兜底 ⇒ 块级逐行渲染的页面仍取不到字段；
-  // 若要对 HTML 也启用，会同时改变公众端 /api/trace 外页快照的填充口径，需另行决定。
-  assert.equal(parseSourceDocument('<div>产品名称</div><div>甲维盐</div>', url, code).productName, undefined)
+  // 🔴 2026-09-27 裁定并落地：含标签的 HTML **也**启用「分行」兜底。
+  //    此处原先是「边界（刻意保留，待裁定）：含标签的 HTML 不启用『分行』兜底 ⇒ 块级逐行渲染的
+  //    页面仍取不到字段；若要对 HTML 也启用，会同时改变公众端 /api/trace 外页快照的填充口径，
+  //    需另行决定」——今日即「另行决定」的结果。触发实例：cx.jilinhengda.com 用
+  //    `<td><div>品种名称：</div></td><td><div>亨达美田</div></td>` 这类「td 内包 div」结构，
+  //    被 sourceText 的 `</td>`→Tab 与 `</div>`→换行拆成两行、各剩一格 ⇒ 只认同行写法时整页字段
+  //    全丢，最终被三空判据误判成「页面靠脚本加载（空壳）」（详见 docs/handover/39 号）。
+  //    它担心的「填充口径会变」已实测排除：ddspp / nyzs315 / mashangzhuisu 三个真实页面
+  //    改前改后**逐字节一致**。
+  assert.equal(parseSourceDocument('<div>产品名称</div><div>甲维盐</div>', url, code).productName, '甲维盐')
+  // 单元识别码 / 原药六项不出自同义词表（各有专用取值逻辑），但也在已知标签白名单里 ⇒ 同样支持分行。
+  // 否则 pageCode 取不到 ⇒ 快照只能落 partial、首项「来源页单元识别码」比对恒为资料不足。
+  assert.equal(parseSourceDocument('<div>单元识别码</div><div>' + code + '</div>', url, code).pageCode, code)
+  // 商品名（品种名称）单独成档、**绝不并进 productName** —— 农药包装上的「品种名称」通常是商品名，
+  // 拿它去比登记库的农药名称，会把正规药误报成「与登记资料不一致」
+  const jlhd = parseSourceDocument('<div>品种名称：</div><div>亨达美田</div><div>生产企业名称：</div><div>吉林八达作物科学有限公司</div>', url, code)
+  assert.equal(jlhd.commodityName, '亨达美田')
+  assert.equal(jlhd.productName, undefined)
+  assert.equal(jlhd.manufacturer, '吉林八达作物科学有限公司')
 })

@@ -1,6 +1,9 @@
 import type { SourceDeclaration } from '../../shared/types/source-snapshot'
 
-export const SOURCE_PARSER_VERSION = '2026-09-24.3'
+// 🔴 2026-09-27.4：兜底③「标签与值分行」从纯文本放开到含标签路径（修「td 内包 div 致标签与值
+// 被拆两行、整页字段全丢」的盲区，实例 cx.jilinhengda.com）；并新增只作展示的 commodityName。
+// 改了解析口径就必须升版 —— 快照缓存键含本版本号，不升版会复用旧结果（见 39 号）。
+export const SOURCE_PARSER_VERSION = '2026-09-27.4'
 export function sourceText(html: string): string {
   const input = String(html || '')
   // 🔴 换行处理分两种输入，绝不能一刀切压平（2026-09-24 合并后实测踩到，属真回归）：
@@ -28,12 +31,18 @@ function normalizeLabel(input: unknown): string {
     .toLowerCase()
 }
 
-/** 兜底字段集：比 SourceDeclaration 多出规格/净含量/执行标准/生产许可证（后台核验页要展示这些） */
-type LooseField = 'productName' | 'registrationNo' | 'holderName' | 'spec' | 'netContent' | 'formulation' | 'toxicity' | 'produceDate' | 'batchNo' | 'expireDate' | 'executionStandard' | 'productionLicense'
+/** 兜底字段集：比 SourceDeclaration 多出规格/净含量/执行标准/生产许可证/商品名（后台核验页要展示这些） */
+type LooseField = 'productName' | 'commodityName' | 'registrationNo' | 'holderName' | 'spec' | 'netContent' | 'formulation' | 'toxicity' | 'produceDate' | 'batchNo' | 'expireDate' | 'executionStandard' | 'productionLicense'
 
 // 中文标签按优先级从高到低（先命中者胜）；keys 为 JS / JSON 常见键名
 const FIELD_ALIASES: Array<{ field: LooseField; labels: string[]; keys: string[] }> = [
   { field: 'productName', labels: ['农药名称', '产品名称', '农药商品名称', '商品名称', '品名', '产品名'], keys: ['productname', 'goodsname', 'product_name', 'goods_name', 'pname'] },
+  // 🔴 商品名 / 品种名**单独一档，绝不并进 productName**（2026-09-27 引入）：
+  //    农药包装上的「品种名称」通常是**商品名**（实例 cx.jilinhengda 写「亨达美田」，
+  //    而该登记证 PD20241818 在登记库里的农药名称是「丙硫菌唑·戊唑醇」）⇒ 一旦并进 productName
+  //    参与「产品名称」一致性比对，正规药会被误报成「与登记资料不一致」（详见 36 号 §11.3 边界 2）。
+  //    本档**只作展示**，不进入 compareSource 的任何判定。
+  { field: 'commodityName', labels: ['品种名称', '品种名'], keys: ['commodityname', 'commodity_name', 'varietyname', 'variety_name'] },
   { field: 'registrationNo', labels: ['农药登记证号', '农药登记证', '登记证号', '登记证号码', '农药登记证号码'], keys: ['fullproductnum', 'registrationno', 'registration_no', 'regno', 'reg_no', 'pesticideregno'] },
   { field: 'holderName', labels: ['登记证持有人名称', '登记证持有人', '持有人名称', '持有人', '委托生产企业名称', '生产企业名称', '生产企业', '生产厂家'], keys: ['ownername', 'owner_name', 'holdername', 'holder_name', 'company', 'companyname', 'enterprise'] },
   { field: 'spec', labels: ['产品规格', '规格', '包装规格'], keys: ['specname', 'spec_name', 'spec', 'package'] },
@@ -47,8 +56,20 @@ const FIELD_ALIASES: Array<{ field: LooseField; labels: string[]; keys: string[]
   { field: 'productionLicense', labels: ['生产许可证', '农药生产许可证'], keys: ['productionlicense', 'license'] },
 ]
 
-/** 已知标签集合（宽松归一后）：纯文本兜底③用它判断某一行是否本身就是个标签 */
-const KNOWN_LABELS = new Set(FIELD_ALIASES.flatMap(group => group.labels.map(normalizeLabel)))
+/**
+ * 已知标签集合（宽松归一后）：兜底③用它判断某一行是否本身就是个标签。
+ * 除同义词表里的字段标签外，还要补上**不被 `pick()` 消费、但同样有「标签 / 值」形态**的标签
+ * （单元识别码与原药六项各自有专用取值逻辑）—— 否则兜底③认不出它们，
+ * 这些字段在「标签与值被块级标签拆行」的页面上照样全丢（实例 cx.jilinhengda.com 的「单元识别码」，
+ * 取不到会让快照只能落到 partial、且首项「来源页单元识别码」比对恒为资料不足）。
+ * 🔴 刻意**不含「追溯码」**：它过于宽泛，一旦允许分行配对，容易把非 32 位的值塞进 `pageCode`，
+ *    再与本次查询的码比出 `code-mismatch` ⇒ 沿用既有的「只认同行写法」。
+ */
+const EXTRA_KNOWN_LABELS = [
+  '单元识别码', '单元识别代码',
+  '原药名称', '原药母药名称', '原药证件号', '原药登记证号', '原药母药登记证号', '原药厂家名称', '原药生产企业名称',
+]
+const KNOWN_LABELS = new Set([...FIELD_ALIASES.flatMap(group => group.labels.map(normalizeLabel)), ...EXTRA_KNOWN_LABELS.map(normalizeLabel)])
 
 /** 值清洗：去噪声与包裹引号，丢弃占位值、超长段落、纯链接 */
 function cleanLooseValue(raw: unknown): string | undefined {
@@ -105,13 +126,22 @@ export function parseSourceDocument(html: string, sourceUrl: string, code: strin
       const inline = cell.match(/^([^：:]{1,30})[：:]\s*(.+)$/)
       if (inline) { pairs.push([labelKey(inline[1]!), inline[2]!.trim().slice(0, 500)]); continue }
       if (cells[i + 1]) { pairs.push([labelKey(cell), cells[++i]!.slice(0, 500)]); continue }
-      // 纯文本兜底③「标签与值分行」：仅当本行本身是已知标签时取下方 1–2 行内首个非空行；
+      // 兜底③「标签与值分行」：本行本身是已知标签时，取下方 1–2 行内首个非空行当值；
       // 下一行若本身是「标签：值」或纯标签则不给值（避免 productName 被写成「规格」这类串行）。
-      if (plain && KNOWN_LABELS.has(normalizeLabel(cell))) {
+      // 🔴 2026-09-27 起**不再限于纯文本**（原写作 `plain && …`）：含标签页面里形如
+      //    `<td><div>品种名称：</div></td><td><div>亨达美田</div></td>` 的结构，
+      //    `sourceText()` 的 `</td>`→Tab 与 `</div>`→换行会把「标签：」与「值」拆到**两行**、
+      //    每行只剩一格 ⇒ 同行「标签：值」与相邻单元格这两条路都不成立 ⇒ 整页字段全丢，
+      //    最终被三空判据误判成「页面靠脚本加载（空壳）」（实例 cx.jilinhengda.com，见 39 号）。
+      if (KNOWN_LABELS.has(normalizeLabel(cell))) {
         for (let j = r + 1; j <= r + 2 && j < lines.length; j++) {
-          const next = lines[j]!.trim()
-          if (!next) continue
-          if (/[：:]/.test(next) || KNOWN_LABELS.has(normalizeLabel(next))) break
+          const nextRow = lines[j]!.trim()
+          if (!nextRow) continue
+          if (/[：:]/.test(nextRow) || KNOWN_LABELS.has(normalizeLabel(nextRow))) break
+          // 只取该行的**第一个单元格**：含标签页面里下一行往往还带 Tab 分格，
+          // 整行当值会把同一行的其它字段一并吞进来。
+          const next = nextRow.split('\t').map(s => s.trim()).filter(Boolean)[0]
+          if (!next || KNOWN_LABELS.has(normalizeLabel(next))) break
           pairs.push([labelKey(cell), next.slice(0, 500)])
           break
         }
@@ -144,7 +174,7 @@ export function parseSourceDocument(html: string, sourceUrl: string, code: strin
   const source: SourceDeclaration = {
     sourceUrl, platform: new URL(sourceUrl).hostname, code,
     pageCode: get('单元识别码', '单元识别代码', '追溯码'),
-    productName: pick('productName', '产品名称', '农药名称'), registrationNo: pick('registrationNo', '农药登记证号', '登记证号'),
+    productName: pick('productName', '产品名称', '农药名称'), commodityName: pick('commodityName', '品种名称'), registrationNo: pick('registrationNo', '农药登记证号', '登记证号'),
     holderName: pick('holderName', '登记证持有人', '登记证持有人名称'), manufacturer: get('生产企业', '生产企业名称', '生产厂家'),
     formulation: pick('formulation', '剂型'), toxicity: pick('toxicity', '毒性', '毒性及其标识'), content: get('总有效成分含量', '总含量'),
     ingredients: get('有效成分及其含量', '有效成分及含量', '有效成分'),
@@ -174,7 +204,7 @@ export function parseSourceDocument(html: string, sourceUrl: string, code: strin
   }
   push()
   for (const [label, value] of [
-    ['产品名称', source.productName], ['农药登记证号', source.registrationNo], ['登记证持有人', source.holderName],
+    ['产品名称', source.productName], ['商品名称', source.commodityName], ['农药登记证号', source.registrationNo], ['登记证持有人', source.holderName],
     ['生产企业', source.manufacturer], ['剂型', source.formulation], ['毒性', source.toxicity],
     ['总有效成分含量', source.content], ['有效成分及含量', source.ingredients], ['净含量', pick('netContent', '净含量')],
     ['规格', source.spec ?? pick('spec', '规格', '产品规格')], ['执行标准', pick('executionStandard', '执行标准')], ['生产许可证', pick('productionLicense', '生产许可证', '农药生产许可证')],
