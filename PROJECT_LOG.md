@@ -1,4 +1,14 @@
 ## 变更记录
+### 2026-09-27 | feat：外码取材打通——空壳站适配器（nyzs315）+ 失败原因分人话文案 + 本机抓取环境修复
+- **用户指令**：「先做 2 3，然后把文案改为消费者能看得懂的人话。」（② 本机代理直连/打通、③ 空壳站适配器、文案 = 消费者人话）
+- **② 本机抓取打通（仓库外，属开发环境修复）**：本机 DNS 被代理接管成 fake-ip（外站域名全 → `198.18.x`/`198.19.x`），而 `source-fetch.ts` 的 SSRF 黑名单恰好含 `198.18.0.0/15` ⇒ 本机抓任何外站 100% 报「来源网址不是可访问的公网地址」。用 DoH 取真实公网 IP 后写 `hosts` 映射（`mashangzhuisu.com` / `ddspp.cn` / `nyzs315.com` / `www.wla1.cn`），夹在 `# === nz315-dev-source-fetch BEGIN/END ===` 之间，备份 `logs/hosts.bak-2026-09-27T07-02-02-398Z.txt`。⇒ **本机首次能真实验收外码抓取**（此前只能拿 ddspp fixture 造快照，会把「假数据」当成功能可用）。
+- **③ 档 3 适配器（`server/utils/source-adapters/`）**：新增 `nyzs315.ts` + `index.ts` 宿主白名单注册表；`source-fetch.ts` 新增**可选固定请求头**（向后兼容，不传时逐字节同旧）；`source-snapshot.ts` 改为「**适配器先行**、未登记宿主走原路径」。接口/参数/请求头全部照抄原页脚本：`GET /api/h5/Code/QueryCodeJson`，**`X-Tenant-ID: <m>` 必需**（缺了返「该码未找到相关信息!」），`firstFullAddress` 必须三级。**降级链**：适配器失败 → 通用抓取 + 解析 → 仍失败仍有原页链接。
+- **配套 §5.3.5（档 3 真正的工作量）**：外站接口**不返回登记证号** ⇒ 不补这一步，适配进来后所有比对项会因「参考值取不到」恒为 `insufficient`。新增 `referenceProductFor()`：来源页未声明证号且该声明来自适配器时，用码内「后六位 + 类别」走**共用原语** `findRegistryRowsByUnitCode` 取登记参考。**两条边界**：① 只在**唯一候选**时才当参考（后六位撞车可能跨 PD/WP 类，多候选无法确定是哪张证 ⇒ 宁可全 `insufficient` 也不误报「存在差异」）；② **不扩展到**通用解析出来的「有名称没证号」页面（那类页面的名称常是商品名/商标，拿登记库农药名称去比容易误报）。
+- **文案（人话化）**：`source-snapshot.ts` 新增 `ISSUES` 映射（错误原文 → `issue` 分类 + 消费者文案），**技术原文只进 `detail`**（后台排查用，消费者看不见）；`SourceSnapshot` 新增可选 `issue`/`detail`；`external-summary.ts` 新增 `ISSUE_HINTS` 按 `issue` 给中性兜底文案，标题改「暂未取得来源页资料」；`TraceSourceSnapshot.vue` 两处文案改口语化。**核心是把「打不开」与「打开了但读不出内容」彻底分开**，不再出现「平台适配 / 由脚本加载」这类术语。
+- **实测（本机 dev + 真浏览器）**：`nyzs315.com` 从「未提取到产品信息」变为 **`status=ok` + 11 项比对（4 一致 / 5 资料不足 / 2 待核实）**，取出「联菊·啶虫脒 / 青岛正道药业有限公司 / 山东哈维斯生化科技有限公司」；`ddspp.cn`（未登记宿主）**18 项比对、15 一致，与改动前逐字一致**（零回归）；`mashangzhuisu.com`（空壳但未适配）正确落到「读不出内容」文案且保留原页链接。回归：`source-snapshot` **8/8**、`external-summary` **5/5**、`tsc --noEmit` 仅既有 `bill-input.ts(85,5)`。Edge + CDP 真浏览器：截图正常，文案断言 `hasLink/hasCount11/hasSuccessTitle` 均 true、**技术原文不出现在页面上**。
+- **🔴 付掉的账（36 号 §5.3.4 三笔账之二；用户已通过「先做 2 3」放行）**：本轮为钉死接口形状与端到端验证，对 nyzs315 共发起 **2 次成功调用**，该码 `queryCount` 13 → 14。**外站页面「第 N 次查询该产品」的计数会被我们的查询计入** ⇒ 若担心污染对方统计，删掉 `source-adapters/index.ts` 里的一行登记即可整体下线；更小污染的口径是「只在用户点『查看原查询页』时才查」（**未做**）。
+- **修改文件**：**新增** `server/utils/source-adapters/nyzs315.ts` · `server/utils/source-adapters/index.ts`；**修改** `server/utils/source-snapshot.ts` · `server/utils/source-fetch.ts` · `shared/types/source-snapshot.ts` · `shared/utils/external-summary.ts` · `app/components/TraceSourceSnapshot.vue`。**零 DDL / 零新依赖 / 零 `.env` / 零 nginx**（`hosts` 改动在仓库外，不入库）。
+- **上线状态**：**仅本机实施验证，未推送、未部署**；公网指纹仍为 `1790236396250`。⚠️ 适配器只对 `nyzs315.com` 生效，其余平台走原路径、行为不变。
 ### 2026-09-27 | feat：记账表单精简与扫码信息预填
 - **用户目标**：让记账表单更容易填写；总金额优先、扫码带入产品名称/剂型/生产日期，原“类别”改为次要“用途”，购买渠道改为常用选项加自定义，并提供作物快捷选项。
 - **界面**：总金额置于表单首位并使用浅绿色重点卡；日期、剂型、产品名称放在首屏；数量、单位、单价、购买渠道、用途、作物、备注收进“补充信息（选填）”；账本列表优先显示剂型，类别改以“用途：”次要展示。

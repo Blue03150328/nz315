@@ -55,6 +55,9 @@
 
 ## 本机环境
 - 托管 Node 22.22.2-3（无系统 Node）；dev 端口 3100；账号 `admin`/`lvfeng`/`codeop`/`viewer`，密码 `admin123`（`viewer` 只在本机库）。
+- 🔴 起 dev 服务：计划任务 `NZ315 Dev Server` **本机当前不存在**（`Get-ScheduledTask` 返 `NO_TASK`）⇒ 手动后台跑 `node node_modules/nuxt/bin/nuxt.mjs dev --port 3100`；🔴 **只能用 `http://localhost:3100` 访问，`127.0.0.1:3100` 连不上**（Nuxt 绑 localhost/IPv6），探活写 127.0.0.1 会误判成"服务没起"。
+- 🔴 `curl` 默认走系统代理 ⇒ **连本机也要 `--noproxy '*'`**，否则返 502（假故障）。真浏览器验证用 skill `browser-ui-screenshot` 的 `scripts/ui-shot.js`（Edge + CDP），输出路径必须 ASCII（`C:/shots/`）。
+- 🔴 **本机 DNS 被代理接管为 fake-ip（全部外站域名 → `198.18.x`/`198.19.x`），而 `source-fetch.ts` 的 SSRF 黑名单恰好含 `198.18.0.0/15` ⇒ 本机抓任何外部来源页 100% 失败**（文案「来源网址不是可访问的公网地址」）。指定公共 DNS 也没用（UDP 53 被劫持，`dns.Resolver.setServers(['223.5.5.5'])` 仍返 fake-ip）。**要拿真实公网 IP 只能用 DoH**（`fetch('https://223.5.5.5/resolve?name=<域名>&type=A')`，Node fetch 不走代理），再直连 IP 验站点。⇒ 本机**永远无法**验收外码抓取，别把它当回归。**2026-09-27 已修**：用 DoH 取真实公网 IP 后写 `hosts` 映射（`mashangzhuisu.com`/`ddspp.cn`/`nyzs315.com`/`www.wla1.cn`，夹在 `# === nz315-dev-source-fetch BEGIN/END ===` 之间，备份 `logs/hosts.bak-*.txt`，删块即回退）⇒ **本机现在能真实验收外码抓取**（实测：`ddspp.cn` 18 项比对、`nyzs315.com` 走适配器 11 项）；仅 `www.wla1.cn` 因真实 403 反爬仍不可测（非环境问题）。
 - 🔴 Git Bash coreutils 全瘫 ⇒ 一律 node 绝对路径 + `fs.writeFileSync` 落盘再 Read；PowerShell stdout 也常被吞。`curl` 可用。临时脚本放 `~/.workbuddy/binaries/node/workspace`（已装 jsqr/@zxing/library/jpeg-js，可解瓶身二维码）。`node --experimental-strip-types` 可直接 import 项目 `.ts`。
 
 ## 待办（易漂移，用前现测）
