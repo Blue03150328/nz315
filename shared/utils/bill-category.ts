@@ -52,6 +52,12 @@ export function normalizeBillCategory(raw: unknown): BillCategory {
 /** 数量单位快捷选项（用户裁定单位可自由输入，这里只提供常用项做「一键填入」，不是白名单） */
 export const BILL_UNITS = ['瓶', '袋', '包', '桶', '千克', '升', '亩'] as const
 
+/** 作物快捷选项：只是减少输入，不限制用户填写其他作物。 */
+export const BILL_CROPS = ['水稻', '玉米', '小麦', '柑橘', '蔬菜', '果树'] as const
+
+/** 购买渠道快捷选项：自定义入口仍允许自由填写。 */
+export const BILL_CHANNELS = ['农资店', '网购', '厂家直供'] as const
+
 /** 记账业务边界（**集中定义**，服务端校验与前端 maxlength/提示共用，避免两端口径漂移） */
 export const BILL_LIMITS = {
   /** 单次金额上限（DECIMAL(12,2) 的安全档，留足余量） */

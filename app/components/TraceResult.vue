@@ -225,6 +225,8 @@ const handleShare = async () => {
         :code="outcome.code"
         :product-name="product?.name || ''"
         :category="product?.category || ''"
+        :dosage="product?.formulation || ''"
+        :bill-date="batch?.produceDate || ''"
         block
       />
 

@@ -37,6 +37,10 @@ const props = defineProps<{
   productName?: string
   /** 产品原始类别（登记库/产品库原文，如「除草剂」）—— 交给 `normalizeBillCategory` 归一化到 6 类白名单 */
   category?: string
+  /** 扫码得到的剂型（悬浮剂/水剂等），独立于统计用途。 */
+  dosage?: string
+  /** 扫码得到的生产日期；没有时由表单填入今天。 */
+  billDate?: string
   label?: string
   variant?: 'solid' | 'outline' | 'soft' | 'subtle' | 'ghost' | 'link'
   color?: 'primary' | 'secondary' | 'success' | 'info' | 'warning' | 'error' | 'neutral'
@@ -67,6 +71,8 @@ const loginTipOpen = ref(false)
 const initial = computed(() => ({
   productName: props.productName || '',
   category: normalizeBillCategory(props.category || props.productName || ''),
+  dosage: props.dosage || '',
+  billDate: props.billDate || '',
   code: props.code || '',
 }))
 

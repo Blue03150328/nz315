@@ -9,7 +9,7 @@
 //   显式锁定 + 显式还原入口，行为可预测。
 //
 // 扫码预填：调用方把 `initial` 传进来即自动带入产品名/类别/追溯码，用户只需补数量单价（也可全跳过）。
-import { BILL_CATEGORIES, BILL_UNITS } from '#shared/utils/bill-category'
+import { BILL_CATEGORIES, BILL_CHANNELS, BILL_CROPS, BILL_UNITS } from '#shared/utils/bill-category'
 
 /** 记账记录形状（仅供本组件内的 props 声明使用，不做跨文件导出：
  *  `<script setup>` 里的 ES 导出有编译约束，而这里没有第二个使用者） */
@@ -17,6 +17,7 @@ interface BillFormRecord {
   id?: number
   billDate?: string
   productName?: string
+  dosage?: string | null
   category?: string | null
   crop?: string | null
   quantity?: number | null
@@ -44,6 +45,8 @@ const toast = useToast()
 const busy = ref(false)
 /** 总额是否被用户手工改过（true 时不再自动联动） */
 const totalLocked = ref(false)
+const channelPreset = ref('')
+const customChannel = ref('')
 const isEdit = computed(() => !!props.initial?.id)
 
 /** 本地当天（YYYY-MM-DD）。不用 toISOString —— 那是 UTC，北京时间凌晨会差一天 */
@@ -56,6 +59,7 @@ const localToday = () => {
 const form = reactive({
   billDate: '',
   productName: '',
+  dosage: '',
   category: '',
   crop: '',
   quantity: '',
@@ -91,6 +95,7 @@ watch(() => props.open, (v) => {
   const s = (v2: any) => (v2 === null || v2 === undefined ? '' : String(v2))
   form.billDate = it.billDate || localToday()
   form.productName = it.productName || ''
+  form.dosage = it.dosage || ''
   form.category = it.category || ''
   form.crop = it.crop || ''
   form.quantity = s(it.quantity)
@@ -98,6 +103,8 @@ watch(() => props.open, (v) => {
   form.unitPrice = s(it.unitPrice)
   form.totalAmount = s(it.totalAmount)
   form.channel = it.channel || ''
+  channelPreset.value = BILL_CHANNELS.includes(form.channel as any) ? form.channel : (form.channel ? '__custom__' : '')
+  customChannel.value = channelPreset.value === '__custom__' ? form.channel : ''
   form.remark = it.remark || ''
   totalLocked.value = false
   busy.value = false
@@ -117,13 +124,14 @@ const submit = async () => {
     const payload: Record<string, any> = {
       billDate: form.billDate,
       productName: form.productName.trim(),
+      dosage: form.dosage.trim(),
       category: form.category,
       crop: form.crop.trim(),
       quantity: form.quantity === '' ? null : Number(form.quantity),
       unit: form.unit.trim(),
       unitPrice: form.unitPrice === '' ? null : Number(form.unitPrice),
       totalAmount: form.totalAmount === '' ? 0 : Number(form.totalAmount),
-      channel: form.channel.trim(),
+      channel: (channelPreset.value === '__custom__' ? customChannel.value : channelPreset.value).trim(),
       remark: form.remark.trim(),
     }
     // 追溯码只在**新建**时提交：编辑不该改掉这条账的来源
@@ -160,6 +168,37 @@ const submit = async () => {
         </div>
 
         <div class="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
+          <!-- 总额是记账的第一信息，浅绿色卡片让用户先完成最重要的一步。 -->
+          <div class="rounded-2xl border border-success/30 bg-success/5 p-4">
+            <div class="flex items-center justify-between">
+              <label class="text-sm font-semibold text-default">总金额（元）</label>
+              <button v-if="totalLocked" type="button" class="text-xs text-primary" @click="resetTotal">按数量×单价重算</button>
+            </div>
+            <UInput
+              v-model="form.totalAmount"
+              type="number"
+              inputmode="decimal"
+              step="0.01"
+              min="0"
+              class="mt-2 w-full"
+              :ui="{ base: 'text-2xl font-bold text-error' }"
+              placeholder="先填这笔花了多少钱"
+              @update:model-value="totalLocked = true"
+            />
+            <p class="mt-1 text-xs text-muted">不知道总金额也可以先保存，数量和单价可稍后补充。</p>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="text-xs text-muted">记账日期</label>
+              <UInput v-model="form.billDate" type="date" class="w-full" />
+            </div>
+            <div>
+              <label class="text-xs text-muted">剂型</label>
+              <UInput v-model="form.dosage" class="w-full" placeholder="扫码自动带入，如悬浮剂" />
+            </div>
+          </div>
+
           <!-- 产品名称 -->
           <div>
             <label class="text-xs text-muted">产品名称 <span class="text-error">*</span></label>
@@ -171,29 +210,9 @@ const submit = async () => {
             />
           </div>
 
-          <!-- 日期 + 类别 -->
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="text-xs text-muted">记账日期</label>
-              <UInput v-model="form.billDate" type="date" class="w-full" />
-            </div>
-            <div>
-              <label class="text-xs text-muted">类别</label>
-              <USelect
-                v-model="form.category"
-                class="w-full"
-                :items="[{ value: '', label: '未分类' }, ...BILL_CATEGORIES.map(c => ({ value: c, label: c }))]"
-                placeholder="选择类别"
-              />
-            </div>
-          </div>
-
-          <!-- 作物（自由输入，可为空） -->
-          <div>
-            <label class="text-xs text-muted">作物</label>
-            <UInput v-model="form.crop" class="w-full" :maxlength="50" placeholder="例如：柑橘 / 甘蔗（选填）" />
-          </div>
-
+          <details :open="isEdit">
+            <summary class="cursor-pointer text-sm font-medium text-primary">补充信息（选填）</summary>
+            <div class="mt-3 space-y-3 rounded-xl border border-border bg-muted/20 p-3">
           <!-- 数量 + 单位 -->
           <div class="grid grid-cols-2 gap-3">
             <div>
@@ -241,44 +260,38 @@ const submit = async () => {
             />
           </div>
 
-          <!-- 总额：红色醒目 + 可手工调整 + 锁定后可还原 -->
-          <div class="rounded-xl border border-border bg-muted/30 p-3">
-            <div class="flex items-center justify-between">
-              <span class="text-xs text-muted">总额（元）</span>
-              <button
-                v-if="totalLocked"
-                type="button"
-                class="text-xs text-primary"
-                @click="resetTotal"
-              >
-                按 单价×数量 重算
-              </button>
-            </div>
-            <UInput
-              v-model="form.totalAmount"
-              type="number"
-              inputmode="decimal"
-              step="0.01"
-              min="0"
-              class="mt-1 w-full"
-              :ui="{ base: 'text-lg font-bold text-error' }"
-              placeholder="0.00"
-              @update:model-value="totalLocked = true"
-            />
-            <p class="mt-1 text-xs text-muted">
-              {{ totalLocked ? '已手工填写总额，不再跟随数量/单价联动' : '改数量或单价会自动算出总额' }}
-            </p>
-          </div>
-
           <!-- 渠道 + 备注 -->
           <div>
             <label class="text-xs text-muted">购买渠道</label>
-            <UInput v-model="form.channel" class="w-full" :maxlength="50" placeholder="农资店 / 网购 / 厂家直供…（选填）" />
+            <select v-model="channelPreset" class="mt-1 block h-10 w-full rounded-lg border border-border bg-elevated px-3 text-sm text-default outline-none focus:border-primary">
+              <option value="">请选择（选填）</option>
+              <option v-for="channel in BILL_CHANNELS" :key="channel" :value="channel">{{ channel }}</option>
+              <option value="__custom__">自定义</option>
+            </select>
+            <UInput v-if="channelPreset === '__custom__'" v-model="customChannel" class="mt-2 w-full" :maxlength="50" placeholder="填写购买渠道" />
           </div>
+
+          <div>
+            <label class="text-xs text-muted">用途</label>
+            <div class="mt-2 flex flex-wrap gap-1.5">
+              <button v-for="item in BILL_CATEGORIES" :key="item" type="button" class="rounded-full border px-2.5 py-1 text-xs" :class="form.category === item ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted'" @click="form.category = item">{{ item }}</button>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-xs text-muted">作物</label>
+            <UInput v-model="form.crop" class="w-full" :maxlength="50" placeholder="也可以直接填写其他作物" />
+            <div class="mt-2 flex flex-wrap gap-1.5">
+              <button v-for="crop in BILL_CROPS" :key="crop" type="button" class="rounded-full border border-border px-2.5 py-1 text-xs text-muted" @click="form.crop = crop">{{ crop }}</button>
+            </div>
+          </div>
+
           <div>
             <label class="text-xs text-muted">备注</label>
             <UTextarea v-model="form.remark" :rows="2" class="w-full" :maxlength="500" placeholder="选填" />
           </div>
+            </div>
+          </details>
         </div>
 
         <div class="flex shrink-0 justify-end gap-2 border-t border-border px-5 py-3.5">

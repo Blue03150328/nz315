@@ -39,7 +39,7 @@ export default defineEventHandler(async (event) => {
 
   // 列表（日期倒序；LIMIT 兜底）
   const rows = await query<any[]>(
-    `SELECT id, bill_date, product_name, category, crop, quantity, unit, unit_price,
+    `SELECT id, bill_date, product_name, dosage, category, crop, quantity, unit, unit_price,
             total_amount, channel, remark, code, source
        FROM farm_bill
       WHERE consumer_id = ? AND YEAR(bill_date) = ?
@@ -79,6 +79,7 @@ export default defineEventHandler(async (event) => {
       id: Number(r.id),
       billDate: r.bill_date,
       productName: r.product_name,
+      dosage: r.dosage || null,
       category: r.category || null,
       crop: r.crop || null,
       quantity: r.quantity === null ? null : num(r.quantity),

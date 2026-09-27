@@ -62,7 +62,8 @@ const copyCode = async () => {
       <TraceBillEntry
         :code="outcome.code"
         :product-name="single ? (single.productName || '') : ''"
-        :category="single ? (single.productName || single.ingredientMain || '') : ''"
+        :dosage="single ? (single.formulation || '') : ''"
+        :bill-date="outcome.sourceSnapshot?.source?.produceDate || ''"
         size="lg"
         block
       />

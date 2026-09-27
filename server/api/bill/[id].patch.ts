@@ -12,6 +12,7 @@ import { parseBillBody } from '~~/server/utils/bill-input'
 const FIELD_MAP: Record<string, string> = {
   billDate: 'bill_date',
   productName: 'product_name',
+  dosage: 'dosage',
   category: 'category',
   crop: 'crop',
   quantity: 'quantity',

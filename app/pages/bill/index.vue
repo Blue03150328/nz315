@@ -207,11 +207,11 @@ useHead({ title: '我的账本 - 农资315' })
               <div class="min-w-0 flex-1">
                 <div class="flex flex-wrap items-center gap-2">
                   <span class="truncate text-sm font-medium text-default">{{ r.productName }}</span>
-                  <span v-if="r.category" class="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{{ r.category }}</span>
+                  <span v-if="r.dosage" class="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{{ r.dosage }}</span>
                   <span v-if="Number(r.source) === 1" class="shrink-0 rounded-full bg-info/10 px-2 py-0.5 text-xs font-medium text-info">扫码</span>
                 </div>
-                <div v-if="r.crop || r.channel" class="mt-0.5 truncate text-xs text-muted">
-                  {{ [r.crop ? '作物：' + r.crop : null, r.channel].filter(Boolean).join(' · ') }}
+                <div v-if="r.category || r.crop || r.channel" class="mt-0.5 truncate text-xs text-muted">
+                  {{ [r.category ? '用途：' + r.category : null, r.crop ? '作物：' + r.crop : null, r.channel].filter(Boolean).join(' · ') }}
                 </div>
                 <div class="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted">
                   <span>{{ r.billDate }}</span>

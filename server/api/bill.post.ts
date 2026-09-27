@@ -32,13 +32,14 @@ export default defineEventHandler(async (event) => {
 
   const r = await execute(
     `INSERT INTO farm_bill
-       (consumer_id, bill_date, product_name, category, crop, quantity, unit, unit_price,
+       (consumer_id, bill_date, product_name, dosage, category, crop, quantity, unit, unit_price,
         total_amount, channel, remark, code, source)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       consumer.id,
       input.billDate,
       input.productName,
+      input.dosage ?? null,
       input.category ?? '其他', // 恒为 6 类之一，库里不存 NULL（见 bill-input.ts 口径 1）
       input.crop ?? null,
       input.quantity ?? null,

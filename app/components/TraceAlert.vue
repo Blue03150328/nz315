@@ -145,6 +145,8 @@ const copyCode = async () => {
         :code="outcome.code"
         :product-name="showProductInfo ? (product?.name || '') : ''"
         :category="showProductInfo ? (product?.category || '') : ''"
+        :dosage="showProductInfo ? (product?.formulation || '') : ''"
+        :bill-date="showProductInfo ? (batch?.produceDate || '') : ''"
         block
       />
 

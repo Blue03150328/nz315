@@ -41,6 +41,7 @@ function textOf(v: unknown, label: string, max: number): string | null {
 export interface BillInput {
   billDate?: string
   productName?: string
+  dosage?: string | null
   category?: string
   crop?: string | null
   quantity?: number | null
@@ -83,6 +84,9 @@ export function parseBillBody(body: any, todayRaw: string, partial = false): Bil
     if (!s) bad('请填写产品名称')
     out.productName = s
   }
+
+  // ---- 剂型：登记资料中的悬浮剂/水剂等产品信息，可为空 ----
+  if (want('dosage')) out.dosage = textOf(body.dosage, '剂型', 50)
 
   // ---- 类别：一律归一化到 6 类白名单（空 → 其他） ----
   if (want('category')) {

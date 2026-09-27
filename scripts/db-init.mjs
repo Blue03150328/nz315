@@ -326,6 +326,7 @@ const DDL = [
     consumer_id BIGINT NOT NULL COMMENT '消费者ID（微信登录，consumer.id）',
     bill_date DATE NOT NULL COMMENT '记账日期（用药/购药日，默认当天可改；按月分组依据）',
     product_name VARCHAR(255) NOT NULL COMMENT '产品名称（快照；扫码带入或手填）',
+    dosage VARCHAR(50) NULL COMMENT '剂型（扫码带入或手填）',
     category VARCHAR(20) NULL COMMENT '类别：杀虫/杀菌/除草/杀螨/肥料/其他（白名单，可空）',
     crop VARCHAR(50) NULL COMMENT '作物（自由输入，可空；统计覆盖作物时排除空值）',
     quantity DECIMAL(12,3) NULL COMMENT '数量（可空，允许跳过补录）',
@@ -373,6 +374,10 @@ async function migrate(conn) {
   if (!(await hasColumn('scan_log', 'consumer_id'))) {
     await conn.query("ALTER TABLE scan_log ADD COLUMN consumer_id BIGINT NULL COMMENT '消费者ID（登录后扫码才有值）'");
     console.log('[db] 迁移：scan_log 补充列 consumer_id');
+  }
+  if (!(await hasColumn('farm_bill', 'dosage'))) {
+    await conn.query("ALTER TABLE farm_bill ADD COLUMN dosage VARCHAR(50) NULL COMMENT '剂型（扫码带入或手填）' AFTER product_name");
+    console.log('[db] 迁移：farm_bill 补充列 dosage');
   }
   if (!(await hasIndex('scan_log', 'idx_consumer_time'))) {
     await conn.query('ALTER TABLE scan_log ADD KEY idx_consumer_time (consumer_id, scan_time)');
