@@ -5,6 +5,7 @@ import { parseSourceDocument, SOURCE_PARSER_VERSION } from './source-parser'
 import { compareSource } from './source-compare'
 import { adaptSourceDocument } from './source-adapters'
 import { findRegistryRowsByUnitCode } from './registry-lookup'
+import { capRawDocument, FAILURE_CACHE_MINUTES, SUCCESS_CACHE_MINUTES } from './source-raw-cap'
 import { parseUnitCode } from '#shared/utils/unit-code'
 import type { SourceDeclaration, SourceIssue, SourceSnapshot } from '../../shared/types/source-snapshot'
 
@@ -64,9 +65,13 @@ export async function collectSourceSnapshot(sourceUrl: string, code: string): Pr
   try { return await work } finally { pending.delete(key) }
 }
 async function collect(key: string, sourceUrl: string, code: string): Promise<SourceSnapshot> {
-  // 十分钟内复用同一次已保存的快照，避免重复扫描外站和反复写库。
+  // 复用同一次已保存的快照，避免重复扫描外站和反复写库。
+  // 🔴 2026-09-28 存储放大收口：**失败快照也复用**，只是 TTL 更短（见 source-raw-cap.ts）。
+  //    从前这里带 `status <> 'unavailable'` 把失败行整条排除 ⇒ 每次重试都重新抓外站、再落一行，
+  //    正是放大的主因。现在按行自身的 status 选 TTL：失败 → FAILURE_CACHE_MINUTES，成功 → SUCCESS_CACHE_MINUTES。
+  //    注：`created_at > IF(...)` 是非 sargable 条件，但 `cache_key` 是索引前导列，仍先按 key 收敛，无性能问题。
   try {
-    const [cached] = await query<any[]>("SELECT payload FROM external_source_snapshot WHERE cache_key = ? AND created_at > DATE_SUB(NOW(), INTERVAL 10 MINUTE) AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) <> 'unavailable' ORDER BY created_at DESC LIMIT 1", [key])
+    const [cached] = await query<any[]>("SELECT payload FROM external_source_snapshot WHERE cache_key = ? AND created_at > IF(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) = 'unavailable', DATE_SUB(NOW(), INTERVAL ? MINUTE), DATE_SUB(NOW(), INTERVAL ? MINUTE)) ORDER BY created_at DESC LIMIT 1", [key, FAILURE_CACHE_MINUTES, SUCCESS_CACHE_MINUTES])
     if (cached) return json(cached.payload)
   } catch { /* 未迁移时仍能查询，但明确告知没有保存历史 */ }
   const snapshot: SourceSnapshot = { id: randomUUID(), fetchedAt: new Date().toISOString(), parserVersion: SOURCE_PARSER_VERSION, status: 'unavailable', message: '', comparisons: [], saved: false }
@@ -75,6 +80,8 @@ async function collect(key: string, sourceUrl: string, code: string): Promise<So
   snapshot.platform = hostOf(sourceUrl)
   let document = ''
   let references: unknown = null
+  // 是否走到了「解析出声明」这一步 —— 决定原文要不要落库（失败一律不落，见 source-raw-cap.ts）
+  let succeeded = false
   try {
     // ① 宿主专用适配器先行：登记在案的空壳站（通用解析必然读不到值）走它自己的结构化接口；
     //    未登记宿主返回 null ⇒ 与从前完全一致，走「抓页面 + 通用解析」。
@@ -107,6 +114,7 @@ async function collect(key: string, sourceUrl: string, code: string): Promise<So
     snapshot.comparisons = compareSource(source, product, originals)
     snapshot.status = source.pageCode && source.code === source.pageCode ? 'ok' : 'partial'
     snapshot.message = snapshot.status === 'ok' ? '已获取来源页声明；登记比对不代表商品真伪鉴定' : '已提取来源内容，但页面未提供可核对的单元识别码，请核实对应关系'
+    succeeded = true
   } catch (error) {
     const raw = error instanceof Error ? error.message : '来源查询暂不可用'
     const hit = ISSUES.find(item => item.test.test(raw))
@@ -117,7 +125,11 @@ async function collect(key: string, sourceUrl: string, code: string): Promise<So
   }
   try {
     snapshot.saved = true
-    await execute('INSERT INTO external_source_snapshot (id, cache_key, code, source_url, parser_version, raw_document, reference_data, payload) VALUES (?,?,?,?,?,?,?,?)', [snapshot.id, key, snapshot.source?.code || code, sourceUrl, SOURCE_PARSER_VERSION, document || null, JSON.stringify(references), JSON.stringify(snapshot)])
+    // 🔴 2026-09-28 存储放大收口（详见 source-raw-cap.ts）：失败时**不落原文** ——
+    //    抓取/解析失败的页面恰恰是读不出内容的那类，原样留 1MB 纯属占盘；
+    //    成功时按 64KB 上限截断，并按字符边界切，不产生半个乱码字符。
+    const rawDocument = succeeded ? (capRawDocument(document) || null) : null
+    await execute('INSERT INTO external_source_snapshot (id, cache_key, code, source_url, parser_version, raw_document, reference_data, payload) VALUES (?,?,?,?,?,?,?,?)', [snapshot.id, key, snapshot.source?.code || code, sourceUrl, SOURCE_PARSER_VERSION, rawDocument, JSON.stringify(references), JSON.stringify(snapshot)])
   } catch {
     snapshot.saved = false
     delete snapshot.id

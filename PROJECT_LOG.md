@@ -1,4 +1,26 @@
 ## 变更记录
+### 2026-09-28 | fix：external_source_snapshot 存储放大收口（失败不落原文 · 失败也进缓存 · 成功截 64KB）
+- **触发**：AGENTS.md 遗留待办①（`external_source_snapshot` 存储放大，服务器与 cynx 共用磁盘长期 75%+），
+  用户裁定「本轮就改这个」。
+- **三重放大（定因，逐条对上代码）**：① `raw_document` 是 `MEDIUMTEXT`（上限 16MB），而抓取侧只在 **1MB**
+  处截断（`source-fetch.ts`：`size > 1024 * 1024` 即 destroy）⇒ **表本身完全没有兜底**；② 抓取或解析**失败时
+  原文照样落库**，而失败页恰恰是读不出内容的那一类，留着几乎无用；③ 失败行原本**整条排除在缓存之外**
+  （`status <> 'unavailable'`）⇒ 每次重试都要重新抓一次外站、再落一行 —— **这是放大的主因**。
+- **改法（收口在单模块，不碰抓取/解析/判定）**：新增 `server/utils/source-raw-cap.ts`，只回答两件事 ——
+  **原文留多少**（`capRawDocument`，默认 `RAW_DOCUMENT_MAX_BYTES = 64KB`；按 UTF-8 字节上限截断，
+  **且向前退到字符起始处**，绝不把一个中文/emoji 切成半个乱码字符）、**缓存留多久**
+  （`SUCCESS_CACHE_MINUTES = 10` 维持原值 / `FAILURE_CACHE_MINUTES = 2` 新增）。`source-snapshot.ts` 三处改：
+  ① 缓存查询改为按行自身 status 选 TTL（失败行也复用，2 分钟）—— `created_at > IF(JSON_UNQUOTE(JSON_EXTRACT(payload,'$.status'))='unavailable', DATE_SUB(NOW(), INTERVAL ? MINUTE), DATE_SUB(NOW(), INTERVAL ? MINUTE))`；
+  ② 增 `succeeded` 标记（走到「解析出声明」才为真）；③ INSERT 时失败传 `NULL`、成功传 `capRawDocument(document)`。
+- **实测（硬证据，非推断）**：`ddspp` 成功页原文 **235,414 B → 65,536 B**；`jilinhengda` 失败壳 **344 B 原文被丢弃**
+  （库内 `raw_document IS NULL`）；失败重试在 2 分钟内**不再新增行**（负缓存生效）。验证脚本
+  `logs/_verify-rawcap.mjs`（直连真库验 TTL 子句 5 用例）与 `logs/_verify-rawcap-e2e.mjs`（HTTP 全链路：
+  失败不落原文 / 负缓存 / 成功 ≤64KB）。
+- **回归**：`tests/source-raw-cap.test.mjs` **6/6**（新增）· `source-snapshot` **8/8** · `external-summary` **5/5**
+  · `source-adapters` **6/6（+3 例真接口默认跳过）**；`tsc --noEmit` 仅剩既有 `bill-input.ts(85,5)`。
+- **属性**：**零 DDL**（`db-init.mjs` 逐字节未变、表数仍 17）· **零依赖** · **零 `.env`** · **零 nginx** · **零删除**；
+  `SOURCE_PARSER_VERSION` 未动（仍 `2026-09-27.4`，本轮没动解析口径）。⚠️ **未上线** —— 不在 41 号包内
+  （41 号范围止于 `4d0f83d`），需另打包含本轮 3 个文件的新包。
 ### 2026-09-28 | docs(fix)：纠正「单测 13/13」错记（那是两文件合计数，单文件是 8 例）
 - **触发**：收尾复测按 `AGENTS.md` 现状块口径重跑 `node --test tests/source-snapshot.test.mjs`，得 **8/8**，
   与该文档写的 **13/13** 不符 ⇒ 顺线追查到底谁错。
