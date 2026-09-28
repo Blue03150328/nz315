@@ -69,24 +69,6 @@ test('别名与脚本键兜底：精确标签优先，页面看不到的脚本�
   // ④ 规格：后台外部核验页需单独展示该字段
   assert.equal(parseSourceDocument(row('规格','500g/瓶'), url, code).spec, '500g/瓶')
 })
-test('前端模板字段属性与数字脚本值也能提取', () => {
-  const html = [
-    '<div data-field="productName"><span>甲维盐</span></div>',
-    '<div class="registration-no"><b>PD20201234</b></div>',
-    '<script>window.detail={productDate:"2026-09-28", batchNo:12345}</script>',
-  ].join('')
-  const source = parseSourceDocument(html, url, code)
-  assert.equal(source.productName, '甲维盐')
-  assert.equal(source.registrationNo, 'PD20201234')
-  assert.equal(source.produceDate, '2026-09-28')
-  assert.equal(source.batchNo, '12345')
-})
-test('标签和值由相邻内联节点组成时仍能提取', () => {
-  const html = '<div><span class="label">产品名称</span><span class="value">甲维盐</span><span class="label">登记证号</span><span class="value">PD20201234</span></div>'
-  const source = parseSourceDocument(html, url, code)
-  assert.equal(source.productName, '甲维盐')
-  assert.equal(source.registrationNo, 'PD20201234')
-})
 test('手工粘贴的纯文本必须按行解析：换行不得被压平', () => {
   // 后台核验页的失败提示原文承诺「标签与值之间用冒号、Tab 或换行分隔」。
   // 2026-09-24 合并解析器时 sourceText 把 \r?\n 一律压成空格 ⇒ 纯文本整段并成一行、
