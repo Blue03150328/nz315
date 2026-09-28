@@ -1,4 +1,20 @@
 ## 变更记录
+### 2026-09-28 | docs(fix)：纠正「单测 13/13」错记（那是两文件合计数，单文件是 8 例）
+- **触发**：收尾复测按 `AGENTS.md` 现状块口径重跑 `node --test tests/source-snapshot.test.mjs`，得 **8/8**，
+  与该文档写的 **13/13** 不符 ⇒ 顺线追查到底谁错。
+- **定因（实测，非推断）**：`source-snapshot.test.mjs` 全历史用例数 = `0598e2d` **8** → `3bf3042` **8** →
+  `f820bcd` **10** → 回退后 **8**（**峰值 10，从未到过 13**）。13 = **`source-snapshot`(8) + `external-summary`(5)**
+  的**合计数**。错在把「两文件合计」写成「单文件」，并据此把那条「两侧一致支持」用例叫成「用例 13」
+  （该文件**没有任何内部编号**，那条实为**第 8 条**）。
+- **顺手复核 41/40 号单另外两个数字，均正确（不改）**：① `tests/source-snapshot.test.mjs` 包内 **9,471 字节** ✔
+  —— 这是 **CRLF 尺寸**（git blob 是 **9,346**（LF）；本机 `core.autocrlf=true` ⇒ `git archive` 产物 = 9,346 + 125 个换行
+  = **9,471**，实测 tar 成员 `size=9471 CRLF=125`）；② `+21 −5` ✔（`git diff --numstat 47bcbd7 4d0f83d`）。
+- **修改文件**：`AGENTS.md` · `PROJECT_LOG.md` · `docs/handover/41-…md` · `docs/handover/40-…md`（**纯文档**）。
+  **零代码 · 零依赖 · 零 DDL · 包内容不受影响**（`AGENTS.md`/`PROJECT_LOG.md` 本就在包内、且早已记在「包 vs HEAD
+  差异 2 个文档」里；`docs/handover/` 是 `export-ignore`）。
+- **教训（可复用）**：① **「两文件合计」「单文件」是两个口径**，写进文档必须带文件归属；②
+  **「git blob 字节数(LF)」与「包内字节数(CRLF)」也是两个口径**（本机 `core.autocrlf=true`），核对执行单的字节判据
+  必须用后者，否则会把正常的包误判成"打错了"。
 ### 2026-09-28 | feat：接入 zp.hyny168.cn / www.sdakzw.com 外站适配器 · 并回退一个会读坏既有站点的解析改动
 - **用户指令**：「查看更改，完成另一个 AGENT 未完成的任务」（附上一轮对话记录）。
 - **上一轮的结论是反的（本轮定因）**：上一轮认定这两站「服务端返回完整 HTML，只需补字段别名」——实抓推翻：
@@ -21,7 +37,7 @@
 - **验收（4 组全绿）**：① `node --test tests/source-adapters.test.mjs` **6/6**；② `NZ315_LIVE_ADAPTERS=1`
   真接口 **9/9**；③ HTTP 全链路 `/api/trace?source=…`：hyny168 真码 → `resultType=external-reg` ·
   `status=ok` · **比对 18 项（16 match + 2 review）**，合规六项全取到、原药两组准确配对；
-  sdakzw 未知码 → `issue=source-not-found` + 正确文案；④ 既有回归 **13/13**、`tsc --noEmit` 仅剩既有 `bill-input.ts(85,5)`。
+  sdakzw 未知码 → `issue=source-not-found` + 正确文案；④ 既有回归 **8/8 + 5/5 = 13/13**、`tsc --noEmit` 仅剩既有 `bill-input.ts(85,5)`。
 - **代价（必须知情）**：每次调用都会在**对方系统写入一条扫码记录**（hyny168 实测带回 `scanNum`/`firstScanTime` 且
   对方写出了 `scanLogId`，不存在的码同样写）。与 nyzs315 同族，靠 10 分钟缓存 + 白名单缓解；
   删 `source-adapters/index.ts` 里一行登记即可整体下线。
@@ -117,7 +133,7 @@
 - **现象**：`cx.jilinhengda.com/q.do?i=<32位码>` 在公众端固定显示「这个来源页面要靠浏览器才能显示内容，本平台读不到里面的资料」（`issue=empty-shell`），与 36 号记的「JS 壳页面」症状一模一样。
 - **定因（推翻"要靠浏览器"的直觉）**：该站返回 **200 / 17,424 B 服务端渲染完整页**、字段齐全、5 种 UA 结果逐字节同一份（无 JS、无 JSON 接口、无 UA 依赖）⇒ **不是抓取问题，是我们自己的解析器盲区**。`sourceText()` 把 `</td>` 转 Tab、`</div>` 转换行；该页「td 里再包 div」⇒「品种名称：」与「亨达美田」被拆到**两行、各剩一格**；而含标签路径**只按 Tab 切 + 只认同行「标签：值」** ⇒ `pairs` 为空 ⇒ 三空判据抛错。（⇒ 用户原先设想的接接口 / 无头浏览器 / 截图 OCR / 接 Agent 四种解法**都不是正解**。）
 - **修复（4 文件）**：① `source-parser.ts` 兜底③「标签一行、值一行」从 `plain` 专用**放开到全路径**，且下一行**只取首个 Tab 单元格**（防整行吞值），新增 `EXTRA_KNOWN_LABELS`（单元识别码 + 原药六项）并入白名单；② 新增 `commodityName`（品种名称/品种名）**单独一档**，**绝不并进 `productName` 别名表**——这类站写的「品种名称」是**商品名**（本站写「亨达美田」，登记证 `PD20241818` 的农药名称是「丙硫菌唑·戊唑醇」），并进去会**误报「与登记资料不一致」**（用户裁定 = **选项 A：只作展示字段，不参与强比对**）；③ `source-snapshot.ts` 三空判据纳入 `commodityName`；④ `shared/types/source-snapshot.ts` 加可选 `commodityName`。`SOURCE_PARSER_VERSION` `.3` → **`2026-09-27.4`**（缓存键含版本号 ⇒ 旧快照自然失效，无须清表）。
-- **验证**：**逐字段对拍硬证据** —— 同一份 HTML 改前/改后喂项目解析器，`ddspp` / `nyzs315` / `mashangzhuisu` **逐字节一致**（零回归），仅 `cx.jilinhengda` 新增 9 字段、`throwLike` true→false。端到端 `GET /api/trace?source=http://cx.jilinhengda.com/q.do?i=…` 返 `resultType=external-reg`、`sourceSnapshot.status=ok`、**mismatch 0 项**、登记候选 `PD20241818 / 丙硫菌唑·戊唑醇` 正确。Edge + CDP 真浏览器：页面渲染「商品名称 亨达美田 / 登记证持有人 吉林八达 / 生产企业 吉林八达」，比对「一致 1 项 · 存在差异 0 项」，旧技术文案已消失。单测 `tests/source-snapshot.test.mjs` **13/13**（test 13 原把「HTML 不认分行」当契约固定 ⇒ 按用户裁定改为「两侧一致支持」）；`tsc --noEmit` 仅既有 `bill-input.ts(85,5)`。M7 回归 19/22，3 FAIL（`wla1` 真实 403 / 通用 HTML 抓取）**已用 `git stash` 回退 4 文件复跑证实与本改动无关**（同 3 FAIL，假预警 id 24→25）；M7 写入已按基线清理。
+- **验证**：**逐字段对拍硬证据** —— 同一份 HTML 改前/改后喂项目解析器，`ddspp` / `nyzs315` / `mashangzhuisu` **逐字节一致**（零回归），仅 `cx.jilinhengda` 新增 9 字段、`throwLike` true→false。端到端 `GET /api/trace?source=http://cx.jilinhengda.com/q.do?i=…` 返 `resultType=external-reg`、`sourceSnapshot.status=ok`、**mismatch 0 项**、登记候选 `PD20241818 / 丙硫菌唑·戊唑醇` 正确。Edge + CDP 真浏览器：页面渲染「商品名称 亨达美田 / 登记证持有人 吉林八达 / 生产企业 吉林八达」，比对「一致 1 项 · 存在差异 0 项」，旧技术文案已消失。单测 `tests/source-snapshot.test.mjs` **8/8**（**与 `tests/external-summary.test.mjs` 的 5 例合并计 13/13**；其中**最后一条**用例原把「HTML 不认分行」当契约固定 ⇒ 按用户裁定改为「两侧一致支持」）；`tsc --noEmit` 仅既有 `bill-input.ts(85,5)`。M7 回归 19/22，3 FAIL（`wla1` 真实 403 / 通用 HTML 抓取）**已用 `git stash` 回退 4 文件复跑证实与本改动无关**（同 3 FAIL，假预警 id 24→25）；M7 写入已按基线清理。
 - **对 36 号 §4.1 判据的修订**：原判据「抓下来去标签后还有没有值」**不足以**判该不该做适配器 ⇒ 细化为「**标签与值是否落在同一个 Tab 分隔的单元格内**」。同一盲区若再遇到，**一律先修通用解析器，不要按平台铺开写适配器**（对外站计数污染最小）。
 - **修改文件**：`server/utils/source-parser.ts` · `server/utils/source-snapshot.ts` · `shared/types/source-snapshot.ts` · `tests/source-snapshot.test.mjs`（提交 **`3bf3042`**）；**新增** `docs/handover/39-外码来源页假空壳定因与解析器修复（2026-09-27）.md`；**修改** `AGENTS.md` · `PROJECT_LOG.md` · `.workbuddy/memory/*` · `logs/_m7-regression.mjs`（HOST 改 `process.env.M7_HOST || 'localhost'`，本机脚本未单独提交）。**零 DDL / 零新依赖 / 零 `.env` / 零 nginx**。
 - **上线状态**：**仅本机实施验证，未推送、未部署**；公网构建指纹仍为 `1790496675391`。上线**零 DDL**，但**须在服务器 `npm run build` 后仅 `pm2 reload nz315`**，不得上传本机构建产物。
