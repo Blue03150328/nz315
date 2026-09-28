@@ -65,7 +65,7 @@
 
 ## 待办（易漂移，用前现测）
 1. 🔴 `external_source_snapshot` 存储放大修复（匿名可写 + 失败也落 1MB）—— 建议优先。
-2. 🔴 **`3bf3042` 的上线包已备（40 号执行单），等用户放行**：包 `nz315-ycdb-bf6ae7e.tar.gz` **742,679 B / SHA256 `b2029918…bbebac` / 187 文件**；范围 `47bcbd7..bf6ae7e`，**运行时代码仅 4 个**（`source-parser.ts`/`source-snapshot.ts`/`shared/types/source-snapshot.ts`/`tests/source-snapshot.test.mjs`）；**零 DDL**（判据 = **不出现任何 `[db] 迁移：` 行** + 表数仍 17）；上线 = 服务器 `npm run build` + `pm2 reload nz315`。✅ **已推送**（2026-09-28，远端 `refs/heads/ycdb` = `a74ae7c`）；推送后 HEAD 比包基线多 2 个纯文档提交，**运行时代码差异 0 ⇒ 包不必重打**。
+2. 🔴 **`3bf3042` 的上线包已备（40 号执行单），等用户放行**：包 `nz315-ycdb-bf6ae7e.tar.gz` **742,679 B / SHA256 `b2029918…bbebac` / 187 文件**；范围 `47bcbd7..bf6ae7e`，**运行时代码仅 4 个**（`source-parser.ts`/`source-snapshot.ts`/`shared/types/source-snapshot.ts`/`tests/source-snapshot.test.mjs`）；**零 DDL**（判据 = **不出现任何 `[db] 迁移：` 行** + 表数仍 17）；上线 = 服务器 `npm run build` + `pm2 reload nz315`。✅ **已推送**（2026-09-28；远端 `refs/heads/ycdb` 与本地同步，以 `git ls-remote` 为准）；推送后 HEAD 比包基线多 2 个纯文档提交，**运行时代码差异 0 ⇒ 包不必重打**。
 3. 同族盲区其它未登记标签（部门/查询次数/质量检验/地址/电话）未排查；`productName` 别名表仍含「商品名称」的既有隐患；「只在用户点『查看原查询页』时才查」这个更小污染口径未做。
 4. 外码页记账预填类别恒「其他」（用户裁定先不管）· P2「内容不符」提示位 · 数据治理（线上仍演示数据）。
 5. 线 B 自带缺口：死代码 `outcome.externalSource` · `trace.get.ts` 的 `resultType` 隐式真值 · `PRIVATE_HOST` 正则末尾多 `$`。
