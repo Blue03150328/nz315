@@ -1,4 +1,13 @@
 ## 变更记录
+### 2026-09-28 | docs：清理过期状态块（AGENTS.md 四块合一）+ memory 日志压缩归档
+- **用户指令**：「打包准备上线，在给我上线流程前先把 memory 和 agent.md 里的过期文档清理了」。
+- **AGENTS.md（91,803 → 88,180 字符 / 167,311 → 160,541 字节，CRLF 保持）**：把 **4 个互相打架的时间块**（09-23 记账上线块 / 09-24 线 B 块 / 09-27 17:3x 38 号块 / 09-28 记账表单块）**合并为一个「【2026-09-28 现状块】」**置于文首，并把「接手顺序」行前置 **41 号**。合并的动因是**自相矛盾**：同一件事在不同块里同时标着「已上线」和「未上线」——例如 36 号「档 3 nyzs315 适配器」在 09-24 块写「未上线」、在 09-27 块写「已上线」；39 号解析器修复也是「已备包待放行」与「本轮未上线」并存。⇒ 现状块以**公网构建指纹**为唯一版本判据，把「未上线 / 未推送 / 待放行」的过时表述一次性收编；原文细节不删，指向 `PROJECT_LOG.md` 与 `docs/handover/`。
+- **memory（`.workbuddy/memory/`）**：把三份过期日志（`2026-09-23.md` / `2026-09-24.md` / `2026-09-27.md`，合计约 65K 字符）**压缩要点为 `ARCHIVE-2026-09-23_09-27.md` 后删除原文**（原文另备份在 `C:/shots/_deleted-2026-09-2[3|4|7].md`）。归档只保留**仍有跨会话价值**的部分：三批（线 A / 线 B / 38 号）的最终归属与指纹链、仍有效的硬知识（外码构造公式 · nginx `proxy_pass` 指 cynx 3000 的警告 · `regdata.ts` 隐式耦合 · 权限 5 守卫 · 记账 2 口径 · N1 豁免 · C7/E4 已知缺陷）、做过又被撤销的事（扫码页折叠 · diff 备份位置）、以及**已过期的回归断言点**。`MEMORY.md` 同步加一节「📜 历史批次要点」指向归档；顺手把 `MEMORY.md` 的**混行（74 CRLF + 15 裸 LF）归一为纯 CRLF**。
+- **为什么值得做**：交接文档里出现**互相矛盾的版本状态**，是比「没有文档」更贵的债 —— 接手者会照旧块里的「未上线」重复上线，或照「已上线」跳过验证。本轮把版本判据**唯一化**（只信 `curl -s https://www.nz315.cn/_nuxt/builds/latest.json` 的 `timestamp`）。
+- **影响面**：**纯文档 / 纯记忆 —— 零代码、零依赖、零 `.env`、零 nginx**。`AGENTS.md` 与 `PROJECT_LOG.md` **会进上线包**（未加 `export-ignore`，属 40 号 §6' 的待裁定老问题）；`.workbuddy/memory/` 已被 `export-ignore` 剔出 ⇒ **归档动作不影响包内容**。
+- **本轮上线范围（预告）**：`git diff --name-status 47bcbd7..d0c5c3b` = **10 提交 / 14 文件**，其中**运行时代码 5 个**（`app/components/BillFormModal.vue` · `server/utils/source-parser.ts` · `server/utils/source-snapshot.ts` · `shared/types/source-snapshot.ts` · `tests/source-snapshot.test.mjs`），其余 9 个是文档；**零 DDL**（`scripts/db-init.mjs` 逐字节未变）· **零依赖** · **零删除** · **零 nginx**。上线执行单 = **41 号**（打包指纹见下一条记录）。
+- **修改文件**：`AGENTS.md` · `PROJECT_LOG.md` · `.workbuddy/memory/MEMORY.md` · **新增** `.workbuddy/memory/ARCHIVE-2026-09-23_09-27.md` · **删除** `.workbuddy/memory/2026-09-23.md` / `2026-09-24.md` / `2026-09-27.md`。
+
 ### 2026-09-28 | feat：记账表单「补充信息」选项全部收进下拉框（+ 修「自定义输入看不见」）
 - **用户指令**：「我要把这个页面的选项全部做成箭头下拉框选择，而不是直接写在页面上供选择，还有购买渠道的自定义，选择后并不能自己输入」。
 - **改动（单文件 `app/components/BillFormModal.vue`，+122 −36）**：

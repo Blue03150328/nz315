@@ -72,3 +72,18 @@
 5. 线 B 自带缺口：死代码 `outcome.externalSource` · `trace.get.ts` 的 `resultType` 隐式真值 · `PRIVATE_HOST` 正则末尾多 `$`。
 6. 服务器残留早年 `docs/handover`/`.workbuddy`/`AGENTS.md`/`PROJECT_LOG.md`（公网实测全 404，不构成泄露）。
 7. 微信「网页授权域名」后台保存状态未确认；公安联网备案未做（时限约 2026-10-15）；HTTPS 证书 2026-12-16 到期不自动续期。
+
+## 📜 历史批次要点（09-23 / 09-24 / 09-27）
+
+三份逐日日志（`2026-09-23.md` / `2026-09-24.md` / `2026-09-27.md`，共约 65K 字符）已于 **2026-09-28 压缩进同目录的 `ARCHIVE-2026-09-23_09-27.md` 并删除原文**；原文可从 git 历史取回（找删除提交的前一版）。
+
+该归档留着**别处没有的**东西，动代码前值得先扫一眼：
+
+- 外码构造公式（可零写入触发「登记证过期」等分支）· 登记库兜底守卫的真实条件
+- 🔴 `deploy/nginx-nz315.conf` 的 `proxy_pass` 写的是 cynx 的 3000 端口（线上已手工改对，**别照模板部署**）
+- 🔴 隐式耦合点：`regdata.ts` 被**扫码主链路 + 产品建档 + 外部核验**三处共用；`risk-alert.ts`、`source-fetch.ts` 同理
+- 权限 5 类守卫在 68 端点上的分布；两套会话不可互换
+- **已知未修缺陷 C7（点分内网 IP 被放行）/ E4（`x-forwarded-host` 绕过 Origin）**
+- 4 个「有后端没前端」的端点 · `backup/download` 疑死链 · 10 个写端点无审计
+- 🔴 **做过又被用户撤销的「扫码结果页折叠」**及其 diff 备份位置（`logs/_reverted-1c8ea0c.diff`）
+- 回归脚本的两条过期点（M7 的 3 条 FAIL 是过期断言；`seed-abnormal-demo --verify` 必须带 `--verify-base http://localhost:3100`）
