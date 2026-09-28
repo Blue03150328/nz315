@@ -1,9 +1,10 @@
 import type { SourceDeclaration } from '../../shared/types/source-snapshot'
 
+// 🔴 2026-09-28.5：在 .4 基础上补充属性字段、相邻内联节点与数字脚本值兜底，覆盖更多外站 HTML 模板。
 // 🔴 2026-09-27.4：兜底③「标签与值分行」从纯文本放开到含标签路径（修「td 内包 div 致标签与值
 // 被拆两行、整页字段全丢」的盲区，实例 cx.jilinhengda.com）；并新增只作展示的 commodityName。
 // 改了解析口径就必须升版 —— 快照缓存键含本版本号，不升版会复用旧结果（见 39 号）。
-export const SOURCE_PARSER_VERSION = '2026-09-27.4'
+export const SOURCE_PARSER_VERSION = '2026-09-28.5'
 export function sourceText(html: string): string {
   const input = String(html || '')
   // 🔴 换行处理分两种输入，绝不能一刀切压平（2026-09-24 合并后实测踩到，属真回归）：
@@ -80,7 +81,11 @@ function cleanLooseValue(raw: unknown): string | undefined {
   return value
 }
 
-/** 脚本 / JSON 键值对提取：外部平台常把产品数据放在页面脚本里（如 goodsName:"xxx"），页面上看不到。 */
+/**
+ * 从脚本 / JSON 及带字段属性的 HTML 节点提取字段。
+ * 外部平台经常把正文放在 `data-field` / `data-name` 节点或脚本对象里，
+ * 这类值不会出现在普通标签和值的相邻文本结构中，因此单独做一层兜底。
+ */
 export function extractScriptKeys(html: string): Partial<Record<LooseField, string>> {
   const out: Partial<Record<LooseField, string>> = {}
   const index = new Map<string, LooseField>()
@@ -90,12 +95,60 @@ export function extractScriptKeys(html: string): Partial<Record<LooseField, stri
       if (!index.has(k)) index.set(k, group.field)
     }
   }
-  const keyRe = /["']?([A-Za-z_][A-Za-z0-9_]{1,40})["']?\s*[:=]\s*["']([^"'\n]{1,80})["']/g
+  const keyRe = /["']?([A-Za-z_][A-Za-z0-9_]{1,40})["']?\s*[:=]\s*(?:["']([^"'\n]{1,80})["']|([0-9]{1,20}(?:\.[0-9]+)?))/g
   for (const m of html.matchAll(keyRe)) {
     const field = index.get(normalizeLabel(m[1] || ''))
     if (!field || out[field] !== undefined) continue
-    const value = cleanLooseValue(m[2])
+    const value = cleanLooseValue(m[2] ?? m[3])
     if (value) out[field] = value
+  }
+  return out
+}
+
+/** 提取 data-field/name/id/class 等属性标记的节点文字，兼容无表格语义的前端模板。 */
+export function extractAttributeFields(html: string): Partial<Record<LooseField, string>> {
+  const out: Partial<Record<LooseField, string>> = {}
+  const index = new Map<string, LooseField>()
+  for (const group of FIELD_ALIASES) {
+    for (const label of [...group.labels, ...group.keys]) index.set(normalizeLabel(label), group.field)
+  }
+  const elementRe = /<([a-z][a-z0-9]*)\b([^>]*)>([\s\S]{0,800}?)<\/\1>/gi
+  const attrRe = /(?:data-field|data-name|data-key|name|id|class)\s*=\s*["']([^"']+)["']/i
+  for (const match of html.matchAll(elementRe)) {
+    const attr = match[2]!.match(attrRe)?.[1]
+    const field = attr
+      ? attr.split(/[\s,;]+/).map(value => index.get(normalizeLabel(value))).find(Boolean)
+      : undefined
+    if (!field || out[field] !== undefined) continue
+    const value = cleanLooseValue(sourceText(match[3]!).replace(/\s+/g, ' '))
+    if (value && !index.has(normalizeLabel(value))) out[field] = value
+  }
+  return out
+}
+
+/** 兼容 label/value 两个内联节点相邻、去标签后没有分隔符的页面。 */
+export function extractConcatenatedFields(text: string): Partial<Record<LooseField, string>> {
+  const out: Partial<Record<LooseField, string>> = {}
+  const labels = FIELD_ALIASES.flatMap(group => group.labels.map(label => ({ label, field: group.field })))
+    .sort((a, b) => b.label.length - a.label.length)
+  for (const item of labels) {
+    if (out[item.field] !== undefined) continue
+    let at = text.indexOf(item.label)
+    if (at < 0) continue
+    // 同义词有前缀关系（如「产品名」与「产品名称」），短标签不能截走长标签的最后一个字。
+    if (labels.some(other => {
+      if (other.label.length <= item.label.length) return false
+      const start = at - (other.label.length - item.label.length)
+      return start >= 0 && text.slice(start, at + item.label.length) === other.label
+    })) continue
+    const start = at + item.label.length
+    let end = text.length
+    for (const next of labels) {
+      const pos = text.indexOf(next.label, start)
+      if (pos >= 0 && pos < end) end = pos
+    }
+    const value = cleanLooseValue(text.slice(start, end).replace(/^[\s:：|\-—]+/, ''))
+    if (value && value.length >= 2 && normalizeLabel(value) !== normalizeLabel(item.label)) out[item.field] = value
   }
   return out
 }
@@ -167,10 +220,12 @@ export function parseSourceDocument(html: string, sourceUrl: string, code: strin
     }
   }
   // 兜底层②：脚本 / JSON 键值对（数据只存在于页面脚本、可见文本里没有时）
+  const attributeFields = extractAttributeFields(html)
+  const concatenatedFields = extractConcatenatedFields(text)
   const scriptKeys = extractScriptKeys(html)
   // 三层取值：精确标签 → 同义词别名 → 脚本键；任一层拿到即止。精确层命中时结果与合并前完全一致。
   const pick = (field: LooseField, ...labels: string[]): string | undefined =>
-    get(...labels) ?? looseField(field) ?? scriptKeys[field]
+    get(...labels) ?? looseField(field) ?? concatenatedFields[field] ?? attributeFields[field] ?? scriptKeys[field]
   const source: SourceDeclaration = {
     sourceUrl, platform: new URL(sourceUrl).hostname, code,
     pageCode: get('单元识别码', '单元识别代码', '追溯码'),
