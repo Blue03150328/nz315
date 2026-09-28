@@ -62,3 +62,14 @@ public/tools/app-data/
 
 # Added by code-review-graph
 .code-review-graph/
+# PPT 生成产物（slidep 流程，2026-09-28 起）
+# ---------------------------------------------------------------
+# 只排除「体积大 / 可再生」的那几类。注意 `.ppt-build-<日期>/` 下的
+# `build-deck.mjs` 与 `finalize.mjs` 是这套 PPT 的**源码**（文案与版式全在里面），
+# **刻意不排除** —— 否则谁清一次目录就再也重建不出来。
+# 2026-09-28 实测：该目录曾长到 425MB / 12,134 文件（大头是 py-runtime）。
+.ppt-build-*/py-runtime/
+.ppt-build-*/slide-*.png
+.ppt-build-*/*.inspect.ndjson
+.ppt-build-*/*-draft.pptx
+.slidep/
