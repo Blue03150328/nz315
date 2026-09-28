@@ -63,6 +63,8 @@
 - 🔴 Git Bash coreutils 全瘫 ⇒ node 绝对路径 + `fs.writeFileSync` 落盘再 Read；PowerShell stdout 常被吞。临时脚本放 `~/.workbuddy/binaries/node/workspace`。`node --experimental-strip-types` 可 import 项目 `.ts`。
 - 🔴 **本机 `npm run build` 跑不了**（shim 里 `/usr/bin/env: 'bash': No such file or directory`）⇒ 绕开 npm 脚本，直接 **`node node_modules/nuxt/bin/nuxt.mjs build`**（实测 exit 0 / 约 1 分 10 秒）。打包自验脚本范例：`~/.workbuddy/binaries/node/workspace/_verify-pkg.mjs`、`_cmp-pkg.mjs`（**包对包逐文件比内容**，判「包只变了哪几个文件」的正确口径）、`_scan-output.mjs`（产物级正/反向 grep）。
 - 项目内**文档是纯 CRLF**（`AGENTS.md`/`PROJECT_LOG.md`/`docs/handover/*.md`），而 `.workbuddy/memory/*.md` 是 **LF**；要给 CRLF 文档做多行插入，**别用 Edit**（多行匹配会失手）⇒ 用 node 脚本 `split('\r\n')` 后 splice 再 join 写回。
+- 🔴 **用 node 批量改文档：`String.replace(old, new)` 的 `new` 里若含 `$'` / `` $` `` / `$&` / `$1`，会被当「替换模式」展开**（2026-09-28 实测：`new` 里的 `v=${v%$'\r'}` 触发了 `$'` ⇒ **把文档后半段整段注入**，同一片段出现两次，脚本随即报「命中 2 次」）⇒ **一律用函数式替换 `s.replace(old, () => new)`**（或 `s.split(old).join(new)`）。
+- 🔴 **多行补丁别手搓 `old`/`new` 字符串**，写成「`@@@OLD@@@` / `@@@NEW@@@` / `@@@END@@@` 分隔的补丁表文件」+ 驱动脚本（先 `\r\n→\n` 归一、全部改完再转回 CRLF 写盘），**每条断言全文恰好命中 1 次**，某条命中 0 或 >1 就**整体中止、不写盘**（2026-09-28 一次跑 9 条，这个断言当场挡下了 2 次错误修改）。
 
 ## 待办（易漂移，用前现测）
 1. 🔴 `external_source_snapshot` 存储放大修复（匿名可写 + 失败也落 1MB）—— 建议优先。
