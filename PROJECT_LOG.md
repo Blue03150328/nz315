@@ -1,4 +1,19 @@
 ## 变更记录
+### 2026-09-28 | feat：记账表单「补充信息」选项全部收进下拉框（+ 修「自定义输入看不见」）
+- **用户指令**：「我要把这个页面的选项全部做成箭头下拉框选择，而不是直接写在页面上供选择，还有购买渠道的自定义，选择后并不能自己输入」。
+- **改动（单文件 `app/components/BillFormModal.vue`，+122 −36）**：
+  - 原先平铺在页面上的快捷芯片 —— 单位 7 个、用途 6 个、作物 6 个 —— **全部删掉，收进带箭头的下拉框**（原生 `<select>`，与原来的购买渠道下拉同款：自带箭头、手机上唤起系统选择器）。
+  - 四个「可预设 + 可自由输入」字段（单位 / 购买渠道 / 用途 / 作物）**统一成同一套交互**：`picker[key] = { preset, custom }` 两半状态 + `PRESET_CUSTOM` 哨兵；下拉选「自定义…」→ 该字段下方出现输入框。抽出 `fillPicker()`（已存值 → 下拉选中项/自定义输入两半）与 `pickValue()`（提交时取值），**四个字段共用**，杜绝各写一套。
+  - 🔴 **`fillPicker()` 是编辑态的数据安全线**：老账里 `unit='毫升'`（不在预设清单内）若不回填，用户一进编辑就看到空下拉，一保存就把原值抹成空（PATCH 语义下 `unit` 出现过即被覆盖）⇒ 非预设值一律落回「自定义…」+ 输入框原样回填。
+  - 新增 `onPresetChange()`：下拉切到「自定义…」时 `nextTick` 后把焦点送进刚出现的输入框（只在**用户手动切换**时触发，回填老账不打扰，否则一开弹窗页面就被滚走）。
+  - **用户裁定**：单位/作物**保留自由输入**（下拉 + 自定义）；用途**也允许手输**。用途手输后服务端仍按 `normalizeBillCategory()` 关键词归入六类、无法归类的落「其他」，故在用途的自定义输入框下写明这行提示。
+- **★ 用户报的「购买渠道选了自定义却不能输入」—— 对照实验证伪了「代码 bug」**：把 `BillFormModal.vue` 临时还原到 HEAD 版本（`git show HEAD:app/components/BillFormModal.vue` 写回工作区，新版备份在 `C:/shots/_BillFormModal.new.vue`），用 CDP **真鼠标点击 + 真键盘输入**复测旧代码 ⇒ 输入框**能出现 / 能聚焦 / `customChannel` 拿到 `'乡镇代购点'`**，逻辑本身是通的。⇒ 真因是那个输入框只是静默出现在下拉下方、落在弹窗滚动区里不显眼处，用户以为没得填；**对症修复 = 自动聚焦**（手机顺势滚入视口并弹键盘）。
+- **验证（真浏览器 CDP，非合成事件）**：4 个下拉就位、**平铺芯片 0 个**；逐个切「自定义…」→ 焦点自动进入对应输入框 **4/4 通过**；真鼠标点击渠道输入框 → `document.activeElement` 命中 → `Input.insertText` 真键盘输入 → `input.value` 与组件 `setupState.picker.channel.custom` **均为「乡镇代购点」**（证明 v-model 真的把值写进了会被提交的状态）；预设项回显正常。截图 `C:/shots/bill-form-1-collapsed.png` · `-2-custom-filled.png` · `-3-preset.png`。
+- **影响面**：**零 DDL / 零新依赖 / 零接口改动 / 零 `.env`**（服务端 `bill-input.ts`、`shared/utils/bill-category.ts` 一字未动，仅新增对 `BILL_LIMITS` 的引用）。
+- **修改文件**：`app/components/BillFormModal.vue` · `PROJECT_LOG.md` · `AGENTS.md` · `.workbuddy/memory/*`。临时验证页 `app/pages/devcheck/bill-form.vue` 与本机验证脚本只在本机存在过，**验证完即删，未入库**。
+- **上线状态**：**未打包、未推送、未部署**；线上现役指纹仍应为 `1790496675391`（下轮上线前先现量）。
+- **给下一个 Agent 的提示**：遇到「点了没反应 / 某个控件用不了」类反馈，**先做「回退版本对照复跑」再下结论** —— 本轮据此避免了一次方向完全错误的排查（原本会去找并不存在的 v-model / 组件 bug）。
+
 ### 2026-09-28 | chore：推送 `ycdb` 到远端（+ 修本机跟踪引用不落盘的老毛病）
 - **用户指令**：「先PUSH到远程GIT」。
 - **结果**：`git push origin ycdb` 成功 —— 第一次回显 `6afeee6..a74ae7c  ycdb -> ycdb`，`git ls-remote` 复核远端 = `a74ae7c`；随后**把「本次推送」这件事记录下来的那个提交 `5e2229a` 也已一并推送**。🔴 **最终判据一律以 `git ls-remote origin refs/heads/ycdb` == 本地 HEAD 为准，不写死终端 SHA**（否则「记录推送」这个动作本身就又把 SHA 推进一格，永远差一个）。本轮共推 **15 个提交**（`git rev-list --count 6afeee6..a74ae7c` = 15，从线 B 之后的 `74c9dd7` 一路到 `a74ae7c`）。

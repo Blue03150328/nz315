@@ -9,7 +9,7 @@
 //   显式锁定 + 显式还原入口，行为可预测。
 //
 // 扫码预填：调用方把 `initial` 传进来即自动带入产品名/类别/追溯码，用户只需补数量单价（也可全跳过）。
-import { BILL_CATEGORIES, BILL_CHANNELS, BILL_CROPS, BILL_UNITS } from '#shared/utils/bill-category'
+import { BILL_CATEGORIES, BILL_CHANNELS, BILL_CROPS, BILL_LIMITS, BILL_UNITS } from '#shared/utils/bill-category'
 
 /** 记账记录形状（仅供本组件内的 props 声明使用，不做跨文件导出：
  *  `<script setup>` 里的 ES 导出有编译约束，而这里没有第二个使用者） */
@@ -45,9 +45,65 @@ const toast = useToast()
 const busy = ref(false)
 /** 总额是否被用户手工改过（true 时不再自动联动） */
 const totalLocked = ref(false)
-const channelPreset = ref('')
-const customChannel = ref('')
 const isEdit = computed(() => !!props.initial?.id)
+
+/** 四个「下拉 + 自定义」字段共用的哨兵值：选中它就展开输入框，由用户自己写 */
+const PRESET_CUSTOM = '__custom__'
+
+/** 下拉框统一样式。用原生 `select` 而非组件库下拉 —— 它自带箭头、在手机上唤起系统选择器，
+ *  且与改造前的购买渠道下拉完全同款（用户要求"全部做成箭头下拉框"，视觉必须一致） */
+const SELECT_CLASS =
+  'mt-1 block h-10 w-full rounded-lg border border-border bg-elevated px-3 text-sm text-default outline-none focus:border-primary'
+
+/** 「下拉选中项 + 自定义输入」拆成两半存：
+ *  `preset` 为空串 = 不填；`preset === PRESET_CUSTOM` = 取 `custom` 的值；否则取预设项本身。 */
+type PickKey = 'unit' | 'crop' | 'category' | 'channel'
+const picker = reactive<Record<PickKey, { preset: string; custom: string }>>({
+  unit: { preset: '', custom: '' },
+  crop: { preset: '', custom: '' },
+  category: { preset: '', custom: '' },
+  channel: { preset: '', custom: '' },
+})
+
+/** 把已存值拆成「下拉选中项 + 自定义输入」两半：命中预设项就选中它，否则落到「自定义」并回填输入框。
+ *  🔴 这条是编辑态的数据安全线：老账里「单位=毫升」不在预设清单内，若不回填，用户一进编辑就
+ *  看到空下拉 —— 一保存就把原值抹成空（PATCH 语义下 unit 出现过即会被覆盖）。 */
+const fillPicker = (key: PickKey, value: unknown, options: readonly string[]) => {
+  const v = String(value ?? '').trim()
+  if (!v) {
+    picker[key].preset = ''
+    picker[key].custom = ''
+  } else if (options.includes(v)) {
+    picker[key].preset = v
+    picker[key].custom = ''
+  } else {
+    picker[key].preset = PRESET_CUSTOM
+    picker[key].custom = v
+  }
+}
+
+/** 取最终提交值：选的是「自定义」就取输入框内容，否则取下拉选中项 */
+const pickValue = (key: PickKey) => {
+  const p = picker[key]
+  return (p.preset === PRESET_CUSTOM ? p.custom : p.preset).trim()
+}
+
+/** 四个自定义输入框的组件实例（用普通对象存即可，不需要响应式） */
+const customEls: Record<PickKey, any> = { unit: null, crop: null, category: null, channel: null }
+
+/** 下拉切到「自定义…」时，把焦点主动送进刚出现的输入框。
+ *  🔴 这不是锦上添花 —— 用户实测反馈过「选了自定义却不能自己输入」，但对照实验证明逻辑本身是通的：
+ *  真到了手机上，输入框虽然渲染了，却落在弹窗滚动区里不显眼的位置，用户以为没得填就走了。
+ *  主动聚焦会顺势把它滚进可视区（手机还会直接弹出键盘），把「能填」变成「一眼就能填」。
+ *  只在**用户手动切换下拉**时触发；回填老账（编辑态）不打扰，否则一开弹窗页面就被滚走。 */
+const onPresetChange = (key: PickKey) => {
+  if (picker[key].preset !== PRESET_CUSTOM) return
+  nextTick(() => {
+    const root = customEls[key] && (customEls[key].$el || customEls[key])
+    const input = root && (root.tagName === 'INPUT' ? root : (root.querySelector ? root.querySelector('input') : null))
+    if (input && typeof input.focus === 'function') input.focus()
+  })
+}
 
 /** 本地当天（YYYY-MM-DD）。不用 toISOString —— 那是 UTC，北京时间凌晨会差一天 */
 const localToday = () => {
@@ -103,9 +159,12 @@ watch(() => props.open, (v) => {
   form.unitPrice = s(it.unitPrice)
   form.totalAmount = s(it.totalAmount)
   form.channel = it.channel || ''
-  channelPreset.value = BILL_CHANNELS.includes(form.channel as any) ? form.channel : (form.channel ? '__custom__' : '')
-  customChannel.value = channelPreset.value === '__custom__' ? form.channel : ''
   form.remark = it.remark || ''
+  // 四个下拉各自拆「预设 / 自定义」——非预设的历史值一律落回自定义输入框，绝不静默丢失
+  fillPicker('unit', form.unit, BILL_UNITS)
+  fillPicker('crop', form.crop, BILL_CROPS)
+  fillPicker('category', form.category, BILL_CATEGORIES)
+  fillPicker('channel', form.channel, BILL_CHANNELS)
   totalLocked.value = false
   busy.value = false
 })
@@ -125,13 +184,13 @@ const submit = async () => {
       billDate: form.billDate,
       productName: form.productName.trim(),
       dosage: form.dosage.trim(),
-      category: form.category,
-      crop: form.crop.trim(),
+      category: pickValue('category'),
+      crop: pickValue('crop'),
       quantity: form.quantity === '' ? null : Number(form.quantity),
-      unit: form.unit.trim(),
+      unit: pickValue('unit'),
       unitPrice: form.unitPrice === '' ? null : Number(form.unitPrice),
       totalAmount: form.totalAmount === '' ? 0 : Number(form.totalAmount),
-      channel: (channelPreset.value === '__custom__' ? customChannel.value : channelPreset.value).trim(),
+      channel: pickValue('channel'),
       remark: form.remark.trim(),
     }
     // 追溯码只在**新建**时提交：编辑不该改掉这条账的来源
@@ -213,8 +272,8 @@ const submit = async () => {
           <details :open="isEdit">
             <summary class="cursor-pointer text-sm font-medium text-primary">补充信息（选填）</summary>
             <div class="mt-3 space-y-3 rounded-xl border border-border bg-muted/20 p-3">
-          <!-- 数量 + 单位 -->
-          <div class="grid grid-cols-2 gap-3">
+          <!-- 数量 + 单位（单位原有的一排快捷芯片已收进下拉，「自定义…」仍可自由输入） -->
+          <div class="grid grid-cols-2 items-start gap-3">
             <div>
               <label class="text-xs text-muted">数量</label>
               <UInput
@@ -229,21 +288,20 @@ const submit = async () => {
             </div>
             <div>
               <label class="text-xs text-muted">单位</label>
-              <UInput v-model="form.unit" class="w-full" :maxlength="10" placeholder="瓶 / 袋 / 千克…" />
+              <select v-model="picker.unit.preset" :class="SELECT_CLASS" @change="onPresetChange('unit')">
+                <option value="">不填</option>
+                <option v-for="u in BILL_UNITS" :key="u" :value="u">{{ u }}</option>
+                <option :value="PRESET_CUSTOM">自定义…</option>
+              </select>
+              <UInput
+                v-if="picker.unit.preset === PRESET_CUSTOM"
+                :ref="(el: any) => (customEls.unit = el)"
+                v-model="picker.unit.custom"
+                class="mt-2 w-full"
+                :maxlength="BILL_LIMITS.unitMax"
+                placeholder="填写单位，如 毫升"
+              />
             </div>
-          </div>
-          <!-- 单位快捷填入（用户裁定单位可自由输入，这里只是省打字） -->
-          <div class="flex flex-wrap gap-1.5">
-            <button
-              v-for="u in BILL_UNITS"
-              :key="u"
-              type="button"
-              class="rounded-full border px-2.5 py-0.5 text-xs transition-colors"
-              :class="form.unit === u ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted hover:text-default'"
-              @click="form.unit = u"
-            >
-              {{ u }}
-            </button>
           </div>
 
           <!-- 单价 -->
@@ -260,30 +318,58 @@ const submit = async () => {
             />
           </div>
 
-          <!-- 渠道 + 备注 -->
           <div>
             <label class="text-xs text-muted">购买渠道</label>
-            <select v-model="channelPreset" class="mt-1 block h-10 w-full rounded-lg border border-border bg-elevated px-3 text-sm text-default outline-none focus:border-primary">
+            <select v-model="picker.channel.preset" :class="SELECT_CLASS" @change="onPresetChange('channel')">
               <option value="">请选择（选填）</option>
               <option v-for="channel in BILL_CHANNELS" :key="channel" :value="channel">{{ channel }}</option>
-              <option value="__custom__">自定义</option>
+              <option :value="PRESET_CUSTOM">自定义…</option>
             </select>
-            <UInput v-if="channelPreset === '__custom__'" v-model="customChannel" class="mt-2 w-full" :maxlength="50" placeholder="填写购买渠道" />
+            <UInput
+              v-if="picker.channel.preset === PRESET_CUSTOM"
+              :ref="(el: any) => (customEls.channel = el)"
+              v-model="picker.channel.custom"
+              class="mt-2 w-full"
+              :maxlength="BILL_LIMITS.channelMax"
+              placeholder="填写购买渠道，如 乡镇代购点"
+            />
           </div>
 
           <div>
             <label class="text-xs text-muted">用途</label>
-            <div class="mt-2 flex flex-wrap gap-1.5">
-              <button v-for="item in BILL_CATEGORIES" :key="item" type="button" class="rounded-full border px-2.5 py-1 text-xs" :class="form.category === item ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted'" @click="form.category = item">{{ item }}</button>
-            </div>
+            <select v-model="picker.category.preset" :class="SELECT_CLASS" @change="onPresetChange('category')">
+              <option value="">不填（统计记为「其他」）</option>
+              <option v-for="item in BILL_CATEGORIES" :key="item" :value="item">{{ item }}</option>
+              <option :value="PRESET_CUSTOM">自定义…</option>
+            </select>
+            <UInput
+              v-if="picker.category.preset === PRESET_CUSTOM"
+              :ref="(el: any) => (customEls.category = el)"
+              v-model="picker.category.custom"
+              class="mt-2 w-full"
+              :maxlength="20"
+              placeholder="填写用途，如 生长调节剂"
+            />
+            <p v-if="picker.category.preset === PRESET_CUSTOM" class="mt-1 text-xs text-muted">
+              统计时会按关键词自动归入上面六类，无法归类的一律记为「其他」。
+            </p>
           </div>
 
           <div>
             <label class="text-xs text-muted">作物</label>
-            <UInput v-model="form.crop" class="w-full" :maxlength="50" placeholder="也可以直接填写其他作物" />
-            <div class="mt-2 flex flex-wrap gap-1.5">
-              <button v-for="crop in BILL_CROPS" :key="crop" type="button" class="rounded-full border border-border px-2.5 py-1 text-xs text-muted" @click="form.crop = crop">{{ crop }}</button>
-            </div>
+            <select v-model="picker.crop.preset" :class="SELECT_CLASS" @change="onPresetChange('crop')">
+              <option value="">不填</option>
+              <option v-for="crop in BILL_CROPS" :key="crop" :value="crop">{{ crop }}</option>
+              <option :value="PRESET_CUSTOM">自定义…</option>
+            </select>
+            <UInput
+              v-if="picker.crop.preset === PRESET_CUSTOM"
+              :ref="(el: any) => (customEls.crop = el)"
+              v-model="picker.crop.custom"
+              class="mt-2 w-full"
+              :maxlength="BILL_LIMITS.cropMax"
+              placeholder="填写其他作物"
+            />
           </div>
 
           <div>

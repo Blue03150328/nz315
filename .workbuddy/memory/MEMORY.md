@@ -28,6 +28,7 @@
 - 同一文件多次 Edit **绝不并行**；`node --check` 不查未声明引用；Vue/SPA 修复必须真浏览器验证。
 - 失败命令的 fallback 输出**绝不当证据**；上限/截断/唯一性怀疑必须用真实数据算边界；**「已修」≠「已上线」**。
 - 判重构等价必须**全表穷举集合比较**（`logs/_equivalence-proof.mjs`）；「回归全绿」证明不了在跑新代码 ⇒ 金丝雀+换码。
+- 用户报「**点了没反应 / 某个控件用不了**」⇒ **先把代码回退到上一版对照复跑，再下结论**（2026-09-28 实测证伪：「购买渠道自定义不能输入」旧代码逻辑本就通、`v-model` 拿到了值，真因是输入框落在弹窗滚动区不显眼 ⇒ 对症 = 选完自动 `focus()`）。对照骨架 `~/.workbuddy/binaries/node/workspace/_verify-bill-selects.mjs`（真鼠标 + 真键盘 + 回读 `setupState`）。
 
 ## 外码解析
 - **只有一套实现**（`0598e2d`）：`source-parser.ts`（`sourceText`/`parseSourceDocument`/`SOURCE_PARSER_VERSION`）+`source-compare.ts`（4 态含 `review`）+落表 `external_source_snapshot`；`verifyExternalCode`（6 项判定+预警 3/5/6/7）与 `fetchWla1`（`productionType` 唯一来源）别动。
