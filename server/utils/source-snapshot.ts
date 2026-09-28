@@ -15,6 +15,10 @@ const ISSUES: { test: RegExp; issue: SourceIssue; message: string }[] = [
   { test: /繁忙/, issue: 'busy', message: '当前查询的人较多，请稍后再试' },
   { test: /未提取到产品信息|由脚本加载/, issue: 'empty-shell', message: '这个来源页面要靠浏览器才能显示内容，本平台读不到里面的资料' },
   { test: /单元识别码与本次查询不一致/, issue: 'code-mismatch', message: '来源页面显示的码与您查询的码不一致，请核对包装上的二维码' },
+  // 2026-09-28 新增：来源平台**明确答复「没有这个码」**（适配器第三态，仅登记过的空壳站会走到）。
+  // 与 empty-shell 分开：empty-shell 是「我们没读懂」，这条是「对方说没有」——把这两种说法混为一谈，
+  // 消费者会照着错误指引去折腾浏览器。
+  { test: /来源平台查无此码/, issue: 'source-not-found', message: '这个来源平台查不到该码，请核对包装上的二维码是否与本次扫描的一致' },
 ]
 
 /** 登记资料参考行的完整列（比对需要 `ingredients`，而共用原语的 SELECT 里没有它） */
@@ -75,6 +79,9 @@ async function collect(key: string, sourceUrl: string, code: string): Promise<So
     // ① 宿主专用适配器先行：登记在案的空壳站（通用解析必然读不到值）走它自己的结构化接口；
     //    未登记宿主返回 null ⇒ 与从前完全一致，走「抓页面 + 通用解析」。
     const adapted = await adaptSourceDocument(sourceUrl, code)
+    // 适配器第三态：对方平台**明确答复「查无此码」** ⇒ 直接出正确文案，不再退回通用抓取
+    // （退回会撞上空壳页，把对方的答复误说成「页面要靠浏览器才能显示内容」）。
+    if (adapted && 'notFound' in adapted) throw new Error('来源平台查无此码')
     let source: SourceDeclaration
     if (adapted) {
       source = adapted.source

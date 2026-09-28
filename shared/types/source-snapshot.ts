@@ -57,7 +57,9 @@ export interface SourceSnapshot {
  * - blocked-address：网址不可访问（SSRF 拦截、非 http(s)、跳转过多）
  * - empty-shell：抓到了页面但读不到内容（JS 空壳）
  * - code-mismatch：来源页声明的码与本次查询不一致
+ * - source-not-found：**来源平台明确答复「没有这个码」**（2026-09-28 新增；
+ *   只有登记过的空壳站适配器能给出这个结论，与 empty-shell 的「我们没读懂」是两回事）
  * - busy：并发闸门满
  * - unreachable：其余（超时、非 200、非网页、超大小等）
  */
-export type SourceIssue = 'blocked-address' | 'empty-shell' | 'code-mismatch' | 'busy' | 'unreachable'
+export type SourceIssue = 'blocked-address' | 'empty-shell' | 'code-mismatch' | 'source-not-found' | 'busy' | 'unreachable'

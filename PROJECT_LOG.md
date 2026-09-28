@@ -1,4 +1,37 @@
 ## 变更记录
+### 2026-09-28 | feat：接入 zp.hyny168.cn / www.sdakzw.com 外站适配器 · 并回退一个会读坏既有站点的解析改动
+- **用户指令**：「查看更改，完成另一个 AGENT 未完成的任务」（附上一轮对话记录）。
+- **上一轮的结论是反的（本轮定因）**：上一轮认定这两站「服务端返回完整 HTML，只需补字段别名」——实抓推翻：
+  `http://zp.hyny168.cn/ny?c=<码>` 只有 **12,107 B**（Vue 空壳 + 「正在加载系统资源，请耐心等待」），
+  `http://www.sdakzw.com/nyzs/<码>` 只有 **1,661 B**（Vue3 + Element Plus 空壳 + `/frontassets/js/index-*.js`）。
+  浏览器里「看得见内容」是因为**浏览器替它们执行了 JS 并调了接口**。⇒ 标签根本不在抓下来的 HTML 里，
+  **补多少别名都不可能有用**，只能按它们自己调的接口接入。
+- **真接口（照抄对方前端源码，不猜）**：hyny168 → `GET {页 origin}/prod-api/trace/{码}`（其 axios 实例
+  `baseURL='/prod-api'`、`/ny` 页调 `getTrace2()`）；sdakzw → `GET http://api.sdakzw.com/api/nongYaoItem/zhuisu/{码}`
+  （其 `/config.js` 的 `VITE_API_URL`）。字段名逐条抄自 hyny168 页面 chunk 的 `fieldMap` 与 sdakzw 结果页的渲染绑定。
+- **顺手回退 `f820bcd`（`62561ef`）**：那次「通用 HTML 解析兜底」只在合成 HTML 上过了单测。本轮补做
+  **`.4` vs `.5` 六个真实页面逐字段对照**，发现**两处读坏**：① `ddspp.cn` 的 `batchNo` 由「无」变成
+  「见瓶盖或瓶体，袋装请见喷码」——把「生产日期及批号」的说明文字当成了**批次**，等于凭空声明一个批次；
+  ② `nyzs315.com` 空壳页被读出 `productName="商标名称："`、`holderName="识别代码：/追溯网址：/农药类别："`
+  这类标签残渣 ⇒ 空壳判据不再触发，消费者会看到**编造出来的字段**。逐层归因定位到 `extractConcatenatedFields`
+  （`extractAttributeFields` 在样本页面零命中），**无一个站点因此多读到正确内容** ⇒ 整体回退，解析器版本回到 `2026-09-27.4`。
+- **新增「第三态」**：适配器可返回 `{ notFound: true }`，`SourceIssue` 多一档 `source-not-found` ⇒ 对方明确答复
+  「查无此码」时给正确文案，不再退回通用抓取撞空壳页、把对方的答复说成「页面要靠浏览器才能显示内容」
+  （实测 `app/` 下零引用 `issue`、只显示 `message` ⇒ 本次改动**后端闭合**，不动前端）。
+- **验收（4 组全绿）**：① `node --test tests/source-adapters.test.mjs` **6/6**；② `NZ315_LIVE_ADAPTERS=1`
+  真接口 **9/9**；③ HTTP 全链路 `/api/trace?source=…`：hyny168 真码 → `resultType=external-reg` ·
+  `status=ok` · **比对 18 项（16 match + 2 review）**，合规六项全取到、原药两组准确配对；
+  sdakzw 未知码 → `issue=source-not-found` + 正确文案；④ 既有回归 **13/13**、`tsc --noEmit` 仅剩既有 `bill-input.ts(85,5)`。
+- **代价（必须知情）**：每次调用都会在**对方系统写入一条扫码记录**（hyny168 实测带回 `scanNum`/`firstScanTime` 且
+  对方写出了 `scanLogId`，不存在的码同样写）。与 nyzs315 同族，靠 10 分钟缓存 + 白名单缓解；
+  删 `source-adapters/index.ts` 里一行登记即可整体下线。
+- **遗留**：sdakzw 的 `result` 字段路径取自其前端源码，**尚未用该站真码回放**（手头没有 sdakzw 的真码）
+  ⇒ 拿到真码后第一件事就是补端到端验收。
+- **修改文件**：`server/utils/source-adapters/{hyny168,sdakzw,index}.ts` · `server/utils/source-snapshot.ts` ·
+  `shared/types/source-snapshot.ts` · `tests/source-adapters.test.mjs` · `tests/_ts-loader.mjs` ·
+  `tests/fixtures/{hyny168-trace.json,shell-hyny168.html,shell-sdakzw.html}` · `docs/handover/42-…md`。
+  **零 DDL · 零依赖 · 零删除 · 零 `.env` · 零 nginx · 解析器版本号未变。**
+
 ### 2026-09-28 | fix(docs)：41 号执行单去掉「嵌套引号 + 半截粘贴」隐患（首次实战即踩中）
 - **触发**：用户在服务器上照 41 号单跑 §0.4（外码 fix 前对照）时贴回的输出暴露了四个症状：`grep -c "亨达美田")` → `bash: syntax error near unexpected token ')'`；`Q: command not found`（连带若干条）；`$CNT0` 为空 ⇒ 打印成 `打之后快照表行数 = （期望 = + 1）`；最后一条命令引号没闭合，**提示符卡在 `>` 续行**。
 - **定因（三条，全是「粘贴姿势」，不是环境故障）**：① **只粘了代码块的后半段** ⇒ §0.4 开头的 `while … export` + `M=` + `Q() {}` 三行没进去，`Q` 这个 **shell 函数**自然不存在（`Q()` 只活在当前终端窗口，换窗口 / 重连 / 关掉面板终端再开也会没）；② 原命令把 `grep -c` 的结果写在 `$(echo "$PAGE" | …)` 里、外面再套一层双引号 —— **语法合法，但被截断必炸**（`$(` 与 `)` 不配对 ⇒ 报 `unexpected token ')'`）；③ 引号未闭合 ⇒ bash 进续行模式，**此后粘的一切都被吞进那个没写完的字符串**（所以越粘越乱）。
