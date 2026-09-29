@@ -240,7 +240,7 @@ const submit = async () => {
               step="0.01"
               min="0"
               class="mt-2 w-full"
-              :ui="{ base: 'text-2xl font-bold text-error' }"
+              :ui="{ base: 'text-2xl font-bold text-default' }"
               placeholder="先填这笔花了多少钱"
               @update:model-value="totalLocked = true"
             />

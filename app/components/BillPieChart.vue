@@ -95,7 +95,7 @@ const fmt = (n: number) => (Math.round(n * 100) / 100).toFixed(2)
       >
         <span class="h-2.5 w-2.5 shrink-0 rounded-full" :style="{ background: s.color }" />
         <span class="flex-1 truncate text-default">{{ s.label }}</span>
-        <span class="shrink-0 font-medium text-error">¥{{ fmt(s.amount) }}</span>
+        <span class="shrink-0 font-medium text-default">¥{{ fmt(s.amount) }}</span>
         <span class="w-12 shrink-0 text-right text-xs text-muted">{{ s.percent }}%</span>
       </div>
       <div v-if="!segments.length" class="text-xs text-muted">暂无花费记录</div>

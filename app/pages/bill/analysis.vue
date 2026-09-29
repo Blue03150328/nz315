@@ -83,7 +83,7 @@ useHead({ title: '成本分析 - 农资315' })
             <span class="text-sm text-muted">{{ data?.label || '—' }}</span>
             <span class="text-xs text-muted">覆盖作物 {{ data?.cropCount || 0 }} 种</span>
           </div>
-          <div class="mt-1 text-3xl font-bold text-error">¥{{ fmtMoney(data?.total) }}</div>
+          <div class="mt-1 text-3xl font-bold text-default">¥{{ fmtMoney(data?.total) }}</div>
           <div class="mt-0.5 text-xs text-muted">共 {{ (data?.byCategory || []).reduce((s: number, c: any) => s + (c.count || 0), 0) }} 笔花费</div>
         </div>
 
@@ -115,7 +115,7 @@ useHead({ title: '成本分析 - 农资315' })
             <div v-for="c in data.byCrop" :key="c.crop" class="space-y-1">
               <div class="flex items-center justify-between text-sm">
                 <span class="truncate text-default">{{ c.crop }}</span>
-                <span class="shrink-0 font-medium text-error">¥{{ fmtMoney(c.amount) }}</span>
+                <span class="shrink-0 font-medium text-default">¥{{ fmtMoney(c.amount) }}</span>
               </div>
               <div class="h-2 overflow-hidden rounded-full bg-muted">
                 <div class="h-full rounded-full bg-primary" :style="{ width: cropPct(c.amount) + '%' }" />

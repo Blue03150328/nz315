@@ -12,7 +12,7 @@
 // 🔴 三个口径必须与后端一致（`server/api/bill.get.ts`）：
 //   ① 用药 = 总 − 用肥（后端算好），**不要在前端再各算一遍**，否则两边浮点误差会让
 //      「用药 + 用肥 ≠ 总花费」，卡片自己跟自己打架。
-//   ② 金额一律 `text-error`（红）—— 用户明确要求"金额红色醒目显示"。
+//   ② 金额使用正文色，避免账本信息长期大面积使用警示红。
 //   ③ 覆盖作物已排除空值，直接展示 `cropCount`。
 //
 // 登录态：与 `profile.vue` 同口径（微信网页授权，服务端读请求头 + 客户端读 navigator，
@@ -144,21 +144,21 @@ useHead({ title: '我的账本 - 农资315' })
             <span class="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary"><UIcon name="i-lucide-spray-can" class="h-4 w-4" /></span>
             <span class="text-xs">用药花费</span>
           </div>
-          <div class="mt-1 text-xl font-bold text-error">¥{{ fmtMoney(data?.totals?.pesticide) }}</div>
+          <div class="mt-1 text-xl font-bold text-default">¥{{ fmtMoney(data?.totals?.pesticide) }}</div>
         </div>
         <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
           <div class="flex items-center gap-2 text-muted">
             <span class="flex h-8 w-8 items-center justify-center rounded-full bg-brown/10 text-brown"><UIcon name="i-lucide-leaf" class="h-4 w-4" /></span>
             <span class="text-xs">用肥花费</span>
           </div>
-          <div class="mt-1 text-xl font-bold text-error">¥{{ fmtMoney(data?.totals?.fertilizer) }}</div>
+          <div class="mt-1 text-xl font-bold text-default">¥{{ fmtMoney(data?.totals?.fertilizer) }}</div>
         </div>
         <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
           <div class="flex items-center gap-2 text-muted">
             <span class="flex h-8 w-8 items-center justify-center rounded-full bg-error/10 text-error"><UIcon name="i-lucide-wallet" class="h-4 w-4" /></span>
             <span class="text-xs">总花费</span>
           </div>
-          <div class="mt-1 text-xl font-bold text-error">¥{{ fmtMoney(data?.totals?.total) }}</div>
+          <div class="mt-1 text-xl font-bold text-default">¥{{ fmtMoney(data?.totals?.total) }}</div>
         </div>
         <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
           <div class="flex items-center gap-2 text-muted">
@@ -223,7 +223,7 @@ useHead({ title: '我的账本 - 农资315' })
               </div>
 
               <div class="shrink-0 text-right">
-                <div class="text-base font-bold text-error">¥{{ fmtMoney(r.totalAmount) }}</div>
+                <div class="text-base font-bold text-default">¥{{ fmtMoney(r.totalAmount) }}</div>
                 <div class="mt-1 flex justify-end gap-0.5">
                   <UButton size="xs" variant="ghost" color="neutral" icon="i-lucide-pencil" aria-label="编辑" @click="openEdit(r)" />
                   <UButton size="xs" variant="ghost" color="error" icon="i-lucide-trash-2" aria-label="删除" @click="askDelete(r)" />
@@ -235,14 +235,14 @@ useHead({ title: '我的账本 - 农资315' })
           <!-- 组尾：月小计 -->
           <div class="flex items-center justify-between border-t border-border/60 bg-muted/30 px-4 py-2.5">
             <span class="text-xs text-muted">{{ g.label }}小计</span>
-            <span class="text-sm font-semibold text-error">¥{{ fmtMoney(g.subtotal) }}</span>
+            <span class="text-sm font-semibold text-default">¥{{ fmtMoney(g.subtotal) }}</span>
           </div>
         </div>
 
         <!-- 全年总计 -->
         <div class="flex items-center justify-between rounded-2xl border border-primary/30 bg-primary/5 px-4 py-3.5">
           <span class="text-sm font-semibold text-default">{{ data.year }} 年总计</span>
-          <span class="text-xl font-bold text-error">¥{{ fmtMoney(data.grandTotal) }}</span>
+          <span class="text-xl font-bold text-default">¥{{ fmtMoney(data.grandTotal) }}</span>
         </div>
       </div>
 
@@ -265,7 +265,7 @@ useHead({ title: '我的账本 - 农资315' })
           <h3 class="text-base font-semibold text-default">删除这条记账？</h3>
           <p class="mt-2 text-sm text-muted">
             {{ delTarget?.productName }}
-            <span class="font-medium text-error">¥{{ fmtMoney(delTarget?.totalAmount) }}</span>
+            <span class="font-medium text-default">¥{{ fmtMoney(delTarget?.totalAmount) }}</span>
           </p>
           <p class="mt-1 text-xs text-muted">删除后不可恢复。</p>
           <div class="mt-5 flex justify-end gap-2">
