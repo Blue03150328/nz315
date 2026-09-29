@@ -8,7 +8,8 @@
 //   不做"最后一个编辑的字段锁定"，是因为那样用户改完总额再改单价会得到反直觉的结果；
 //   显式锁定 + 显式还原入口，行为可预测。
 //
-// 扫码预填：调用方把 `initial` 传进来即自动带入产品名/类别/追溯码，用户只需补数量单价（也可全跳过）。
+// 扫码预填：调用方把 `initial` 传进来即自动带入产品名/类别/追溯码，用户只需补金额；
+// 数量、单价、作物等补充信息保存后仍可继续完善。
 import { BILL_CATEGORIES, BILL_CHANNELS, BILL_CROPS, BILL_LIMITS, BILL_UNITS } from '#shared/utils/bill-category'
 
 /** 记账记录形状（仅供本组件内的 props 声明使用，不做跨文件导出：
@@ -174,6 +175,11 @@ const submit = async () => {
     toast.add({ title: '请填写产品名称', color: 'warning' })
     return
   }
+  const amount = Number(form.totalAmount)
+  if (form.totalAmount.trim() === '' || !Number.isFinite(amount) || amount < 0) {
+    toast.add({ title: '请填写有效的总金额', color: 'warning' })
+    return
+  }
   if (!form.billDate) {
     toast.add({ title: '请选择记账日期', color: 'warning' })
     return
@@ -189,7 +195,7 @@ const submit = async () => {
       quantity: form.quantity === '' ? null : Number(form.quantity),
       unit: pickValue('unit'),
       unitPrice: form.unitPrice === '' ? null : Number(form.unitPrice),
-      totalAmount: form.totalAmount === '' ? 0 : Number(form.totalAmount),
+      totalAmount: amount,
       channel: pickValue('channel'),
       remark: form.remark.trim(),
     }
@@ -201,7 +207,17 @@ const submit = async () => {
     } else {
       await $fetch('/api/bill', { method: 'POST', body: payload })
     }
-    toast.add({ title: isEdit.value ? '修改已保存' : '已记入账本', color: 'success' })
+    const missing = [
+      form.quantity === '' ? '数量' : '',
+      form.unitPrice === '' ? '单价' : '',
+      !pickValue('crop') ? '作物' : '',
+      !pickValue('channel') ? '购买渠道' : '',
+    ].filter(Boolean)
+    toast.add({
+      title: isEdit.value ? '修改已保存' : '已记入账本',
+      description: missing.length ? '还可补充：' + missing.join('、') : undefined,
+      color: 'success',
+    })
     emit('update:open', false)
     emit('saved')
   } catch (e: any) {
@@ -230,7 +246,7 @@ const submit = async () => {
           <!-- 总额是记账的第一信息，浅绿色卡片让用户先完成最重要的一步。 -->
           <div class="rounded-2xl border border-success/30 bg-success/5 p-4">
             <div class="flex items-center justify-between">
-              <label class="text-sm font-semibold text-default">总金额（元）</label>
+            <label class="text-sm font-semibold text-default">总金额（元） <span class="text-error">*</span></label>
               <button v-if="totalLocked" type="button" class="text-xs text-primary" @click="resetTotal">按数量×单价重算</button>
             </div>
             <UInput
@@ -244,7 +260,7 @@ const submit = async () => {
               placeholder="先填这笔花了多少钱"
               @update:model-value="totalLocked = true"
             />
-            <p class="mt-1 text-xs text-muted">不知道总金额也可以先保存，数量和单价可稍后补充。</p>
+            <p class="mt-1 text-xs text-muted">总金额必填；数量、单价、作物等信息可以稍后补充。</p>
           </div>
 
           <div class="grid grid-cols-2 gap-3">

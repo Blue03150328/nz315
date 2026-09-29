@@ -28,10 +28,24 @@ const loggedIn = computed(() => !!meData.value?.loggedIn)
 const wechatConfigured = computed(() => !!meData.value?.wechatConfigured)
 
 const year = ref(new Date().getFullYear())
+const filterDraft = reactive({ keyword: '', from: '', to: '', crop: '', channel: '' })
+const filters = reactive({ keyword: '', from: '', to: '', crop: '', channel: '' })
+const hasFilters = computed(() => Object.values(filters).some(Boolean))
+const applyFilters = () => {
+  if (filterDraft.from && filterDraft.to && filterDraft.from > filterDraft.to) {
+    toast.add({ title: '开始日期不能晚于结束日期', color: 'warning' })
+    return
+  }
+  Object.assign(filters, filterDraft)
+}
+const resetFilters = () => {
+  Object.keys(filterDraft).forEach((key) => { filterDraft[key as keyof typeof filterDraft] = '' })
+  Object.assign(filters, filterDraft)
+}
 // meData 已 await ⇒ 登录态在 setup 阶段已知，登录时立即请求（SSR 首屏直接带数据）
 const { data, pending, refresh } = await useFetch<any>('/api/bill', {
   key: 'bill',
-  query: computed(() => ({ year: year.value })),
+  query: computed(() => ({ year: year.value, ...filters })),
   immediate: loggedIn.value,
 })
 watch(loggedIn, (v) => { if (v) refresh() })
@@ -183,6 +197,23 @@ useHead({ title: '我的账本 - 农资315' })
         </button>
       </div>
 
+      <!-- 搜索与筛选：默认按当前年份查询，日期范围用于缩小当前年份内的记录。 -->
+      <form class="rounded-2xl border border-border bg-elevated p-4 shadow-sm" @submit.prevent="applyFilters">
+        <div class="flex items-center justify-between gap-3">
+          <div class="text-sm font-semibold text-default">查找账单</div>
+          <button v-if="hasFilters" type="button" class="text-xs text-primary" @click="resetFilters">清除筛选</button>
+        </div>
+        <div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
+          <UInput v-model="filterDraft.keyword" class="lg:col-span-2" placeholder="搜索产品名称" icon="i-lucide-search" />
+          <UInput v-model="filterDraft.from" type="date" aria-label="开始日期" />
+          <UInput v-model="filterDraft.to" type="date" aria-label="结束日期" />
+          <UInput v-model="filterDraft.crop" placeholder="作物（可输入）" />
+          <UInput v-model="filterDraft.channel" placeholder="购买渠道（可输入）" />
+          <UButton type="submit" class="sm:col-span-2 lg:col-span-1" icon="i-lucide-search">查询</UButton>
+        </div>
+        <p v-if="hasFilters && data" class="mt-2 text-xs text-muted">当前筛选到 {{ data.count || 0 }} 笔记录</p>
+      </form>
+
       <!-- 数据被截断的提示（统计数字仍是全年完整值 —— 后端统计走独立聚合） -->
       <div v-if="data?.truncated" class="flex items-start gap-2 rounded-xl bg-warning-soft px-4 py-3 text-xs">
         <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
@@ -249,9 +280,10 @@ useHead({ title: '我的账本 - 农资315' })
       <!-- 空态 -->
       <div v-else-if="!pending" class="rounded-2xl border border-border bg-elevated px-4 py-12 text-center shadow-sm">
         <UIcon name="i-lucide-receipt" class="mx-auto h-10 w-10 text-muted/50" />
-        <p class="mt-2 text-sm text-muted">{{ data?.year }} 年还没有记账</p>
-        <p class="mt-1 text-xs text-muted/80">扫农药瓶身二维码后可一键记一笔，也可以手动添加</p>
-        <UButton class="mt-4" icon="i-lucide-plus" @click="openCreate">手动记一笔</UButton>
+        <p class="mt-2 text-sm text-muted">{{ hasFilters ? '没有符合条件的记账记录' : data?.year + ' 年还没有记账' }}</p>
+        <p class="mt-1 text-xs text-muted/80">{{ hasFilters ? '可以调整筛选条件，或清除筛选查看全部记录' : '扫农药瓶身二维码后可一键记一笔，也可以手动添加' }}</p>
+        <UButton v-if="!hasFilters" class="mt-4" icon="i-lucide-plus" @click="openCreate">手动记一笔</UButton>
+        <UButton v-else class="mt-4" variant="outline" color="neutral" @click="resetFilters">清除筛选</UButton>
       </div>
     </template>
 

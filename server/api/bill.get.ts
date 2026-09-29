@@ -1,4 +1,5 @@
-// GET /api/bill?year=2026 —— 账本（档案页）取数：顶部三档统计 + 按月分组 + 年度总计
+// GET /api/bill?year=2026&keyword=水稻&from=2026-01-01&to=2026-12-31&crop=水稻&channel=农资店
+// —— 账本（档案页）取数：顶部三档统计 + 按月分组 + 年度总计
 //
 // 设计要点（详见 docs/handover/29 号 §2）：
 //   1. **一次给全**：农户一年的账单量级是几十到几百条（私人小数据，不是平台的亿级表），
@@ -28,6 +29,40 @@ export default defineEventHandler(async (event) => {
   const yearRaw = Number(q.year)
   const year = Number.isInteger(yearRaw) && yearRaw >= 2000 && yearRaw <= thisYear ? yearRaw : thisYear
 
+  // 筛选值全部走参数绑定；日期格式不合法时忽略，避免坏 query 让账本白屏。
+  const keyword = String(q.keyword || '').trim().slice(0, 100)
+  const crop = String(q.crop || '').trim().slice(0, 50)
+  const channel = String(q.channel || '').trim().slice(0, 50)
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/
+  const from = String(q.from || '').trim()
+  const to = String(q.to || '').trim()
+  const validFrom = dateRe.test(from) ? from : ''
+  const validTo = dateRe.test(to) ? to : ''
+
+  const filterSql = ['YEAR(bill_date) = ?']
+  const filterParams: any[] = [year]
+  if (keyword) {
+    filterSql.push('product_name LIKE ?')
+    filterParams.push('%' + keyword + '%')
+  }
+  if (validFrom) {
+    filterSql.push('bill_date >= ?')
+    filterParams.push(validFrom)
+  }
+  if (validTo) {
+    filterSql.push('bill_date <= ?')
+    filterParams.push(validTo)
+  }
+  if (crop) {
+    filterSql.push('crop LIKE ?')
+    filterParams.push('%' + crop + '%')
+  }
+  if (channel) {
+    filterSql.push('channel LIKE ?')
+    filterParams.push('%' + channel + '%')
+  }
+  const whereSql = 'consumer_id = ? AND ' + filterSql.join(' AND ')
+
   // 有记账记录的年份（供前端年份切换；量级极小，直接全取）
   const yearRows = await query<any[]>(
     'SELECT DISTINCT YEAR(bill_date) AS y FROM farm_bill WHERE consumer_id = ? ORDER BY y DESC',
@@ -42,10 +77,10 @@ export default defineEventHandler(async (event) => {
     `SELECT id, bill_date, product_name, dosage, category, crop, quantity, unit, unit_price,
             total_amount, channel, remark, code, source
        FROM farm_bill
-      WHERE consumer_id = ? AND YEAR(bill_date) = ?
+       WHERE ${whereSql}
       ORDER BY bill_date DESC, id DESC
       LIMIT ?`,
-    [consumer.id, year, BILL_LIMITS.yearRowLimit],
+    [consumer.id, ...filterParams, BILL_LIMITS.yearRowLimit],
   )
 
   // 统计（独立聚合，不受上面 LIMIT 影响）
@@ -56,8 +91,8 @@ export default defineEventHandler(async (event) => {
        COALESCE(SUM(CASE WHEN category = '肥料' THEN total_amount ELSE 0 END), 0) AS fertilizer_amount,
        COUNT(DISTINCT CASE WHEN crop IS NOT NULL AND crop <> '' THEN crop END) AS crop_count
      FROM farm_bill
-     WHERE consumer_id = ? AND YEAR(bill_date) = ?`,
-    [consumer.id, year],
+     WHERE ${whereSql}`,
+    [consumer.id, ...filterParams],
   )
 
   const total = round2(num(agg?.total_amount))
@@ -103,5 +138,6 @@ export default defineEventHandler(async (event) => {
     grandTotal: total, // 全年总计（= totals.total，单列出来是为了前端语义清晰）
     count: num(agg?.cnt),
     truncated: num(agg?.cnt) > rows.length,
+    filters: { keyword, from: validFrom, to: validTo, crop, channel },
   }
 })

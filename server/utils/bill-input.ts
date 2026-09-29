@@ -8,8 +8,8 @@
 //   1. **category 落库恒为 6 类白名单之一**（空 → `其他`）—— 库里不存 NULL。
 //      理由：饼图要固定分区，且「用药 + 用肥 = 总花费」的恒等式要求每行都有明确的类别归属。
 //      （用户"类别可空"的诉求由前端「不选」→ 落 `其他` 满足，用户无需感知。）
-//   2. **totalAmount 优先采信前端**：用户明确要求可以「调整总金额」⇒ 允许总额 ≠ 数量×单价
-//      （抹零、折扣、只记得总价都属正常）。仅在总额缺失时才用「数量×单价」兜底推算。
+//   2. **totalAmount 必须由前端明确提供**：用户明确要求可以「调整总金额」⇒ 允许总额 ≠ 数量×单价
+//      （抹零、折扣都属正常）。金额不再用「数量×单价」静默兜底，避免把未完成的账记成 0 元。
 //   3. **code 非 32 位数字时静默存 null**，不 400 —— 扫码来源只是附注，
 //      不该因为一个脏码把整条账单打回（用户白填一次的成本远高于丢掉一个来源标记）。
 import { BILL_LIMITS, normalizeBillCategory, isValidBillDate } from '#shared/utils/bill-category'
@@ -103,18 +103,10 @@ export function parseBillBody(body: any, todayRaw: string, partial = false): Bil
   if (want('quantity')) out.quantity = numOf(body.quantity, '数量', BILL_LIMITS.quantityMax)
   if (want('unitPrice')) out.unitPrice = numOf(body.unitPrice, '单价', BILL_LIMITS.amountMax)
 
-  // ---- 总额：优先采信前端（允许用户手工调整），缺失时才兜底推算 ----
+  // ---- 总额：必须明确填写（允许用户手工调整，不要求等于数量×单价） ----
   if (want('totalAmount')) {
-    const provided = numOf(body.totalAmount, '总额', BILL_LIMITS.amountMax)
-    const q = out.quantity !== undefined ? out.quantity : numOf(body.quantity, '数量', BILL_LIMITS.quantityMax)
-    const p = out.unitPrice !== undefined ? out.unitPrice : numOf(body.unitPrice, '单价', BILL_LIMITS.amountMax)
-    if (provided !== null) {
-      out.totalAmount = Math.round(provided * 100) / 100
-    } else if (q !== null && p !== null) {
-      out.totalAmount = Math.round(q * p * 100) / 100
-    } else {
-      out.totalAmount = 0
-    }
+    const provided = numOf(body.totalAmount, '总额', BILL_LIMITS.amountMax, false)
+    out.totalAmount = Math.round((provided as number) * 100) / 100
   }
 
   // ---- 来源追溯码：非 32 位数字则丢弃（不阻断整条账单） ----
