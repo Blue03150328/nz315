@@ -7,6 +7,7 @@ import { adaptSourceDocument } from './source-adapters'
 import { findRegistryRowsByUnitCode } from './registry-lookup'
 import { capRawDocument, FAILURE_CACHE_MINUTES, SUCCESS_CACHE_MINUTES } from './source-raw-cap'
 import { parseUnitCode } from '#shared/utils/unit-code'
+import { extractSourceByVision } from './source-vision'
 import type { SourceDeclaration, SourceIssue, SourceSnapshot } from '../../shared/types/source-snapshot'
 
 // 外页取数失败时，消费者看到的是人话，技术原文另存 `detail`（仅供后台排查）。
@@ -97,6 +98,11 @@ async function collect(key: string, sourceUrl: string, code: string): Promise<So
       const fetched = await fetchSourceDocument(sourceUrl)
       document = fetched.body
       source = parseSourceDocument(document, fetched.url, code)
+      // 普通解析读不到动态页面时，尝试浏览器截图 + 视觉模型；失败则继续走原有错误提示。
+      if (!source.productName && !source.commodityName && !source.registrationNo && !source.originals.length) {
+        const vision = await extractSourceByVision(fetched.url, code)
+        if (vision) { source = vision.source; document = vision.document }
+      }
     }
     if (source.originals.length > 50) throw new Error('来源原药记录过多，需人工核实')
     // 短链接必须从页面明确的码字段识别；不从任意长数字猜测码值。
