@@ -327,13 +327,14 @@ const DDL = [
     bill_date DATE NOT NULL COMMENT '记账日期（用药/购药日，默认当天可改；按月分组依据）',
     product_name VARCHAR(255) NOT NULL COMMENT '产品名称（快照；扫码带入或手填）',
     dosage VARCHAR(50) NULL COMMENT '剂型（扫码带入或手填）',
-    category VARCHAR(20) NULL COMMENT '类别：杀虫/杀菌/除草/杀螨/肥料/其他（白名单，可空）',
+    category VARCHAR(20) NULL COMMENT '类别：杀虫/杀菌/除草/杀螨/肥料/其他支出（白名单，可空）',
     crop VARCHAR(50) NULL COMMENT '作物（自由输入，可空；统计覆盖作物时排除空值）',
     quantity DECIMAL(12,3) NULL COMMENT '数量（可空，允许跳过补录）',
     unit VARCHAR(10) NULL COMMENT '数量单位：瓶/袋/包/桶/千克/升/亩（可空）',
     unit_price DECIMAL(12,2) NULL COMMENT '单价（可空）',
-    total_amount DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '总额＝数量×单价，也允许直接改总价',
+    total_amount DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '总额（必填；可直接填写或参考数量×单价）',
     channel VARCHAR(50) NULL COMMENT '购买渠道（自由输入，可空）',
+    store_name VARCHAR(100) NULL COMMENT '具体购买门店（可空）',
     remark VARCHAR(500) NULL COMMENT '备注',
     code VARCHAR(32) NULL COMMENT '来源追溯码（扫码记账写入；手动记账为空。不做外键：码可能非本平台签发）',
     source TINYINT NOT NULL DEFAULT 2 COMMENT '1扫码记账 2手动记账',
@@ -378,6 +379,10 @@ async function migrate(conn) {
   if (!(await hasColumn('farm_bill', 'dosage'))) {
     await conn.query("ALTER TABLE farm_bill ADD COLUMN dosage VARCHAR(50) NULL COMMENT '剂型（扫码带入或手填）' AFTER product_name");
     console.log('[db] 迁移：farm_bill 补充列 dosage');
+  }
+  if (!(await hasColumn('farm_bill', 'store_name'))) {
+    await conn.query("ALTER TABLE farm_bill ADD COLUMN store_name VARCHAR(100) NULL COMMENT '具体购买门店（可空）' AFTER channel");
+    console.log('[db] 迁移：farm_bill 补充列 store_name');
   }
   if (!(await hasIndex('scan_log', 'idx_consumer_time'))) {
     await conn.query('ALTER TABLE scan_log ADD KEY idx_consumer_time (consumer_id, scan_time)');

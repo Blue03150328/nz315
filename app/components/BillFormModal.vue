@@ -26,6 +26,7 @@ interface BillFormRecord {
   unitPrice?: number | null
   totalAmount?: number | null
   channel?: string | null
+  storeName?: string | null
   remark?: string | null
   /** 来源追溯码：仅新建时提交（编辑不改来源） */
   code?: string | null
@@ -124,6 +125,7 @@ const form = reactive({
   unitPrice: '',
   totalAmount: '',
   channel: '',
+  storeName: '',
   remark: '',
 })
 
@@ -160,6 +162,7 @@ watch(() => props.open, (v) => {
   form.unitPrice = s(it.unitPrice)
   form.totalAmount = s(it.totalAmount)
   form.channel = it.channel || ''
+  form.storeName = it.storeName || ''
   form.remark = it.remark || ''
   // 四个下拉各自拆「预设 / 自定义」——非预设的历史值一律落回自定义输入框，绝不静默丢失
   fillPicker('unit', form.unit, BILL_UNITS)
@@ -197,6 +200,7 @@ const submit = async () => {
       unitPrice: form.unitPrice === '' ? null : Number(form.unitPrice),
       totalAmount: amount,
       channel: pickValue('channel'),
+      storeName: pickValue('channel') === '农资店' ? form.storeName.trim() : '',
       remark: form.remark.trim(),
     }
     // 追溯码只在**新建**时提交：编辑不该改掉这条账的来源
@@ -221,6 +225,25 @@ const submit = async () => {
     emit('update:open', false)
     emit('saved')
   } catch (e: any) {
+    if (!isEdit.value && (e?.statusCode === 409 || e?.data?.statusCode === 409) && import.meta.client) {
+      const ok = window.confirm('发现相同日期、产品和金额的记账，可能是重复提交。仍要保存吗？')
+      if (ok) {
+        try {
+          const payload: Record<string, any> = {
+            billDate: form.billDate, productName: form.productName.trim(), dosage: form.dosage.trim(),
+            category: pickValue('category'), crop: pickValue('crop'), quantity: form.quantity === '' ? null : Number(form.quantity),
+            unit: pickValue('unit'), unitPrice: form.unitPrice === '' ? null : Number(form.unitPrice), totalAmount: amount,
+            channel: pickValue('channel'), storeName: pickValue('channel') === '农资店' ? form.storeName.trim() : '', remark: form.remark.trim(), confirmDuplicate: true,
+          }
+          if (props.initial?.code) payload.code = props.initial.code
+          await $fetch('/api/bill', { method: 'POST', body: payload })
+          toast.add({ title: '已记入账本', color: 'success' })
+          emit('update:open', false); emit('saved')
+        } catch (retry: any) { toast.add({ title: retry?.data?.statusMessage || '保存失败，请稍后再试', color: 'error' }) }
+        finally { busy.value = false }
+      } else { busy.value = false }
+      return
+    }
     // 服务端的中文 statusMessage 直接透出（如"记账过于频繁""记账日期不合法"），比笼统报错有用
     toast.add({ title: e?.data?.statusMessage || '保存失败，请稍后再试', color: 'error' })
   } finally {
@@ -238,7 +261,7 @@ const submit = async () => {
         <div class="shrink-0 border-b border-border px-5 py-4">
           <h3 class="text-base font-semibold text-default">{{ isEdit ? '编辑记账' : '记一笔' }}</h3>
           <p class="mt-1 text-xs text-muted">
-            {{ isEdit ? '修改后立即生效' : '只填产品名称也能存下来，数量单价可以以后再补' }}
+            {{ isEdit ? '修改后立即生效' : '总金额必填，数量、单价等信息可以以后再补' }}
           </p>
         </div>
 
@@ -349,12 +372,19 @@ const submit = async () => {
               :maxlength="BILL_LIMITS.channelMax"
               placeholder="填写购买渠道，如 乡镇代购点"
             />
+            <UInput
+              v-if="pickValue('channel') === '农资店'"
+              v-model="form.storeName"
+              class="mt-2 w-full"
+              maxlength="100"
+              placeholder="具体门店（选填，如 XX 农资店）"
+            />
           </div>
 
           <div>
             <label class="text-xs text-muted">用途</label>
             <select v-model="picker.category.preset" :class="SELECT_CLASS" @change="onPresetChange('category')">
-              <option value="">不填（统计记为「其他」）</option>
+              <option value="">不填（统计记为「其他支出」）</option>
               <option v-for="item in BILL_CATEGORIES" :key="item" :value="item">{{ item }}</option>
               <option :value="PRESET_CUSTOM">自定义…</option>
             </select>
@@ -367,7 +397,7 @@ const submit = async () => {
               placeholder="填写用途，如 生长调节剂"
             />
             <p v-if="picker.category.preset === PRESET_CUSTOM" class="mt-1 text-xs text-muted">
-              统计时会按关键词自动归入上面六类，无法归类的一律记为「其他」。
+              统计时会按关键词自动归类，无法归类的一律记为「其他支出」。
             </p>
           </div>
 

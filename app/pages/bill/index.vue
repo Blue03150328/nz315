@@ -112,7 +112,7 @@ useHead({ title: '我的账本 - 农资315' })
     <div class="flex flex-wrap items-end justify-between gap-3">
       <div>
         <h1 class="text-3xl font-bold text-default">我的账本</h1>
-        <p class="mt-1 text-sm text-muted">记录每一笔用药用肥花费</p>
+        <p class="mt-1 text-sm text-muted">记录每一笔农资花费，总金额必填，其余信息可稍后补充</p>
       </div>
       <div v-if="loggedIn" class="flex items-center gap-2">
         <UButton to="/bill/analysis" variant="outline" color="neutral" size="sm" icon="i-lucide-chart-column">
@@ -151,8 +151,8 @@ useHead({ title: '我的账本 - 农资315' })
 
     <!-- ============ 已登录 ============ -->
     <template v-else>
-      <!-- 顶部 4 张成本卡 -->
-      <div class="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <!-- 顶部成本卡：用药 / 用肥 / 其他支出 / 总花费 / 覆盖作物 -->
+      <div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
           <div class="flex items-center gap-2 text-muted">
             <span class="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary"><UIcon name="i-lucide-spray-can" class="h-4 w-4" /></span>
@@ -166,6 +166,10 @@ useHead({ title: '我的账本 - 农资315' })
             <span class="text-xs">用肥花费</span>
           </div>
           <div class="mt-1 text-xl font-bold text-default">¥{{ fmtMoney(data?.totals?.fertilizer) }}</div>
+        </div>
+        <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
+          <div class="flex items-center gap-2 text-muted"><span class="flex h-8 w-8 items-center justify-center rounded-full bg-warning/10 text-warning"><UIcon name="i-lucide-circle-help" class="h-4 w-4" /></span><span class="text-xs">其他支出</span></div>
+          <div class="mt-1 text-xl font-bold text-default">¥{{ fmtMoney(data?.totals?.other) }}</div>
         </div>
         <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
           <div class="flex items-center gap-2 text-muted">
@@ -241,8 +245,8 @@ useHead({ title: '我的账本 - 农资315' })
                   <span v-if="r.dosage" class="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">{{ r.dosage }}</span>
                   <span v-if="Number(r.source) === 1" class="shrink-0 rounded-full bg-info/10 px-2 py-0.5 text-xs font-medium text-info">扫码</span>
                 </div>
-                <div v-if="r.category || r.crop || r.channel" class="mt-0.5 truncate text-xs text-muted">
-                  {{ [r.category ? '用途：' + r.category : null, r.crop ? '作物：' + r.crop : null, r.channel].filter(Boolean).join(' · ') }}
+                <div v-if="r.category || r.crop || r.channel || r.storeName" class="mt-0.5 truncate text-xs text-muted">
+                  {{ [r.category ? '用途：' + r.category : null, r.crop ? '作物：' + r.crop : null, r.channel, r.storeName ? '门店：' + r.storeName : null].filter(Boolean).join(' · ') }}
                 </div>
                 <div class="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted">
                   <span>{{ r.billDate }}</span>

@@ -9,11 +9,11 @@
 //
 // 数据来源差异（这是映射存在的理由）：
 //   - `pesticide_reg.category` / `product.category` 存的是**登记资料库原文**：杀虫剂 / 杀菌剂 / 除草剂 / 杀螨剂 / 肥料…
-//   - 记账的统计口径只有 6 类：杀虫 / 杀菌 / 除草 / 杀螨 / 肥料 / 其他
+//   - 记账的统计口径只有 6 类：杀虫 / 杀菌 / 除草 / 杀螨 / 肥料 / 其他支出
 //   ⇒ 必须归一化，否则统计维度永远对不齐。
 
 /** 记账类别白名单（统计饼图的固定分区，顺序即展示顺序） */
-export const BILL_CATEGORIES = ['杀虫', '杀菌', '除草', '杀螨', '肥料', '其他'] as const
+export const BILL_CATEGORIES = ['杀虫', '杀菌', '除草', '杀螨', '肥料', '其他支出'] as const
 
 export type BillCategory = (typeof BILL_CATEGORIES)[number]
 
@@ -29,23 +29,22 @@ const RULES: { re: RegExp; to: BillCategory }[] = [
 ]
 
 /** 归一化类别：登记库原文/自由文本 → 6 类白名单之一。
- *  **不匹配时返回 `其他`**（不返回 null）——用户手输的内容不该被拒，
- *  但也不能任其污染统计维度；`其他` 在 `BILL_CATEGORIES` 里是合法分区。 */
+ *  **不匹配时返回 `其他支出`**（不返回 null）——用户手输的内容不该被拒，
+ *  但也不能任其污染统计维度。历史值「其他」也归入这里。 */
 export function normalizeBillCategory(raw: unknown): BillCategory {
   const s = String(raw ?? '').trim()
-  if (!s) return '其他'
+  if (!s || s === '其他') return '其他支出'
   // 已经是白名单值：原样返回（幂等）
   if ((BILL_CATEGORIES as readonly string[]).includes(s)) return s as BillCategory
   for (const r of RULES) {
     if (r.re.test(s)) return r.to
   }
-  return '其他'
+  return '其他支出'
 }
 
 /** 「用肥花费」的口径（**不用函数表达，直接落在 SQL 里**，见 `server/api/bill.get.ts` 与
  *  `server/api/bill/analysis.get.ts` 的 `SUM(CASE WHEN category = '肥料' …)`）：
- *  仅「肥料」类算用肥，**其余全部算用药**（含「其他」与类别为空）
- *  ⇒ 保证「用药 + 用肥 === 总花费」恒成立（成本统计卡片的硬约束，被 29 号 §1.2 写死）。
+ *  「肥料」算用肥，「其他支出」单列，其余才算用药。
  *  ⚠️ 刻意**不提供** `isFertilizer()` 这类 JS 判定函数 —— 它会在服务端聚合口径（SQL）之外
  *  长出第二个真值来源，两边一漂就是统计对不上账。 */
 

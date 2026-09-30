@@ -49,6 +49,7 @@ export interface BillInput {
   unitPrice?: number | null
   totalAmount?: number
   channel?: string | null
+  storeName?: string | null
   remark?: string | null
   code?: string | null
   source?: number
@@ -96,6 +97,7 @@ export function parseBillBody(body: any, todayRaw: string, partial = false): Bil
   // ---- 作物 / 渠道 / 单位 / 备注：自由输入，可为空 ----
   if (want('crop')) out.crop = textOf(body.crop, '作物', BILL_LIMITS.cropMax)
   if (want('channel')) out.channel = textOf(body.channel, '渠道', BILL_LIMITS.channelMax)
+  if (want('storeName')) out.storeName = textOf(body.storeName, '门店名称', 100)
   if (want('unit')) out.unit = textOf(body.unit, '单位', BILL_LIMITS.unitMax)
   if (want('remark')) out.remark = textOf(body.remark, '备注', BILL_LIMITS.remarkMax)
 

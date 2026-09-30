@@ -98,12 +98,12 @@ export default defineEventHandler(async (event) => {
       GROUP BY category`,
     [consumer.id, from, toEx],
   )
-  // 先归并到白名单桶：历史脏数据（非白名单值）一律并入「其他」，杜绝饼图出现第 7 个分区
+  // 先归并到白名单桶：历史「其他」和其它脏数据并入「其他支出」，杜绝饼图出现第 7 个分区
   const catBucket = new Map<string, { amount: number; count: number }>()
   for (const r of catRows) {
     const key = (BILL_CATEGORIES as readonly string[]).includes(String(r.category))
       ? String(r.category)
-      : '其他'
+      : '其他支出'
     const cur = catBucket.get(key) || { amount: 0, count: 0 }
     cur.amount = round2(cur.amount + num(r.amount))
     cur.count += num(r.cnt)

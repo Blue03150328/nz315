@@ -23,6 +23,19 @@ export default defineEventHandler(async (event) => {
   // 校验在前（失败不消耗限流配额，见下方说明）
   const input = parseBillBody(body, today, false)
 
+  if (!body.confirmDuplicate) {
+    const [duplicate] = await query<any[]>(
+      `SELECT id, product_name, bill_date, total_amount, store_name
+         FROM farm_bill
+        WHERE consumer_id = ? AND bill_date = ? AND product_name = ? AND total_amount = ?
+        ORDER BY id DESC LIMIT 1`,
+      [consumer.id, input.billDate, input.productName, input.totalAmount],
+    )
+    if (duplicate) {
+      throw createError({ statusCode: 409, statusMessage: '发现一笔相同日期、产品和金额的记账，是否仍要保存？', data: { duplicate: true, bill: duplicate } })
+    }
+  }
+
   // 🔴 限流刻意放在**入参校验之后**（与 `feedback.post.ts` 同口径）：
   //    校验失败的请求无任何副作用（不落库、无外部调用），不该扣用户的机会；
   //    真需要保护的是下面这条写库路径。
@@ -33,8 +46,8 @@ export default defineEventHandler(async (event) => {
   const r = await execute(
     `INSERT INTO farm_bill
        (consumer_id, bill_date, product_name, dosage, category, crop, quantity, unit, unit_price,
-        total_amount, channel, remark, code, source)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       total_amount, channel, store_name, remark, code, source)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       consumer.id,
       input.billDate,
@@ -47,6 +60,7 @@ export default defineEventHandler(async (event) => {
       input.unitPrice ?? null,
       input.totalAmount ?? 0,
       input.channel ?? null,
+      input.storeName ?? null,
       input.remark ?? null,
       input.code ?? null,
       input.source === 1 ? 1 : 2,

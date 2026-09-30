@@ -75,7 +75,7 @@ export default defineEventHandler(async (event) => {
   // 列表（日期倒序；LIMIT 兜底）
   const rows = await query<any[]>(
     `SELECT id, bill_date, product_name, dosage, category, crop, quantity, unit, unit_price,
-            total_amount, channel, remark, code, source
+            total_amount, channel, store_name, remark, code, source
        FROM farm_bill
        WHERE ${whereSql}
       ORDER BY bill_date DESC, id DESC
@@ -89,6 +89,7 @@ export default defineEventHandler(async (event) => {
        COUNT(*) AS cnt,
        COALESCE(SUM(total_amount), 0) AS total_amount,
        COALESCE(SUM(CASE WHEN category = '肥料' THEN total_amount ELSE 0 END), 0) AS fertilizer_amount,
+       COALESCE(SUM(CASE WHEN category = '其他支出' OR category = '其他' THEN total_amount ELSE 0 END), 0) AS other_amount,
        COUNT(DISTINCT CASE WHEN crop IS NOT NULL AND crop <> '' THEN crop END) AS crop_count
      FROM farm_bill
      WHERE ${whereSql}`,
@@ -97,7 +98,8 @@ export default defineEventHandler(async (event) => {
 
   const total = round2(num(agg?.total_amount))
   const fertilizer = round2(num(agg?.fertilizer_amount))
-  const pesticide = round2(total - fertilizer)
+  const other = round2(num(agg?.other_amount))
+  const pesticide = round2(total - fertilizer - other)
 
   // 按月分组：rows 已是日期倒序 ⇒ Map 的插入顺序天然就是年月降序，无需再排序
   const groups: any[] = []
@@ -122,6 +124,7 @@ export default defineEventHandler(async (event) => {
       unitPrice: r.unit_price === null ? null : num(r.unit_price),
       totalAmount: round2(num(r.total_amount)),
       channel: r.channel || null,
+      storeName: r.store_name || null,
       remark: r.remark || null,
       code: r.code || null,
       source: Number(r.source) === 1 ? 1 : 2,
@@ -133,7 +136,7 @@ export default defineEventHandler(async (event) => {
   return {
     year,
     years,
-    totals: { pesticide, fertilizer, total, cropCount: num(agg?.crop_count) },
+    totals: { pesticide, fertilizer, other, total, cropCount: num(agg?.crop_count) },
     groups,
     grandTotal: total, // 全年总计（= totals.total，单列出来是为了前端语义清晰）
     count: num(agg?.cnt),

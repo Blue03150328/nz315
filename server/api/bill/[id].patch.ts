@@ -20,6 +20,7 @@ const FIELD_MAP: Record<string, string> = {
   unitPrice: 'unit_price',
   totalAmount: 'total_amount',
   channel: 'channel',
+  storeName: 'store_name',
   remark: 'remark',
   code: 'code',
   source: 'source',
