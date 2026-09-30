@@ -23,7 +23,7 @@ const pad = (n: number) => String(n).padStart(2, '0')
 /** 次月（用于把区间右端点转成"次月 1 日"），处理 12 月跨年 */
 const nextMonth = (y: number, m: number) => (m === 12 ? { y: y + 1, m: 1 } : { y, m: m + 1 })
 
-const RANGES = new Set(['month', 'quarter', 'year'])
+const RANGES = new Set(['month', 'quarter', 'year', 'recent'])
 
 export default defineEventHandler(async (event) => {
   const consumer = await requireConsumer(event)
@@ -47,7 +47,15 @@ export default defineEventHandler(async (event) => {
   let label: string
   let highlightMonths: number[]
 
-  if (range === 'month') {
+  if (range === 'recent') {
+    const endMonth = year === curYear ? curMonth : 12
+    const first = new Date(year, endMonth - 6, 1)
+    const nx = nextMonth(year, endMonth)
+    from = `${first.getFullYear()}-${pad(first.getMonth() + 1)}-01`
+    toEx = `${nx.y}-${pad(nx.m)}-01`
+    label = `${from.slice(0, 7)} 至 ${year}-${pad(endMonth)}`
+    highlightMonths = []
+  } else if (range === 'month') {
     const nx = nextMonth(year, curMonth)
     from = `${year}-${pad(curMonth)}-01`
     toEx = `${nx.y}-${pad(nx.m)}-01`
@@ -89,6 +97,22 @@ export default defineEventHandler(async (event) => {
   )
   const monthMap = new Map<number, number>(monthRows.map(r => [Number(r.m), round2(num(r.amount))]))
   const monthly = Array.from({ length: 12 }, (_, i) => ({ month: i + 1, amount: monthMap.get(i + 1) || 0 }))
+
+  // 近六个月包含跨年月份；按年月聚合，不能把上一年与本年同月混在一起。
+  let recentMonthly: { month: number; label: string; amount: number }[] = []
+  if (range === 'recent') {
+    const recentRows = await query<any[]>(
+      `SELECT DATE_FORMAT(bill_date, '%Y-%m') AS ym, COALESCE(SUM(total_amount), 0) AS amount
+         FROM farm_bill WHERE consumer_id = ? AND bill_date >= ? AND bill_date < ? GROUP BY ym`,
+      [consumer.id, from, toEx],
+    )
+    const amounts = new Map(recentRows.map(r => [String(r.ym), num(r.amount)]))
+    recentMonthly = Array.from({ length: 6 }, (_, i) => {
+      const date = new Date(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1 + i, 1)
+      const ym = `${date.getFullYear()}-${pad(date.getMonth() + 1)}`
+      return { month: date.getMonth() + 1, label: ym, amount: round2(amounts.get(ym) || 0) }
+    })
+  }
 
   // ---- ③ 类别分布（区间内；固定 6 项、按白名单顺序，含 0） ----
   const catRows = await query<any[]>(
@@ -141,6 +165,7 @@ export default defineEventHandler(async (event) => {
     total,
     cropCount: num(agg?.crop_count),
     monthly,
+    recentMonthly,
     highlightMonths,
     byCategory,
     byCrop,

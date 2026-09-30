@@ -58,7 +58,7 @@ const fmt = (n: number) => (Math.round(n * 100) / 100).toFixed(2)
 </script>
 
 <template>
-  <div class="flex items-center gap-4">
+  <div class="flex flex-col items-center gap-4 sm:flex-row">
     <svg viewBox="0 0 180 180" class="shrink-0" :style="{ width: (height || 150) + 'px', height: (height || 150) + 'px' }">
       <g transform="rotate(-90 90 90)">
         <!-- 空态底环：没有数据时也画一圈浅灰，避免一块空白 -->
@@ -87,7 +87,7 @@ const fmt = (n: number) => (Math.round(n * 100) / 100).toFixed(2)
     </svg>
 
     <!-- 图例 + 金额（比只看饼图更能读出具体数字） -->
-    <div class="min-w-0 flex-1 space-y-1.5">
+    <div class="w-full min-w-0 flex-1 space-y-1.5">
       <div
         v-for="(s, i) in segments"
         :key="s.label"

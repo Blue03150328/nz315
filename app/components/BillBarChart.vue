@@ -9,7 +9,7 @@
 //    那会让文字跟着横向拉伸变形。
 const props = defineProps<{
   /** 12 项，month 为 1..12 */
-  data: { month: number; amount: number }[]
+  data: { month: number; amount: number; label?: string }[]
   /** 需要高亮的月份（如"本季"覆盖 7/8/9 月），其余月份降淡显示 */
   highlight?: number[]
   /** 展示高度（px），宽度自适应父容器 */
@@ -36,18 +36,19 @@ const maxValue = computed(() => {
   return mag * 10
 })
 
-const slotW = W / 12
+const slotW = computed(() => W / Math.max(1, props.data.length))
 const barW = 14
 
 const bars = computed(() => {
   const hl = props.highlight || []
   const hasHl = hl.length > 0
-  return props.data.map((d) => {
+  return props.data.map((d, index) => {
     const amount = Number(d.amount) || 0
     const h = Math.max(0, (amount / maxValue.value) * PLOT_H)
-    const x = (d.month - 1) * slotW + (slotW - barW) / 2
+    const x = index * slotW.value + (slotW.value - barW) / 2
     return {
       month: d.month,
+      label: d.label || `${d.month}月`,
       amount,
       x,
       y: PAD_TOP + (PLOT_H - h),
@@ -109,7 +110,7 @@ const fmt = (n: number) => {
         text-anchor="middle"
         :fill="b.dimmed ? 'var(--ui-text-dimmed)' : 'var(--ui-text-muted)'"
       >
-        {{ b.month }}
+        {{ b.label }}
       </text>
       <!-- 原生 tooltip（零 JS） -->
       <title>{{ b.month }}月：¥{{ b.amount.toFixed(2) }}</title>

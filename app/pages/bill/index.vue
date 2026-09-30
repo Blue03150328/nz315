@@ -28,6 +28,8 @@ const loggedIn = computed(() => !!meData.value?.loggedIn)
 const wechatConfigured = computed(() => !!meData.value?.wechatConfigured)
 
 const year = ref(new Date().getFullYear())
+const queryOpen = ref(false)
+const openQuery = () => { Object.assign(filterDraft, filters); queryOpen.value = true }
 const filterDraft = reactive({ keyword: '', from: '', to: '', crop: '', channel: '' })
 const filters = reactive({ keyword: '', from: '', to: '', crop: '', channel: '' })
 const hasFilters = computed(() => Object.values(filters).some(Boolean))
@@ -37,6 +39,7 @@ const applyFilters = () => {
     return
   }
   Object.assign(filters, filterDraft)
+  queryOpen.value = false
 }
 const resetFilters = () => {
   Object.keys(filterDraft).forEach((key) => { filterDraft[key as keyof typeof filterDraft] = '' })
@@ -115,9 +118,7 @@ useHead({ title: '我的账本 - 农资315' })
         <p class="mt-1 text-sm text-muted">记录每一笔农资花费，总金额必填，其余信息可稍后补充</p>
       </div>
       <div v-if="loggedIn" class="flex items-center gap-2">
-        <UButton to="/bill/analysis" variant="outline" color="neutral" size="sm" icon="i-lucide-chart-column">
-          成本分析
-        </UButton>
+        <UButton variant="outline" color="neutral" size="sm" icon="i-lucide-search" @click="openQuery">查询</UButton>
         <UButton size="sm" icon="i-lucide-plus" @click="openCreate">记一笔</UButton>
       </div>
     </div>
@@ -151,41 +152,10 @@ useHead({ title: '我的账本 - 农资315' })
 
     <!-- ============ 已登录 ============ -->
     <template v-else>
-      <!-- 顶部成本卡：用药 / 用肥 / 其他支出 / 总花费 / 覆盖作物 -->
-      <div class="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
-          <div class="flex items-center gap-2 text-muted">
-            <span class="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary"><UIcon name="i-lucide-spray-can" class="h-4 w-4" /></span>
-            <span class="text-xs">用药花费</span>
-          </div>
-          <div class="mt-1 text-xl font-bold text-default">¥{{ fmtMoney(data?.totals?.pesticide) }}</div>
-        </div>
-        <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
-          <div class="flex items-center gap-2 text-muted">
-            <span class="flex h-8 w-8 items-center justify-center rounded-full bg-brown/10 text-brown"><UIcon name="i-lucide-leaf" class="h-4 w-4" /></span>
-            <span class="text-xs">用肥花费</span>
-          </div>
-          <div class="mt-1 text-xl font-bold text-default">¥{{ fmtMoney(data?.totals?.fertilizer) }}</div>
-        </div>
-        <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
-          <div class="flex items-center gap-2 text-muted"><span class="flex h-8 w-8 items-center justify-center rounded-full bg-warning/10 text-warning"><UIcon name="i-lucide-circle-help" class="h-4 w-4" /></span><span class="text-xs">其他支出</span></div>
-          <div class="mt-1 text-xl font-bold text-default">¥{{ fmtMoney(data?.totals?.other) }}</div>
-        </div>
-        <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
-          <div class="flex items-center gap-2 text-muted">
-            <span class="flex h-8 w-8 items-center justify-center rounded-full bg-error/10 text-error"><UIcon name="i-lucide-wallet" class="h-4 w-4" /></span>
-            <span class="text-xs">总花费</span>
-          </div>
-          <div class="mt-1 text-xl font-bold text-default">¥{{ fmtMoney(data?.totals?.total) }}</div>
-        </div>
-        <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
-          <div class="flex items-center gap-2 text-muted">
-            <span class="flex h-8 w-8 items-center justify-center rounded-full bg-success/10 text-success"><UIcon name="i-lucide-sprout" class="h-4 w-4" /></span>
-            <span class="text-xs">覆盖作物</span>
-          </div>
-          <div class="mt-1 text-xl font-bold text-default">{{ data?.totals?.cropCount || 0 }} <span class="text-sm font-normal text-muted">种</span></div>
-        </div>
-      </div>
+      <NuxtLink :to="{ path: '/bill/analysis', query: { year } }" class="flex items-center justify-between rounded-xl border border-border/60 px-4 py-3 text-sm text-default hover:bg-muted/20">
+        <span class="flex items-center gap-2"><UIcon name="i-lucide-chart-column" class="h-4 w-4 text-muted" />支出概览</span>
+        <UIcon name="i-lucide-chevron-right" class="h-4 w-4 text-muted" />
+      </NuxtLink>
 
       <!-- 年份切换（仅多年份时出现） -->
       <div v-if="years.length > 1" class="flex flex-wrap gap-1.5">
@@ -201,27 +171,15 @@ useHead({ title: '我的账本 - 农资315' })
         </button>
       </div>
 
-      <!-- 搜索与筛选：默认按当前年份查询，日期范围用于缩小当前年份内的记录。 -->
-      <form class="rounded-2xl border border-border bg-elevated p-4 shadow-sm" @submit.prevent="applyFilters">
-        <div class="flex items-center justify-between gap-3">
-          <div class="text-sm font-semibold text-default">查找账单</div>
-          <button v-if="hasFilters" type="button" class="text-xs text-primary" @click="resetFilters">清除筛选</button>
-        </div>
-        <div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
-          <UInput v-model="filterDraft.keyword" class="lg:col-span-2" placeholder="搜索产品名称" icon="i-lucide-search" />
-          <UInput v-model="filterDraft.from" type="date" aria-label="开始日期" />
-          <UInput v-model="filterDraft.to" type="date" aria-label="结束日期" />
-          <UInput v-model="filterDraft.crop" placeholder="作物（可输入）" />
-          <UInput v-model="filterDraft.channel" placeholder="购买渠道（可输入）" />
-          <UButton type="submit" class="sm:col-span-2 lg:col-span-1" icon="i-lucide-search">查询</UButton>
-        </div>
-        <p v-if="hasFilters && data" class="mt-2 text-xs text-muted">当前筛选到 {{ data.count || 0 }} 笔记录</p>
-      </form>
+      <div v-if="hasFilters" class="flex items-center justify-between text-xs text-muted">
+        <span>已筛选 · {{ data?.count || 0 }} 笔记录</span>
+        <button type="button" class="text-primary" @click="resetFilters">清除筛选</button>
+      </div>
 
       <!-- 数据被截断的提示（统计数字仍是全年完整值 —— 后端统计走独立聚合） -->
       <div v-if="data?.truncated" class="flex items-start gap-2 rounded-xl bg-warning-soft px-4 py-3 text-xs">
         <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
-        <span class="text-default">本年度账单过多，列表仅显示最近 {{ 2000 }} 条；上方统计为全年完整值。</span>
+        <span class="text-default">本年度账单过多，列表仅显示最近 {{ 2000 }} 条；总计为当前查询条件下的完整金额。</span>
       </div>
 
       <!-- 按月分组列表 -->
@@ -290,6 +248,29 @@ useHead({ title: '我的账本 - 农资315' })
         <UButton v-else class="mt-4" variant="outline" color="neutral" @click="resetFilters">清除筛选</UButton>
       </div>
     </template>
+
+    <UModal v-model:open="queryOpen" title="查询账单" description="按产品、日期、作物或购买渠道查找账单">
+      <template #content>
+        <form class="p-5" @submit.prevent="applyFilters">
+          <h3 class="text-base font-semibold">查询账单</h3>
+          <p class="mt-1 text-xs text-muted">查询范围：{{ year }} 年</p>
+          <div class="mt-4 space-y-3">
+            <label class="block text-sm">产品名称<UInput v-model="filterDraft.keyword" class="mt-1 w-full" placeholder="输入产品名称" /></label>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="block text-sm">开始日期<UInput v-model="filterDraft.from" type="date" class="mt-1 w-full" /></label>
+              <label class="block text-sm">结束日期<UInput v-model="filterDraft.to" type="date" class="mt-1 w-full" /></label>
+            </div>
+            <label class="block text-sm">作物<UInput v-model="filterDraft.crop" class="mt-1 w-full" placeholder="例如：玉米" /></label>
+            <label class="block text-sm">购买渠道<UInput v-model="filterDraft.channel" class="mt-1 w-full" placeholder="例如：农资店" /></label>
+          </div>
+          <div class="mt-5 flex justify-end gap-2">
+            <UButton type="button" variant="ghost" color="neutral" @click="Object.keys(filterDraft).forEach((key) => { filterDraft[key as keyof typeof filterDraft] = '' })">清空条件</UButton>
+            <UButton type="button" variant="outline" color="neutral" @click="queryOpen = false">取消</UButton>
+            <UButton type="submit">查询</UButton>
+          </div>
+        </form>
+      </template>
+    </UModal>
 
     <!-- 记账表单（新建 / 编辑） -->
     <BillFormModal v-model:open="formOpen" :initial="formInitial" @saved="onSaved" />
