@@ -9,12 +9,42 @@ import { register } from 'node:module'
 register('./_ts-loader.mjs', import.meta.url)
 const { mapHyny168, hyny168Adapter } = await import('../server/utils/source-adapters/hyny168.ts')
 const { mapSdakzw, sdakzwAdapter } = await import('../server/utils/source-adapters/sdakzw.ts')
+const { mapShiaj, shiajAdapter } = await import('../server/utils/source-adapters/shiaj.ts')
 const { parseSourceDocument } = await import('../server/utils/source-parser.ts')
 
 const CODE = '12308841005260627001000011857410'
 const URL_HYNY = 'http://zp.hyny168.cn/ny?c=' + CODE
 /** 真接口响应原文（2026-09-28 用真码抓取，逐字未改） */
 const live = JSON.parse(fs.readFileSync('tests/fixtures/hyny168-trace.json', 'utf8'))
+const shiajTrace = JSON.parse(fs.readFileSync('tests/fixtures/shiaj-trace.json', 'utf8'))
+const shiajCertificate = JSON.parse(fs.readFileSync('tests/fixtures/shiaj-certificate.json', 'utf8'))
+const SHIAJ_CODE = '11834462061041677232103317831161'
+const URL_SHIAJ = `https://h5.shiaj.com/t/64?p=32&c=${SHIAJ_CODE}`
+
+test('shiaj：真接口响应映射为来源声明（产品与证书字段分开）', () => {
+  const s = mapShiaj(shiajTrace.ResData, shiajCertificate.ResData, URL_SHIAJ, SHIAJ_CODE)
+  assert.ok(s, '应映射成功')
+  assert.equal(s.pageCode, SHIAJ_CODE)
+  assert.equal(s.productName, '苯醚甲环唑')
+  assert.equal(s.commodityName, '40%苯醚甲环唑悬浮剂')
+  assert.equal(s.registrationNo, 'PD20183446')
+  assert.equal(s.holderName, '上海沪联生物药业（夏邑）股份有限公司')
+  assert.equal(s.manufacturer, '安徽嘉惠化工科技有限公司')
+  assert.equal(s.formulation, '悬浮剂')
+  assert.equal(s.toxicity, '低毒')
+  assert.equal(s.content, '40%')
+  assert.equal(s.productExpiry, '2028-08-20')
+  assert.equal(s.spec, '1级 1袋(500g)')
+  assert.deepEqual(s.originals, [{ ingredient: '苯醚甲环唑', regNo: 'PD20111317', company: '利尔化学股份有限公司' }])
+  assert.ok(s.productFields.some(field => field.label === '生产许可证' && field.value === '农药生许（皖）0084'))
+  assert.ok(s.productFields.some(field => field.label === '产品标准号' && field.value === 'Q/SHHL194-2023'))
+})
+
+test('shiaj：门店编号、码格式或来源平台不匹配时不发请求', async () => {
+  assert.equal(await shiajAdapter('https://h5.shiaj.com/t/64?p=32&c=123', '123'), null)
+  assert.equal(await shiajAdapter('https://h5.shiaj.com/t/not-a-store?c=' + SHIAJ_CODE, SHIAJ_CODE), null)
+  assert.equal(await shiajAdapter('https://example.com/t/64?c=' + SHIAJ_CODE, SHIAJ_CODE), null)
+})
 
 test('hyny168：真接口原文映射到来源声明（字段与站方 label 一一对应）', () => {
   const s = mapHyny168(live.data, URL_HYNY, CODE)
@@ -139,6 +169,14 @@ test('真接口：hyny168 端到端（需 NZ315_LIVE_ADAPTERS=1）', { skip: pro
   assert.equal(adapted.source.registrationNo, 'PD20230884')
   assert.equal(adapted.source.originals.length, 2)
   assert.ok(adapted.document.includes('"exists":true'))
+})
+
+test('真接口：shiaj 端到端（需 NZ315_LIVE_ADAPTERS=1）', { skip: process.env.NZ315_LIVE_ADAPTERS !== '1' }, async () => {
+  const adapted = await shiajAdapter(URL_SHIAJ, SHIAJ_CODE)
+  assert.ok(adapted && 'source' in adapted, '真接口应返回结果')
+  assert.equal(adapted.source.productName, '苯醚甲环唑')
+  assert.equal(adapted.source.registrationNo, 'PD20183446')
+  assert.equal(adapted.source.originals.length, 1)
 })
 
 // 第三态：对方明确答复「查无此码」——必须与「页面读不出内容」分开，否则消费者会拿着错误指引进沟里。

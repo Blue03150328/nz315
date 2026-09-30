@@ -19,7 +19,7 @@ let active = 0
  *   🔴 只允许传适配器里写死的常量；**绝不能**把用户输入拼进请求头，否则等于开放请求头注入。
  *   向后兼容：不传时与既有行为逐字节一致。
  */
-export async function fetchSourceDocument(input: string, extraHeaders?: Record<string, string>): Promise<{ url: string; body: string }> {
+export async function fetchSourceDocument(input: string, extraHeaders?: Record<string, string>, options?: { method?: 'GET' | 'POST'; body?: string }): Promise<{ url: string; body: string }> {
   if (active >= 4) throw new Error('来源查询繁忙，请稍后重试')
   active++
   const deadline = Date.now() + 8000
@@ -39,6 +39,7 @@ export async function fetchSourceDocument(input: string, extraHeaders?: Record<s
       const chosen = records[0]!
       const response = await new Promise<{ location?: string; body: string }>((resolve, reject) => {
         const req = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
+          method: options?.method || 'GET',
           headers: { accept: 'text/html,application/json', 'accept-encoding': 'identity', ...(extraHeaders || {}) },
           // 固定已校验地址，避免校验后再次解析指向内网。
           lookup: ((_name: string, options: any, cb: any) => options.all ? cb(null, [chosen]) : cb(null, chosen.address, chosen.family)) as any,
@@ -62,6 +63,7 @@ export async function fetchSourceDocument(input: string, extraHeaders?: Record<s
         const timeout = setTimeout(() => req.destroy(new Error('来源页面请求超时')), Math.max(1, deadline - Date.now()))
         req.on('close', () => clearTimeout(timeout))
         req.on('error', reject)
+        if (options?.body) req.write(options.body)
         req.end()
       })
       if (!response.location) return { url: url.href, body: response.body }

@@ -7,6 +7,7 @@
 import { nyzs315Adapter } from './nyzs315'
 import { hyny168Adapter } from './hyny168'
 import { sdakzwAdapter } from './sdakzw'
+import { shiajAdapter } from './shiaj'
 import type { SourceDeclaration } from '#shared/types/source-snapshot'
 
 type Adapted = { source: SourceDeclaration; document: string }
@@ -30,6 +31,8 @@ const ADAPTERS: Record<string, Adapter> = {
   'zp.hyny168.cn': hyny168Adapter,
   'www.hyny168.cn': hyny168Adapter,
   'www.sdakzw.com': sdakzwAdapter,
+  // 2026-09-30 新增：食安佳 H5 结果页是前端空壳，改调其公开 JSON 接口取真实字段。
+  'h5.shiaj.com': shiajAdapter,
 }
 
 /**
