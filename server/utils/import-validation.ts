@@ -1,8 +1,7 @@
 import { cleanLine, validateCode } from './code-validator'
 
 export interface ImportContext {
-  regLast6Map: Map<string, number>
-  specCodeSet: Set<string>
+  products: { id: number; head: string }[]
   existingSet: Set<string>
 }
 
@@ -19,7 +18,7 @@ export function validateImportRows(rawLines: string[], ctx: ImportContext, produ
   rawLines.forEach((raw, i) => {
     const code = cleanLine(raw)
     if (!code || (!/^\d{32}$/.test(code) && /\bsn\b|农药名称|登记证号|质量合格证号|生产企业|规格码|绑定状态/i.test(raw))) { ignored++; return }
-    const check = validateCode(code, ctx)
+    const check = validateCode(code, ctx, productId)
     let reason = check.reason
     let reasonCode = check.reasonCode || ''
     if (check.valid && seen.has(code)) { reason = '文件内重复码'; reasonCode = 'DUPLICATE_FILE' }

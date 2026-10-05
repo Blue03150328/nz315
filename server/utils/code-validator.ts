@@ -7,7 +7,7 @@ export interface CodeCheckResult {
   valid: boolean
   reason: string        // 失败原因（空串=通过）
   reasonCode?: string   // 稳定原因代码，重复分类不依赖界面文案
-  matchedProductId?: number | null  // 按第2-7位匹配的产品
+  matchedProductId?: number | null  // 按完整11位头匹配的产品
 }
 
 // 行内「独立」32 位数字串（边界断言避免从更长数字串中截取 32 位子串，如 40 位序列号）
@@ -40,13 +40,12 @@ export function cleanLine(raw: string): string {
 /**
  * 校验单行码（同步校验结构；产品/规格匹配由调用方传入上下文）
  * @param code 清洗后的码
- * @param regLast6Set 企业产品登记证号后6位集合 -> 产品ID
- * @param specCodeSet 企业规格码集合
- * @param existingSet 系统内已存在的码集合（重复校验）
+ * @param ctx 企业产品完整头部与全库已有码集合
  */
 export function validateCode(
   code: string,
-  ctx: { regLast6Map: Map<string, number>; specCodeSet: Set<string>; existingSet: Set<string> },
+  ctx: { products: { id: number; head: string }[]; existingSet: Set<string> },
+  productId?: number,
 ): CodeCheckResult {
   const base: CodeCheckResult = { line: code, code, valid: false, reason: '' }
   if (!code) { base.reason = '空行'; base.reasonCode = 'EMPTY_LINE'; return base }
@@ -62,14 +61,22 @@ export function validateCode(
   const eighth = code[7]
   if (eighth !== '1' && eighth !== '2' && eighth !== '3') { base.reason = '第8位生产类型无效'; base.reasonCode = 'INVALID_PRODUCTION'; return base }
 
-  // 第9-11位：规格码
-  const specCode = code.slice(8, 11)
-  if (!ctx.specCodeSet.has(specCode)) { base.reason = '规格码(' + specCode + ')未登记'; base.reasonCode = 'UNKNOWN_SPEC'; return base }
-
-  // 第2-7位：登记证号后6位匹配产品
-  const regLast6 = code.slice(1, 7)
-  const matchedProductId = ctx.regLast6Map.get(regLast6)
-  if (matchedProductId === undefined) { base.reason = '登记证后6位(' + regLast6 + ')未匹配产品'; base.reasonCode = 'UNKNOWN_PRODUCT'; return base }
+  const candidates = productId === undefined ? ctx.products : ctx.products.filter(p => p.id === productId)
+  const matches = candidates.filter(p => p.head === code.slice(0, 11))
+  if (matches.length !== 1) {
+    const product = candidates.find(p => p.head.slice(1, 7) === code.slice(1, 7))
+    if (product) {
+      const fields = [[0, 1, '登记类别'], [7, 8, '生产类型'], [8, 11, '规格码']] as const
+      const diff = fields.find(([start, end]) => product.head.slice(start, end) !== code.slice(start, end))
+      if (diff) {
+        const [start, end, label] = diff
+        base.reason = `第${start + 1}${end > start + 1 ? '–' + end : ''}位${label}与产品不一致（应为${product.head.slice(start, end)}，实际${code.slice(start, end)}）`
+      } else base.reason = '码头部匹配多个产品，请检查产品建档'
+    } else base.reason = productId === undefined ? '登记证后6位(' + code.slice(1, 7) + ')未匹配产品' : '码归属与所选产品不一致'
+    base.reasonCode = 'PRODUCT_MISMATCH'
+    return base
+  }
+  const matchedProductId = matches[0]!.id
 
   // 系统内重复
   if (ctx.existingSet.has(code)) { base.reason = '重复码'; base.reasonCode = 'DUPLICATE_DATABASE'; return base }

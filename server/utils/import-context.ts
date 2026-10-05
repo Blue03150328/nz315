@@ -1,5 +1,6 @@
 import { query } from './db'
 import { cleanLine } from './code-validator'
+import { headOf } from './code-head'
 import type { ImportContext } from './import-validation'
 import type { PoolConnection } from 'mysql2/promise'
 
@@ -7,10 +8,9 @@ import type { PoolConnection } from 'mysql2/promise'
 export async function loadImportContext(rawLines: string[], enterpriseId?: number, connection?: PoolConnection) {
   // 入库事务复用自己的连接，避免并发上传占满连接池后等待额外连接。
   const readRows = async (sql: string, values: any[]) => connection ? (await connection.query<any[]>(sql, values))[0] : query<any[]>(sql, values)
-  const scope = enterpriseId ? ' AND enterprise_id = ?' : ''
+  const scope = enterpriseId ? ' AND p.enterprise_id = ?' : ''
   const params = enterpriseId ? [enterpriseId] : []
-  const products = await readRows('SELECT id, name, registration_no FROM product WHERE status = 1' + scope, params)
-  const specs = await readRows('SELECT spec_code FROM product_spec WHERE status = 1' + scope, params)
+  const products = await readRows('SELECT p.id, p.name, p.registration_no, p.reg_category, p.produce_type, s.spec_code FROM product p JOIN product_spec s ON s.id = p.spec_id AND s.enterprise_id = p.enterprise_id AND s.status = 1 WHERE p.status = 1' + scope, params)
   const existingSet = new Set<string>()
   const codes = [...new Set(rawLines.map(cleanLine).filter(c => /^\d{32}$/.test(c)))]
   for (let i = 0; i < codes.length; i += 5000) {
@@ -19,8 +19,7 @@ export async function loadImportContext(rawLines: string[], enterpriseId?: numbe
     rows.forEach(r => existingSet.add(String(r.code)))
   }
   const context: ImportContext = {
-    regLast6Map: new Map(products.map(p => [String(p.registration_no).slice(-6), Number(p.id)])),
-    specCodeSet: new Set(specs.map(s => String(s.spec_code))), existingSet,
+    products: products.map(p => ({ id: Number(p.id), head: headOf(p) })), existingSet,
   }
   return { context, products }
 }

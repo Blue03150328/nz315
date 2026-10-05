@@ -8,7 +8,8 @@ import { MAX_CODES_PER_WRITE, WRITE_QUANTITY_ERROR } from '#shared/utils/code-li
 import { getPool, query } from '../../../utils/db'
 import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
-import { cleanLine, validateCode } from '../../../utils/code-validator'
+import { loadImportContext } from '../../../utils/import-context'
+import { validateImportRows } from '../../../utils/import-validation'
 
 // 单批写入上限（与 import 同口径，防 max_allowed_packet 超限；不可调大，原因见 shared/utils/code-limits.ts 顶部说明）
 const CHUNK = 5000
@@ -30,33 +31,12 @@ export default defineEventHandler(async (event) => {
   if (!prod) throw createError({ statusCode: 400, statusMessage: '产品不存在' })
   const enterpriseId = Number(prod.enterprise_id)
 
-  // 结构校验上下文（与 import/parse 同口径；企业过滤条件前缀必须 AND）
-  const [prodCond, prodParams] = fid ? [' AND enterprise_id = ?', [fid]] : ['', []]
-  const products = await query<any[]>('SELECT id, registration_no FROM product WHERE status = 1' + prodCond, prodParams)
-  const regLast6Map = new Map<string, number>()
-  for (const p of products) regLast6Map.set(String(p.registration_no).slice(-6), Number(p.id))
-  const specs = await query<any[]>('SELECT spec_code FROM product_spec WHERE status = 1' + prodCond, prodParams)
-  const specCodeSet = new Set(specs.map((s: any) => String(s.spec_code)))
-  const existingRows = await query<any[]>('SELECT code FROM trace_code WHERE 1=1' + prodCond, prodParams)
-  const existingSet = new Set(existingRows.map((r: any) => String(r.code)))
-
-  // 逐条清洗 + 结构校验 + 查重 + 归属产品校验（生成码必结构正确，此校验防绕过接口直灌错码）
-  const cleaned: string[] = []
-  let skippedInvalid = 0
-  let skippedDup = 0
-  for (const raw of codes) {
-    const cd = cleanLine(raw)
-    if (!cd) { skippedInvalid++; continue }
-    const chk = validateCode(cd, { regLast6Map, specCodeSet, existingSet })
-    if (!chk.valid) {
-      if (chk.reason === '重复码') skippedDup++
-      else skippedInvalid++
-      continue
-    }
-    if (Number(chk.matchedProductId) !== productId) { skippedInvalid++; continue }
-    cleaned.push(cd)
-  }
-  const finalCodes = cleaned
+  // 留档与上传共用产品头部和原始行校验。
+  const { context } = await loadImportContext(codes, enterpriseId)
+  const validation = validateImportRows(codes, context, productId)
+  const skippedInvalid = validation.invalid
+  const skippedDup = validation.duplicate
+  const finalCodes = validation.accepted
   if (finalCodes.length === 0) {
     throw createError({
       statusCode: 400,
