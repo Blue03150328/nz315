@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 后台布局：左侧深色导航（复用 B 端令牌）+ 右侧内容区
-// 菜单按角色渲染；已实现模块可点击，规划中模块置灰提示
+// 菜单按角色渲染，只显示已经实现的模块。
 // 路由高亮说明：数据概览（/admin 根路径）仅精确匹配当前路由；其余模块按前缀匹配，
 // 否则 /admin 前缀会吞掉全部 /admin/* 子路由，导致数据概览永远高亮
 const route = useRoute()
@@ -28,9 +28,6 @@ const MENU_READY: { path: string; label: string; icon: string; writeOnly?: boole
 
 /** 按角色可见菜单：只读账号隐藏纯写流程条目 */
 const visibleMenu = computed(() => MENU_READY.filter(item => (!item.platformOnly || user.value?.role === 'platform_admin') && (canWrite.value || !item.writeOnly)))
-
-// V1.0 规划菜单（模块建设中）
-const MENU_PLANNED: { label: string; icon: string }[] = []
 
 const isActive = (path: string) => {
   // 根路径菜单（数据概览）：仅当前路由恰为该路径时高亮
@@ -69,20 +66,6 @@ const onLogout = async () => {
           </NuxtLink>
         </div>
 
-        <!-- 规划中模块：置灰不可点击 -->
-        <div class="mb-1 mt-4 border-t border-white/10 pt-3">
-          <div class="px-3 pb-1 text-xs text-white/40">规划中模块</div>
-        </div>
-        <button
-          v-for="item in MENU_PLANNED"
-          :key="item.label"
-          type="button"
-          class="flex w-full cursor-not-allowed items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-white/30"
-          @click="toast.add({ title: item.label + '模块建设中，敬请期待', color: 'primary' })"
-        >
-          <UIcon :name="item.icon" class="h-4.5 w-4.5 shrink-0" />
-          {{ item.label }}
-        </button>
       </nav>
 
       <div class="border-t border-white/10 px-4 py-4">

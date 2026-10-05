@@ -92,16 +92,12 @@ export default defineEventHandler(async (event) => {
       [fid, ...names])
     dups.forEach((d: any) => dupMap.set(String(d.spec_name), 1))
   }
-  if (okRows.length <= 500) {
-    await checkDups(okRows.map(r => r.name))
-  } else {
-    // 大批量：逐批 IN（500 一批）
-    for (let s = 0; s < okRows.length; s += 500) {
-      await checkDups(okRows.slice(s, s + 500).map(r => r.name))
-    }
+  // 所有规模统一分块查询，每批最多500个名称。
+  for (let offset = 0; offset < okRows.length; offset += 500) {
+    await checkDups(okRows.slice(offset, offset + 500).map(r => r.name))
   }
   const finalOk: typeof okRows = []
-  const rowIndexOf = (name: string) => rows.findIndex((r, idx) => String(r[0] || '').trim() === name) + 1
+  const rowIndexOf = (name: string) => rows.findIndex(r => String(r[0] || '').trim() === name) + 1
   for (const r of okRows) {
     if (dupMap.has(r.name)) {
       errors.push({ row: rowIndexOf(r.name), value: r.name, reason: '该规格名称已存在' })

@@ -5,7 +5,7 @@ import { requirePlatformAdmin } from '../../../../utils/auth'
 import { logOperation } from '../../../../utils/audit'
 
 export default defineEventHandler(async (event) => {
-  const user = await requirePlatformAdmin(event)
+  await requirePlatformAdmin(event)
   const id = Number(getRouterParam(event, 'id'))
   if (!Number.isInteger(id) || id <= 0) throw createError({ statusCode: 400, statusMessage: '无效的企业ID' })
 

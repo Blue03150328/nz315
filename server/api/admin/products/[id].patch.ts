@@ -88,7 +88,7 @@ export default defineEventHandler(async (event) => {
     await conn.commit()
     // 豁免变更留痕（同新建口径；带 product_id 以避免被 triggerAlert 的合并键吃掉）
     if (regChanged && regExempt) {
-      await triggerAlert(event, {
+      await triggerAlert({
         alertType: 3,
         enterpriseId: prod.enterprise_id ?? null,
         productId: id,

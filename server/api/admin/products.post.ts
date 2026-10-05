@@ -112,7 +112,7 @@ export default defineEventHandler(async (event) => {
     // 若 product_id 为 null，同企业的所有豁免会合并成一条、`evidence` 被逐次覆盖（N2 踩过同款坑）。
     // 用事件本体在事务之外调用：预警写失败不得回滚已建档的产品（triggerAlert 内部已自行 try/catch）。
     if (regExempt) {
-      await triggerAlert(event, {
+      await triggerAlert({
         alertType: 3,
         enterpriseId: fid,
         productId: result.insertId,

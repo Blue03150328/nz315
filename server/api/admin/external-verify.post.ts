@@ -24,7 +24,7 @@ export default defineEventHandler(async (event) => {
     const mismatches = result.items.filter(item => item.status === 'mismatch')
     const alertTypes = new Set(mismatches.map(item => item.key === 'holder-name' ? 6 : item.key === 'product-name' ? 5 : item.key === 'registration-no' || item.key === 'registration-suffix' ? 3 : 7))
     for (const alertType of alertTypes) {
-    await triggerAlert(event, {
+    await triggerAlert({
       alertType,
       enterpriseId: result.localProduct?.enterpriseId ?? user.enterprise_id ?? null,
       productId: result.localProduct?.id ?? null,

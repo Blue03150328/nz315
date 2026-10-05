@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { CodeImportForm } from '#shared/types/code-import'
 // 生产采集：追溯码文件上传 → 校验 → 填写批次三要素入库（服务端自动创建/匹配批次 → 码置"已绑定"）
 // 2026-09-04 流程改造（用户决策 B）：批次三要素为必填，批次自动建档，生产批次页不再承担新建入口
 // Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
@@ -14,14 +15,15 @@ const pasteText = ref('')
 const { parsing, importing, parseResult, lastResult, parse, submit, reset } = useCodeImport()
 
 // 导入表单：批次三要素（生产日期/批号/质量合格证号）必填，导入时服务端自动创建或匹配批次
-const importForm = ref({
-  productId: null as number | null,
+const createImportForm = (): CodeImportForm => ({
+  productId: null,
   batchNo: '',          // 生产批次号（与标签喷码一致）
   produceDate: '',      // 生产日期
   qualityCertNo: '',    // 质量合格证号
   qcReportNo: '',       // 质检报告号（选填）
   expireDate: '',       // 有效期至（选填，留空可在生产批次页补填）
 })
+const importForm = ref(createImportForm())
 
 const { data: productData } = await useFetch<any>('/api/admin/products', {
   key: 'admin-products-coll',
@@ -36,17 +38,12 @@ const autoSelectProduct = () => {
   }
 }
 
-const readFileContent = async (file: File): Promise<string> => {
-  // 支持 UTF-8/GBK 常见编码：先试 UTF-8，乱码则用 TextDecoder gbk（浏览器支持有限，先按 UTF-8）
-  return await file.text()
-}
-
 const handleFile = async (ev: Event) => {
   const input = ev.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
   fileName.value = file.name
-  pasteText.value = await readFileContent(file)
+  pasteText.value = await file.text()
   input.value = ''
   toast.add({ title: '已读取 ' + file.name + '（' + file.size + ' 字节），点击「解析校验」', color: 'primary' })
 }
@@ -54,18 +51,14 @@ const handleFile = async (ev: Event) => {
 const doParse = async () => {
   const content = pasteText.value.trim()
   if (!content) { toast.add({ title: '请先上传码文件或粘贴码文本', color: 'warning' }); return }
-  parsing.value = true
   try {
     await parse(pasteText.value, fileName.value)
-    importForm.value.productId = null
     // 解析新文件后清空上一轮批次三要素，避免误带入新批次
-    Object.assign(importForm.value, { batchNo: '', produceDate: '', qualityCertNo: '', qcReportNo: '', expireDate: '' })
+    importForm.value = createImportForm()
     autoSelectProduct()
     toast.add({ title: '解析完成：有效 ' + parseResult.value.validCount + ' / 无效 ' + parseResult.value.invalidCount, color: 'success' })
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || '解析失败', color: 'error' })
-  } finally {
-    parsing.value = false
   }
 }
 
@@ -85,7 +78,7 @@ const doImport = async () => {
     toast.add({ title: '实际入库 ' + res.imported + ' 条，重复 ' + res.skippedDup + ' 条，校验拒绝 ' + res.skippedInvalid + ' 条', color: res.skippedDup + res.skippedInvalid ? 'warning' : 'success' })
     reset()
     pasteText.value = ''; fileName.value = ''
-    Object.assign(importForm.value, { productId: null, batchNo: '', produceDate: '', qualityCertNo: '', qcReportNo: '', expireDate: '' })
+    importForm.value = createImportForm()
   } catch (e: any) { toast.add({ title: e?.data?.statusMessage || '导入请求未完成，可使用相同内容重试', color: 'error' }) }
 }
 
@@ -94,7 +87,7 @@ const resetPage = () => {
   fileName.value = ''
   pasteText.value = ''
   reset()
-  Object.assign(importForm.value, { productId: null, batchNo: '', produceDate: '', qualityCertNo: '', qcReportNo: '', expireDate: '' })
+  importForm.value = createImportForm()
   toast.add({ title: '已重置，页面恢复初始状态', color: 'primary' })
 }
 

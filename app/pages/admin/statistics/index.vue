@@ -25,7 +25,6 @@ const totalPages = computed(() => Math.max(1, Math.ceil((data.value?.detail?.tot
 const trendMax = computed(() => Math.max(1, ...(data.value?.trend || []).map((t: any) => Number(t.count))))
 // 24 小时分布
 const hourMax = computed(() => Math.max(1, ...(data.value?.hourDist || []).map((t: any) => Number(t.count))))
-const hourLabels = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0') + ':00')
 
 const doSearch = () => { page.value = 1; refresh() }
 const resetSearch = () => { filters.keyword = ''; filters.province = ''; filters.dateFrom = ''; filters.dateTo = ''; page.value = 1; refresh() }

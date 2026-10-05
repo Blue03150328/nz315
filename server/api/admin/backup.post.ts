@@ -11,7 +11,7 @@ const execFileAsync = promisify(execFile)
 const BACKUP_DIR = path.resolve(process.cwd(), 'backup')
 
 export default defineEventHandler(async (event) => {
-  const user = await requirePlatformAdmin(event)
+  await requirePlatformAdmin(event)
   const config = useRuntimeConfig()
   // 文件名纯数字（YYYYMMDDHHMMSS），便于下载/删除的正则校验与排序
   const timestamp = new Date().toISOString().slice(0, 19).replace(/[T:-]/g, '')

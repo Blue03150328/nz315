@@ -26,35 +26,6 @@ export function regCategoryOf(registrationNo: string): 1 | 2 {
 }
 
 /**
- * 查询登记数据源中某登记证的原药候选（制剂 → 匹配剂型=原药/母药 且有效成分名一致的有效期内记录）
- * 返回：reg=数据源行（无则 null）、isOriginal=该行本身是否原药/母药剂型、candidates=有效期内原药候选
- * 原药/母药产品自身即原药（原药登记证号=自身登记证号），无候选列表
- */
-export async function findOriginalCandidates(registrationNo: string) {
-  const regNo = String(registrationNo || '').trim().toUpperCase()
-  const [reg] = await query<any[]>(
-    'SELECT registration_no, product_name, dosage, ingredient_main, company, expire_date FROM pesticide_reg WHERE registration_no = ? LIMIT 1',
-    [regNo]
-  )
-  if (!reg) return { reg: null, isOriginal: false, candidates: [] }
-  const isOriginal = /原药|母药/.test(String(reg.dosage || ''))
-  if (isOriginal) return { reg, isOriginal: true, candidates: [] }
-  const main = String(reg.ingredient_main || '').trim()
-  if (!main) return { reg, isOriginal: false, candidates: [] }
-  // 候选仅取登记证仍在有效期内的原药/母药（过期登记证不作为原药来源）
-  const candidates = await query<any[]>(
-    `SELECT registration_no, product_name, dosage, ingredient_main, company, expire_date
-       FROM pesticide_reg
-      WHERE dosage IN ('原药','母药') AND ingredient_main = ?
-        AND (expire_date IS NULL OR expire_date >= CURDATE())
-      ORDER BY expire_date DESC
-      LIMIT 50`,
-    [main]
-  )
-  return { reg, isOriginal, candidates }
-}
-
-/**
  * 按登记证取「全有效成分」原药候选池（原药多行 UI 用，2026-09-04）：
  * 复配制剂存在多个有效成分（ingredient_all），每个成分匹配到的有效期内原药/母药记录合并去重成池，
  * 供原药行下拉候选与双向联动；剂型=原药/母药 的产品其自身必在池内（自身成分匹配）。

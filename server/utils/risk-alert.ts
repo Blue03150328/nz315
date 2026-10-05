@@ -17,17 +17,16 @@ export const ALERT_TYPES: Record<number, string> = {
 /**
  * 触发预警：同 enterprise+code+type 未处理则累计 repeat_count，已处理则新建
  */
-export async function triggerAlert(event: any, input: {
+export async function triggerAlert(input: {
   alertType: number       // 1-8
   enterpriseId: number | null
-  code?: string | null
   codeId?: number | null
     productId?: number | null
     externalVerificationId?: number | null
   evidence?: any          // 证据数据（扫码记录/比对结果等）
 }) {
   try {
-    const { alertType, enterpriseId, code, codeId, productId, externalVerificationId, evidence } = input
+    const { alertType, enterpriseId, codeId, productId, externalVerificationId, evidence } = input
     // 查同码同类未处理预警
     const [exist] = await query<any[]>(
       'SELECT id, repeat_count FROM risk_alert WHERE enterprise_id <=> ? AND code_id <=> ? AND product_id <=> ? AND external_verification_id <=> ? AND alert_type = ? AND handle_status = 0 LIMIT 1',

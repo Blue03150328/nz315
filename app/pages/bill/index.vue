@@ -23,7 +23,7 @@ const reqHeaders = useRequestHeaders(['user-agent'])
 const userAgent = import.meta.client ? navigator.userAgent : (reqHeaders['user-agent'] || '')
 const isWechat = /MicroMessenger/i.test(userAgent)
 
-const { data: meData, refresh: refreshMe } = await useFetch<any>('/api/consumer/me', { key: 'consumer-me' })
+const { data: meData } = await useFetch<any>('/api/consumer/me', { key: 'consumer-me' })
 const loggedIn = computed(() => !!meData.value?.loggedIn)
 const wechatConfigured = computed(() => !!meData.value?.wechatConfigured)
 
@@ -104,7 +104,6 @@ const doDelete = async () => {
 const goLogin = () => {
   window.location.href = '/api/consumer/wechat/authorize?redirect=' + encodeURIComponent('/bill')
 }
-const goProfile = () => navigateTo('/profile')
 
 useHead({ title: '我的账本 - 农资315' })
 </script>

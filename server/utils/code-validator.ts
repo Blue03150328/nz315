@@ -6,14 +6,12 @@ export interface CodeCheckResult {
   code: string          // 清洗后的码
   valid: boolean
   reason: string        // 失败原因（空串=通过）
-  reasonCode?: string   // 稳定原因代码，报告和界面文案可独立更新
+  reasonCode?: string   // 稳定原因代码，重复分类不依赖界面文案
   matchedProductId?: number | null  // 按第2-7位匹配的产品
 }
 
 // 行内「独立」32 位数字串（边界断言避免从更长数字串中截取 32 位子串，如 40 位序列号）
 const CODE_RE = /(?<![0-9])[0-9]{32}(?![0-9])/
-// 表头关键词（生成页导出的 sn 清单 CSV 首行等）：提取不到码但命中这些词 → 视为表头静默跳过
-const HEADER_HINT = /\bsn\b|农药名称|登记证号|质量合格证号|生产企业|规格码|绑定状态/i
 
 /**
  * 单行清洗 + 智能提取 32 位追溯码（2026-09-10 易用性增强）
@@ -79,43 +77,4 @@ export function validateCode(
   base.valid = true
   base.matchedProductId = matchedProductId
   return base
-}
-
-/**
- * 批量校验：返回统计与明细
- */
-export function validateBatch(
-  rawLines: string[],
-  ctx: { regLast6Map: Map<string, number>; specCodeSet: Set<string>; existingSet: Set<string> },
-) {
-  const results: CodeCheckResult[] = []
-  const reasonCount: Record<string, number> = {}
-  for (const raw of rawLines) {
-    const code = cleanLine(raw)
-    if (!code) {
-      reasonCount['空行'] = (reasonCount['空行'] || 0) + 1
-      continue
-    }
-    // 表头行跳过（生成页导出的 sn 清单 CSV 首行是列名，无码属正常）：提取不到码但含表头关键词
-    // → 静默跳过不计入失败，避免用户上传 CSV 时看到「1 条失败」的困惑
-    if (!/^\d{32}$/.test(code) && HEADER_HINT.test(String(raw))) continue
-    const r = validateCode(code, ctx)
-    results.push(r)
-    if (!r.valid) reasonCount[r.reason] = (reasonCount[r.reason] || 0) + 1
-  }
-  const valid = results.filter(r => r.valid)
-  const invalid = results.filter(r => !r.valid)
-  return {
-    total: results.length,
-    validCount: valid.length,
-    invalidCount: invalid.length,
-    reasonCount,
-    results,
-    // 按产品归组（用于自动匹配提示）
-    productGroups: valid.reduce<Record<number, number>>((acc, r) => {
-      const pid = r.matchedProductId ?? 0
-      acc[pid] = (acc[pid] || 0) + 1
-      return acc
-    }, {}),
-  }
 }

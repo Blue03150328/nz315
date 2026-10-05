@@ -202,8 +202,8 @@ export default defineEventHandler(async (event) => {
   const today = new Date().toISOString().slice(0, 10)
   if (prod?.registration_expire && String(prod.registration_expire).slice(0, 10) < today) {
     // 触发风险预警（同码同类未处理合并累计）
-    await triggerAlert(event, {
-      alertType: 4, enterpriseId: tc.enterprise_id, code, codeId: tc.id, productId: tc.product_id,
+    await triggerAlert({
+      alertType: 4, enterpriseId: tc.enterprise_id, codeId: tc.id, productId: tc.product_id,
       evidence: { code, registrationNo: prod.registration_no, expireDate: String(prod.registration_expire).slice(0, 10), scanTime: new Date().toISOString() },
     })
     const out: TraceOutcome = {
@@ -229,8 +229,8 @@ export default defineEventHandler(async (event) => {
   // 9) 重复查询（≥3 次且 ≥2 个省份）
   if (queryCount >= 3 && provinces.length >= 2) {
     // 触发风险预警（8类异常-1）
-    await triggerAlert(event, {
-      alertType: 1, enterpriseId: tc.enterprise_id, code, codeId: tc.id, productId: tc.product_id,
+    await triggerAlert({
+      alertType: 1, enterpriseId: tc.enterprise_id, codeId: tc.id, productId: tc.product_id,
       evidence: { code, queryCount, provinces, scanTime: new Date().toISOString() },
     })
     const out: TraceOutcome = {
