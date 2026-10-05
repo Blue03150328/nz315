@@ -25,6 +25,7 @@ const filters = reactive({
 })
 const page = ref(1)
 const pageSize = 20
+const { applyListQuery, resetListQuery } = useAdminListRoute(filters, page, () => refresh(), ['productId', 'uploadBatchId'])
 
 // 产品下拉（关联产品筛选；pageSize 100 与生产采集/生成页同口径）
 const { data: productData } = await useFetch<any>('/api/admin/products', {
@@ -36,8 +37,11 @@ const PRODUCT_OPTIONS = computed(() =>
 
 const { data, pending, refresh } = await useFetch<any>('/api/admin/codes/upload-batches', {
   key: 'admin-upload-batches',
+  watch: false,
   query: computed(() => ({
     fileName: filters.fileName || undefined,
+    abnormalFlag: filters.abnormalFlag,
+    uploadBatchId: filters.uploadBatchId,
     productId: filters.productId || undefined,
     batchNo: filters.batchNo || undefined,
     dateFrom: filters.dateFrom || undefined,
@@ -48,12 +52,8 @@ const { data, pending, refresh } = await useFetch<any>('/api/admin/codes/upload-
 })
 const totalPages = computed(() => Math.max(1, Math.ceil((data.value?.total || 0) / pageSize)))
 
-const doSearch = () => { page.value = 1; refresh() }
-const resetSearch = () => {
-  Object.assign(filters, { fileName: '', productId: undefined, batchNo: '', dateFrom: '', dateTo: '' })
-  page.value = 1
-  refresh()
-}
+const doSearch = () => applyListQuery()
+const resetSearch = () => resetListQuery()
 
 // 码状态汇总标签（作废为终态最需关注，红系；冻结黄系；正常绿）
 const SUMMARY_BADGE: Record<string, string> = {
@@ -246,7 +246,7 @@ const loadDetail = async () => {
 const openDetail = (row: any) => {
   detailRow.value = row
   detailPage.value = 1
-  Object.assign(dFilters, { keyword: '', status: undefined, abnormalFlag: undefined })
+  Object.assign(dFilters, { keyword: '', status: undefined, abnormalFlag: filters.abnormalFlag })
   showDetailModal.value = true
   loadDetail()
 }
@@ -427,6 +427,10 @@ const flagBadge = (f: number) => {
       </div>
     </div>
 
+    <div v-if="filters.abnormalFlag || filters.uploadBatchId" class="b-note">
+      <span>当前范围：{{ filters.uploadBatchId ? '指定上传批次' : filters.abnormalFlag === '1' ? '包含冻结码的上传批次' : '包含作废码的上传批次' }} · 码总数量为批次全部码数量</span>
+      <UButton size="xs" variant="link" @click="resetSearch">查看全部</UButton>
+    </div>
     <!-- 批次聚合列表 -->
     <div class="b-card b-card-clip">
       <div class="b-card-head">
@@ -508,8 +512,8 @@ const flagBadge = (f: number) => {
       <div v-if="data?.total" class="b-pager">
         <span class="b-card-extra">共 {{ data?.total || 0 }} 个批次 · 第 {{ data.page }} / {{ totalPages }} 页</span>
         <div class="flex items-center gap-2">
-          <UButton variant="outline" color="neutral" size="sm" :disabled="page <= 1" @click="page--; refresh()">上一页</UButton>
-          <UButton variant="outline" color="neutral" size="sm" :disabled="page >= totalPages" @click="page++; refresh()">下一页</UButton>
+          <UButton variant="outline" color="neutral" size="sm" :disabled="page <= 1" @click="applyListQuery(page - 1)">上一页</UButton>
+          <UButton variant="outline" color="neutral" size="sm" :disabled="page >= totalPages" @click="applyListQuery(page + 1)">下一页</UButton>
         </div>
       </div>
     </div>
