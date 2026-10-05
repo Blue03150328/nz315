@@ -102,7 +102,6 @@ const resetPage = () => {
 
 <template>
   <div class="space-y-4">
-    <AdminOnboarding />
     <ImportResultCard v-if="lastResult" :result="lastResult" />
     <UButton to="/admin/import-reports" variant="outline">查看历史导入报告</UButton>
     <!-- 页面标题区 -->

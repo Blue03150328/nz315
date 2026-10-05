@@ -175,7 +175,6 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
 
 <template>
   <div class="space-y-4">
-    <AdminOnboarding />
     <!-- 页面标题区 -->
     <div class="flex items-center justify-between">
       <div>

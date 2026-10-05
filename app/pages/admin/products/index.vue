@@ -339,7 +339,6 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
 
 <template>
   <div class="space-y-4">
-    <AdminOnboarding />
     <!-- 页面标题区 -->
     <div class="flex items-center justify-between">
       <div>
@@ -646,4 +645,3 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
     </UModal>
   </div>
 </template>
-
