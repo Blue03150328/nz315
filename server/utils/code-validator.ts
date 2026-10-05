@@ -6,6 +6,7 @@ export interface CodeCheckResult {
   code: string          // 清洗后的码
   valid: boolean
   reason: string        // 失败原因（空串=通过）
+  reasonCode?: string   // 稳定原因代码，报告和界面文案可独立更新
   matchedProductId?: number | null  // 按第2-7位匹配的产品
 }
 
@@ -50,30 +51,30 @@ export function validateCode(
   ctx: { regLast6Map: Map<string, number>; specCodeSet: Set<string>; existingSet: Set<string> },
 ): CodeCheckResult {
   const base: CodeCheckResult = { line: code, code, valid: false, reason: '' }
-  if (!code) { base.reason = '空行'; return base }
+  if (!code) { base.reason = '空行'; base.reasonCode = 'EMPTY_LINE'; return base }
 
   // 长度与数字
-  if (!/^\d{32}$/.test(code)) { base.reason = '未识别到 32 位追溯码'; return base }
+  if (!/^\d{32}$/.test(code)) { base.reason = '未识别到 32 位追溯码'; base.reasonCode = 'INVALID_CODE'; return base }
 
   // 第1位：登记类别
   const first = code[0]
-  if (first !== '1' && first !== '2') { base.reason = '第1位登记类别无效'; return base }
+  if (first !== '1' && first !== '2') { base.reason = '第1位登记类别无效'; base.reasonCode = 'INVALID_CATEGORY'; return base }
 
   // 第8位：生产类型
   const eighth = code[7]
-  if (eighth !== '1' && eighth !== '2' && eighth !== '3') { base.reason = '第8位生产类型无效'; return base }
+  if (eighth !== '1' && eighth !== '2' && eighth !== '3') { base.reason = '第8位生产类型无效'; base.reasonCode = 'INVALID_PRODUCTION'; return base }
 
   // 第9-11位：规格码
   const specCode = code.slice(8, 11)
-  if (!ctx.specCodeSet.has(specCode)) { base.reason = '规格码(' + specCode + ')未登记'; return base }
+  if (!ctx.specCodeSet.has(specCode)) { base.reason = '规格码(' + specCode + ')未登记'; base.reasonCode = 'UNKNOWN_SPEC'; return base }
 
   // 第2-7位：登记证号后6位匹配产品
   const regLast6 = code.slice(1, 7)
   const matchedProductId = ctx.regLast6Map.get(regLast6)
-  if (matchedProductId === undefined) { base.reason = '登记证后6位(' + regLast6 + ')未匹配产品'; return base }
+  if (matchedProductId === undefined) { base.reason = '登记证后6位(' + regLast6 + ')未匹配产品'; base.reasonCode = 'UNKNOWN_PRODUCT'; return base }
 
   // 系统内重复
-  if (ctx.existingSet.has(code)) { base.reason = '重复码'; return base }
+  if (ctx.existingSet.has(code)) { base.reason = '重复码'; base.reasonCode = 'DUPLICATE_DATABASE'; return base }
 
   base.valid = true
   base.matchedProductId = matchedProductId
