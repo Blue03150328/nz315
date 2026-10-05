@@ -21,7 +21,8 @@ export function validateImportRows(rawLines: string[], ctx: ImportContext, produ
     const check = validateCode(code, ctx, productId)
     let reason = check.reason
     let reasonCode = check.reasonCode || ''
-    if (check.valid && seen.has(code)) { reason = '文件内重复码'; reasonCode = 'DUPLICATE_FILE' }
+    // 同一有效码再次出现按文件内重复计数，首次才计库内已有，避免两个数字混在一起。
+    if ((check.valid || reasonCode === 'DUPLICATE_DATABASE') && seen.has(code)) { reason = '文件内重复码'; reasonCode = 'DUPLICATE_FILE' }
     if (!reason && productId !== undefined && check.matchedProductId !== productId) { reason = '码归属与所选产品不一致'; reasonCode = 'PRODUCT_MISMATCH' }
     seen.add(code)
     if (reason) {

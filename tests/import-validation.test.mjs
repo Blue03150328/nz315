@@ -20,6 +20,13 @@ test('文件内重复和库内重复不会被算作可入库码', () => {
   assert.equal(r.accepted.length, 1)
   assert.deepEqual(r.preview.slice(1).map(x => x.reason), ['文件内重复码', '重复码'])
 })
+test('库内已有的码在文件中再次出现，两类重复分别计数', () => {
+  const r = validateImportRows([code, code, second, second], context([code]), 7)
+  assert.deepEqual(r.accepted, [second])
+  assert.equal(r.reasonCount['重复码'], 1)
+  assert.equal(r.reasonCount['文件内重复码'], 2)
+  assert.equal(r.total, r.accepted.length + r.duplicate + r.invalid)
+})
 test('其他产品码拒绝，统计数量守恒', () => {
   const r = validateImportRows([code, 'bad', second], context([second]), 8)
   assert.equal(r.preview[0].reason, '码归属与所选产品不一致')
