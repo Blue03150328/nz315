@@ -175,6 +175,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
 
 <template>
   <div class="space-y-4">
+    <AdminOnboarding />
     <!-- 页面标题区 -->
     <div class="flex items-center justify-between">
       <div>
@@ -265,7 +266,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
               <td colspan="6" class="b-empty">
                 <div class="b-empty-inner">
                   <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
-                  <span class="text-sm">暂无规格数据，点击右上角「新增规格」创建</span>
+                  <span class="text-sm">{{ filters.keyword || filters.contentUnit || filters.packUnit || filters.status ? '没有符合筛选条件的规格，请重置筛选。' : canWrite ? '尚未维护规格，请新增或导入规格。' : '企业尚未维护规格，请联系企业管理员建档。' }}，点击右上角「新增规格」创建</span>
                 </div>
               </td>
             </tr>

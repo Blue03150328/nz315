@@ -339,6 +339,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
 
 <template>
   <div class="space-y-4">
+    <AdminOnboarding />
     <!-- 页面标题区 -->
     <div class="flex items-center justify-between">
       <div>
@@ -424,7 +425,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
               <td colspan="8" class="b-empty">
                 <div class="b-empty-inner">
                   <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
-                  <span class="text-sm">暂无产品数据，点击右上角「新增产品」创建</span>
+                  <span class="text-sm">{{ filters.keyword || filters.category || filters.status ? '没有符合筛选条件的产品，请重置筛选。' : canWrite ? '尚未建立产品，请先维护规格，再新增产品。' : '企业尚未建立产品，请联系企业管理员建档。' }}</span>
                 </div>
               </td>
             </tr>

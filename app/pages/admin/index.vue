@@ -89,6 +89,7 @@ const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.
 
 <template>
   <div class="space-y-4">
+    <AdminOnboarding />
     <!-- 数据加载失败提示 -->
     <div v-if="statsError" class="b-card b-card-body text-sm text-red-600">
       统计数据加载失败，请刷新重试
@@ -113,7 +114,7 @@ const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.
           <span v-if="c.tag" class="b-tag b-tag-warning ml-auto">{{ c.tag }}</span>
         </div>
         <div class="b-stat-value">{{ c.value }}</div>
-      </div>
+      </component>
     </div>
 
     <!-- 近 30 天扫码趋势（SVG 折线图：绘制逻辑与坐标计算保持不变，仅调整卡片外壳与文字色） -->
