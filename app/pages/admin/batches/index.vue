@@ -59,21 +59,12 @@ const form = reactive({
   expireDate: '', qcResult: 1, qcReportNo: '', quantity: 0,
 })
 
-const selectedProduct = computed(() => (productData.value?.rows || []).find((p: any) => Number(p.id) === Number(form.productId)))
-
-// 有效期自动计算：生产日期 + 产品保质期（如 "2年"），可覆盖
-const autoExpire = () => {
-  const p = selectedProduct.value
-  if (!p || !form.produceDate || !p.shelf_life) return
-  const m = String(p.shelf_life).match(/(\d+)\s*年/)
-  if (!m) return
-  const d = new Date(form.produceDate + 'T00:00:00')
-  d.setFullYear(d.getFullYear() + Number(m[1]))
-  form.expireDate = d.toISOString().slice(0, 10)
-}
-
 // 新建入口已移除（2026-09-04 流程改造：批次由生产采集导入时自动建档）；本弹窗仅用于编辑
+const affectedCount = ref(0)
+const originalBatch = ref<Record<string, any>>({})
 const openEdit = (row: any) => {
+  affectedCount.value = Number(row.code_count || 0)
+  originalBatch.value = { ...row }
   editingId.value = row.id
   Object.assign(form, {
     productId: row.product_id, batchNo: row.batch_no,
@@ -249,6 +240,8 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
           </div>
         </div>
         <div class="b-modal-body">
+          <ProductionChangePreview :form="form" :count="affectedCount" :current="originalBatch" clears-expiry />
+          <p class="b-help">保存将更新整个生产批次，并覆盖该批次全部码的日期、质检和合格证号修正。仅改单码或文件请到码库管理。</p>
           <div>
             <label class="b-label-lg">关联产品 <span class="b-required">*</span></label>
             <USelect
@@ -267,7 +260,7 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="b-label-lg">生产日期 <span class="b-required">*</span></label>
-              <UInput v-model="form.produceDate" type="date" @change="autoExpire" />
+              <UInput v-model="form.produceDate" type="date" />
               <p class="b-help">请确认与产品标签喷码日期一致</p>
             </div>
             <div>

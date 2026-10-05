@@ -32,7 +32,7 @@ const { applyListQuery, resetListQuery } = useAdminListRoute(filters, page, () =
 // 产品下拉（关联产品筛选；pageSize 100 与生产采集/生成页同口径）
 const { data: productData } = await useFetch<any>('/api/admin/products', {
   key: 'admin-codes-products',
-  query: { page: 1, pageSize: 100 },
+  query: { page: 1, pageSize: 100, bindable: 1 },
 })
 const PRODUCT_OPTIONS = computed(() =>
   (productData.value?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name })))
@@ -319,6 +319,9 @@ const rowEditForm = reactive({
   produceDate: '', expireDate: '', qcResult: 'keep', qualityCertNo: '',
 })
 const openRowEdit = (row: any) => {
+  if (Number(row.abnormal_flag) !== 0) {
+    toast.add({ title: '冻结码请先恢复正常；作废码不可修改', color: 'warning' }); return
+  }
   rowEditTarget.value = row
   Object.assign(rowEditForm, { batchId: 0, produceDate: '', expireDate: '', qcResult: 'keep', qualityCertNo: '' })
   showRowEditModal.value = true
@@ -578,11 +581,12 @@ const flagBadge = (f: number) => {
             </div>
           </div>
           <div class="b-modal-body">
+            <ProductionChangePreview :form="correctForm" :count="correctTarget?.codeTotal || 0" />
             <div v-if="!newBatchMode">
               <label class="b-label-lg">重新绑定批次（仅"已生成"码生效，绑定后自动置为"已绑定"）</label>
               <USelect
                 v-model="correctForm.batchId"
-                :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
+                :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).filter((b: any) => Number(b.product_id) === Number(correctTarget?.product_id)).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
                 class="w-full"
                 :content="{ class: 'min-w-72' }"
                 :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
@@ -658,11 +662,12 @@ const flagBadge = (f: number) => {
             </div>
           </div>
           <div class="b-modal-body">
+            <ProductionChangePreview :form="correctForm" :count="correctTarget?.codeTotal || 0" />
             <div v-if="!newBatchMode">
               <label class="b-label-lg">重新绑定批次（仅"已生成"码生效，绑定后自动置为"已绑定"）</label>
               <USelect
                 v-model="correctForm.batchId"
-                :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
+                :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).filter((b: any) => Number(b.product_id) === Number(correctTarget?.product_id)).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
                 class="w-full"
                 :content="{ class: 'min-w-72' }"
                 :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
@@ -829,8 +834,6 @@ const flagBadge = (f: number) => {
                       <div v-else-if="canWrite && Number(r.abnormal_flag) === 1" class="b-actions justify-end">
                         <UButton v-if="canWrite" variant="link" color="neutral" size="xs" @click="openRowFlag('restore', r)">恢复正常</UButton>
                         <span class="b-sep" />
-                        <UButton v-if="canWrite" variant="link" color="neutral" size="xs" @click="openRowEdit(r)">修改</UButton>
-                        <span class="b-sep" />
                         <span v-if="canWrite && Number(r.status) === 2" :title="'该追溯码已绑定，不允许删除'">
                           <UButton variant="link" color="error" size="xs" icon="i-lucide-trash-2" disabled>删除</UButton>
                         </span>
@@ -919,10 +922,11 @@ const flagBadge = (f: number) => {
           </div>
           <div class="b-modal-body">
             <div>
+              <ProductionChangePreview :form="rowEditForm" :count="1" :current="rowEditTarget" />
               <label class="b-label-lg">重新绑定批次（仅修改当前这条码的关联，不会影响同批次其他码）</label>
               <USelect
                 v-model="rowEditForm.batchId"
-                :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
+                :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).filter((b: any) => Number(b.product_id) === Number(rowEditTarget?.product_id)).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
                 class="w-full"
                 :content="{ class: 'min-w-72' }"
                 :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
@@ -951,7 +955,7 @@ const flagBadge = (f: number) => {
             </div>
             <div class="b-note">
               <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
-              <p class="b-note-text">修改仅作用于当前追溯码（不触碰批次共享数据，同批次其他码不受影响）；扫码页展示以本条为准；已作废码为终态不可修改（冻结码可正常修改）</p>
+              <p class="b-note-text">修改仅作用于当前追溯码，同批次其他码不受影响；冻结码先恢复正常，作废码不可修改。</p>
             </div>
           </div>
           <div class="b-modal-foot">
