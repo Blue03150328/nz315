@@ -21,8 +21,10 @@ export default defineEventHandler(async (event) => {
   if (rawLines.length > MAX_CODES_PER_WRITE) throw createError({ statusCode: 400, statusMessage: WRITE_QUANTITY_ERROR })
 
   const fid = user.role === 'platform_admin' ? undefined : Number(user.enterprise_id)
+  const productId = body.productId === undefined || body.productId === null ? undefined : Number(body.productId)
+  if (productId !== undefined && (!Number.isInteger(productId) || productId <= 0)) throw createError({ statusCode: 400, statusMessage: '请选择有效的关联产品' })
   const { context, products } = await loadImportContext(rawLines, fid)
-  const batch = validateImportRows(rawLines, context)
+  const batch = validateImportRows(rawLines, context, productId)
   // 产品名映射
   const productNameMap = new Map(products.map((p: any) => [Number(p.id), p.name]))
   const productGroups = Object.entries(batch.productGroups).map(([pid, count]) => ({

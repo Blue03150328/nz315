@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { CodeImportForm } from '#shared/types/code-import'
 const form = defineModel<CodeImportForm>({ required: true })
-defineProps<{ products: { id: number; name: string }[]; validCount: number; importing: boolean; canWrite: boolean }>()
+defineProps<{ products: { id: number; name: string }[]; validCount: number; importing: boolean; parsing: boolean; canWrite: boolean }>()
 const emit = defineEmits<{ submit: [] }>()
 </script>
 <template>
@@ -16,13 +16,14 @@ const emit = defineEmits<{ submit: [] }>()
             <label class="b-label">关联产品 <span class="b-required">*</span></label>
             <USelect
               v-model="form.productId"
+              :disabled="importing"
               :items="products.map((p: any) => ({ value: Number(p.id), label: p.name }))"
               placeholder="选择产品"
               class="w-full"
               :content="{ class: 'min-w-72' }"
               :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
             />
-            <p class="b-help">按码第 2-7 位登记证号自动匹配，可手动调整</p>
+            <p class="b-help">按登记类别、登记证、生产类型及规格的完整前11位匹配；更换产品后重新校验</p>
           </div>
           <div>
             <label class="b-label">生产批次号 <span class="b-required">*</span></label>
@@ -54,8 +55,8 @@ const emit = defineEmits<{ submit: [] }>()
         </div>
         <div class="b-card-foot">
           <span class="b-card-extra">预计可写入 <span class="b-strong font-medium">{{ validCount }}</span> 条有效码，校验失败的码不会入库</span>
-          <UButton v-if="canWrite" color="neutral" variant="solid" :loading="importing" @click="emit('submit')">
-            {{ validCount ? '确认入库并保存报告' : '保存全部失败报告' }}
+          <UButton v-if="canWrite" color="neutral" variant="solid" :loading="importing || parsing" :disabled="!validCount || parsing" @click="emit('submit')">
+            {{ validCount ? '确认入库' : '无有效码可入库' }}
           </UButton>
         </div>
       </div>

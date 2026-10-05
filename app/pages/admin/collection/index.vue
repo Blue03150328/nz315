@@ -38,6 +38,13 @@ const autoSelectProduct = () => {
   }
 }
 
+// 更换关联产品后按同一规则重验原文件，预览数量与实际提交保持一致。
+watch(() => importForm.value.productId, async (productId) => {
+  if (!productId || !parseResult.value) return
+  try { await parse(pasteText.value, fileName.value, productId) }
+  catch (e: any) { reset(); toast.add({ title: e?.data?.statusMessage || '重新校验失败，请重新解析', color: 'error' }) }
+})
+
 const handleFile = async (ev: Event) => {
   const input = ev.target as HTMLInputElement
   const file = input.files?.[0]
@@ -63,7 +70,8 @@ const doParse = async () => {
 }
 
 const doImport = async () => {
-  if (importing.value || !parseResult.value) return
+  if (importing.value || parsing.value || !parseResult.value) return
+  if (!parseResult.value.validCount) { toast.add({ title: '没有可入库的有效码，请检查校验结果', color: 'warning' }); return }
   if (!importForm.value.productId) { toast.add({ title: '请选择关联产品', color: 'warning' }); return }
   if (!importForm.value.batchNo.trim()) { toast.add({ title: '请输入生产批次号（与标签喷码一致）', color: 'warning' }); return }
   if (!importForm.value.produceDate) { toast.add({ title: '请选择生产日期（与标签喷码一致）', color: 'warning' }); return }
@@ -108,7 +116,7 @@ const resetPage = () => {
     <CodeImportInput v-model="pasteText" :file-name="fileName" :parsing="parsing" :can-write="canWrite" @file="handleFile" @parse="doParse" />
     <template v-if="parseResult">
       <CodeImportPreview :result="parseResult" />
-      <CodeImportBatchForm v-model="importForm" :products="productData?.rows || []" :valid-count="parseResult.validCount" :importing="importing" :can-write="canWrite" @submit="doImport" />
+      <CodeImportBatchForm v-model="importForm" :products="productData?.rows || []" :valid-count="parseResult.validCount" :importing="importing" :parsing="parsing" :can-write="canWrite" @submit="doImport" />
     </template>
   </div>
 </template>

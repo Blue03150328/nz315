@@ -6,11 +6,14 @@ export function useCodeImport() {
   const importing = ref(false)
   const parseResult = ref<CodeImportPreview | null>(null)
   const lastResult = ref<ImportResult | null>(null)
-  const parse = async (content: string, fileName: string) => {
+  let parseSequence = 0
+  const parse = async (content: string, fileName: string, productId?: number | null) => {
+    const sequence = ++parseSequence
     parsing.value = true
     try {
-      parseResult.value = await $fetch<CodeImportPreview>('/api/admin/codes/parse', { method: 'POST', body: { content, fileName, includeCodes: false } })
-    } finally { parsing.value = false }
+      const result = await $fetch<CodeImportPreview>('/api/admin/codes/parse', { method: 'POST', body: { content, fileName, productId: productId ?? undefined, includeCodes: false } })
+      if (sequence === parseSequence) parseResult.value = result
+    } finally { if (sequence === parseSequence) parsing.value = false }
   }
   const submit = async (body: Record<string, unknown>) => {
     if (importing.value) return null
@@ -20,6 +23,6 @@ export function useCodeImport() {
       return lastResult.value
     } finally { importing.value = false }
   }
-  const reset = () => { parseResult.value = null }
+  const reset = () => { parseSequence++; parsing.value = false; parseResult.value = null }
   return { parsing, importing, parseResult, lastResult, parse, submit, reset }
 }
