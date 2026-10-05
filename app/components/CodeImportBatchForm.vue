@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CodeImportForm } from '#shared/types/import-report'
+import type { CodeImportForm } from '#shared/types/code-import'
 const form = defineModel<CodeImportForm>({ required: true })
 defineProps<{ products: { id: number; name: string }[]; validCount: number; importing: boolean; canWrite: boolean }>()
 const emit = defineEmits<{ submit: [] }>()

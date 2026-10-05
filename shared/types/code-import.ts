@@ -19,7 +19,6 @@ export interface CodeImportPreview {
 
 export interface ImportResult {
   ok: boolean
-  reportId: number
   imported: number
   skippedInvalid: number
   skippedDup: number
@@ -32,18 +31,4 @@ export interface ImportResult {
   uploadBatchId: number | null
   fileName: string
   error?: string
-  notificationState?: 'sent' | 'failed'
-}
-export interface ImportReport extends ImportResult {
-  version: number
-  state: 'completed' | 'failed' | 'pending'
-  createdAt: string
-  enterpriseName: string
-  operatorName: string
-}
-export interface ImportRejection {
-  lineNumber: number
-  code: string
-  reasonCode: string
-  reason: string
 }

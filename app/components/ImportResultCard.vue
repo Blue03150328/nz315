@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { ImportResult } from '#shared/types/import-report'
+import type { ImportResult } from '#shared/types/code-import'
 import { adminLinks } from '#shared/utils/admin-navigation'
 defineProps<{ result: ImportResult }>()
 </script>
@@ -16,7 +16,6 @@ defineProps<{ result: ImportResult }>()
         <div><span class="b-help">未写入</span><p class="text-xl font-semibold">{{ result.notWritten }}</p></div>
       </div>
       <div class="flex flex-wrap gap-2">
-        <UButton :to="'/admin/import-reports/' + result.reportId" variant="outline">查看完整报告和失败明细</UButton>
         <UButton v-if="result.uploadBatchId" :to="adminLinks.uploadBatch(result.uploadBatchId)">查看本次入库批次</UButton>
       </div>
     </div>

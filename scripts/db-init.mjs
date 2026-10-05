@@ -319,31 +319,6 @@ const DDL = [
     KEY idx_product (product_id),
     KEY idx_batch_id (batch_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='上传文件批次（码库管理聚合维度，生产采集导入时创建）'`,
-  // 导入报告与拒绝明细：成功码仍在 trace_code，报告不重复存储原文件。
-  `CREATE TABLE IF NOT EXISTS import_report (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    enterprise_id BIGINT NOT NULL,
-    created_by BIGINT NOT NULL,
-    request_key VARCHAR(64) NOT NULL,
-    request_hash CHAR(64) NOT NULL,
-    version INT NOT NULL DEFAULT 1,
-    state VARCHAR(16) NOT NULL DEFAULT 'pending',
-    file_name VARCHAR(255) NOT NULL,
-    upload_batch_id BIGINT NULL,
-    result_json JSON NULL,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_creator_request (created_by, request_key),
-    KEY idx_report_enterprise (enterprise_id, id)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='导入结果报告'`,
-  `CREATE TABLE IF NOT EXISTS import_rejection (
-    id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    report_id BIGINT NOT NULL,
-    line_number INT NOT NULL,
-    code VARCHAR(255) NOT NULL,
-    reason_code VARCHAR(64) NOT NULL,
-    reason VARCHAR(255) NOT NULL,
-    KEY idx_report_line (report_id, line_number)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='导入拒绝明细，保留原始行号'`,
   // 农资记账（2026-09-23 新增；随「附近门店」整体下线原地替换而来，见 docs/handover/29 号）
   // 归属键只有 consumer_id（消费者私人数据，后台/厂家不可见）；product_name 存快照，产品改名不影响历史账目
   `CREATE TABLE IF NOT EXISTS farm_bill (

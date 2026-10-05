@@ -1,7 +1,6 @@
 // POST /api/admin/codes/parse —— 追溯码文件解析校验（PRD 5.5.2）
 // 输入：{ content: string（文件文本，每行一个码）} 或 { codes: string[] }
 import { MAX_CODES_PER_WRITE, WRITE_QUANTITY_ERROR } from '#shared/utils/code-limits'
-import { query } from '../../../utils/db'
 import { requireBackendUser } from '../../../utils/auth'
 import { validateImportRows } from '../../../utils/import-validation'
 import { loadImportContext } from '../../../utils/import-context'
@@ -36,11 +35,10 @@ export default defineEventHandler(async (event) => {
     fileName: String(body.fileName || ''),
     total: batch.total,
     validCount: batch.accepted.length,
-    invalidCount: batch.rejected.length,
+    invalidCount: batch.invalid + batch.duplicate,
     reasonCount: batch.reasonCount,
     productGroups,
-    // 全部有效码清单（导入接口入参来源）——必须随响应返回，否则前端只能拿到前 20 条 preview，
-    // 导入时构造不出完整码数组（2026-09-04 修复：此前页面误依赖未返回的 results 字段，导入必败）
+    // API 调用方可取完整有效码；上传页面直接提交原文件，不重复传回大数组。
     validCodes: body.includeCodes === false ? undefined : batch.accepted,
     preview: batch.preview.map(r => ({
       lineNumber: r.lineNumber, code: r.code, valid: r.valid, reason: r.reason, matchedProductId: r.matchedProductId,

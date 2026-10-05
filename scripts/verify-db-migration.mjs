@@ -160,7 +160,7 @@ const ok = (msg) => console.log('OK    ' + msg);
 //    而且是**消费者本人的私人账本**，部署窗口里被写进去是完全正常的业务行为。
 // ⚠️ 只有这几张是纯追加型；业务主数据表一律严格相等——seed 若被误跑，
 //    enterprise / trace_code / product / batch / upload_batch / product_spec 必被命中，逃不掉。
-const ACTIVE_TABLES = ['scan_log', 'operation_log', 'external_verification', 'farm_bill', 'external_source_snapshot', 'import_report', 'import_rejection'];
+const ACTIVE_TABLES = ['scan_log', 'operation_log', 'external_verification', 'farm_bill', 'external_source_snapshot'];
 const grew = [];
 
 // 本次迁移**预期要新建**的表（白名单）：出现在这里的新表不算污染，但必须存在且为空表。
@@ -174,7 +174,7 @@ const grew = [];
 // ⚠️ 少了 ② 的后果：本次上线三明治第 ③ 步会打出
 //    `FAIL 出现了基线中不存在、且不在预期白名单里的新表: farm_bill` + 退出码 1 —— **假 FAIL**，
 //    而第 ④ 行的「新表为 0 行」真正该看的判据反而被这条红字盖住。
-const EXPECTED_NEW_TABLES = ['external_verification', 'farm_bill', 'external_source_snapshot', 'import_report', 'import_rejection'];
+const EXPECTED_NEW_TABLES = ['external_verification', 'farm_bill', 'external_source_snapshot'];
 
 console.log('--- 1) 逐表行数（业务主数据必须严格相等；活跃日志表允许只增不减）---');
 for (const t of Object.keys(base.counts)) {

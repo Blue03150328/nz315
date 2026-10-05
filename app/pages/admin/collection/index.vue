@@ -81,8 +81,8 @@ const doImport = async () => {
       qualityCertNo: importForm.value.qualityCertNo.trim(), qcReportNo: importForm.value.qcReportNo.trim() || undefined,
       expireDate: importForm.value.expireDate || undefined, fileName: fileName.value || undefined })
     if (!res) return
-    if (!res.ok) { toast.add({ title: res.error || '导入未完成，请查看报告', color: 'error' }); return }
-    toast.add({ title: '实际入库 ' + res.imported + ' 条，重复 ' + res.skippedDup + ' 条，校验拒绝 ' + res.skippedInvalid + ' 条；报告已保存', color: res.skippedDup + res.skippedInvalid ? 'warning' : 'success' })
+    if (!res.ok) { toast.add({ title: res.error || '导入未完成，请核对本次结果', color: 'error' }); return }
+    toast.add({ title: '实际入库 ' + res.imported + ' 条，重复 ' + res.skippedDup + ' 条，校验拒绝 ' + res.skippedInvalid + ' 条', color: res.skippedDup + res.skippedInvalid ? 'warning' : 'success' })
     reset()
     pasteText.value = ''; fileName.value = ''
     Object.assign(importForm.value, { productId: null, batchNo: '', produceDate: '', qualityCertNo: '', qcReportNo: '', expireDate: '' })
@@ -103,7 +103,6 @@ const resetPage = () => {
 <template>
   <div class="space-y-4">
     <ImportResultCard v-if="lastResult" :result="lastResult" />
-    <UButton to="/admin/import-reports" variant="outline">查看历史导入报告</UButton>
     <!-- 页面标题区 -->
     <div class="flex items-center justify-between">
       <div>

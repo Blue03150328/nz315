@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { CodeImportPreview } from '#shared/types/import-report'
+import type { CodeImportPreview } from '#shared/types/code-import'
 const props = defineProps<{ result: CodeImportPreview }>()
 const reasonChips = computed(() => Object.entries(props.result.reasonCount || {}).map(([label, count]) => ({ label, count })))
 </script>
