@@ -16,6 +16,8 @@ import { MAX_CODES_PER_WRITE, WRITE_QUANTITY_ERROR } from '#shared/utils/code-li
 import type { ImportResult } from '#shared/types/code-import'
 import { validateImportRows } from './import-validation'
 import { loadImportContext } from './import-context'
+import { assertBindingAllowed } from './binding-guard'
+import { isInputDate } from '../../shared/utils/input-date'
 import { getPool, query } from './db'
 import { sendMessage } from './notify'
 import { adminLinks } from '#shared/utils/admin-navigation'
@@ -23,7 +25,6 @@ import type { AuthUser } from './auth'
 
 
 // 日期入参格式（YYYY-MM-DD，与批次页 UInput type=date 口径一致）
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 // 单批写入上限（防 max_allowed_packet 超限；50 万条上限下分 100 批）
 // 注意：此处只能减不能加——MySQL 预处理语句占位符上限 65535，现 5000 × 11 列 = 55000 已近顶
 const CHUNK = 5000
@@ -48,9 +49,9 @@ export async function importCodes(user: AuthUser, body: Record<string, any>): Pr
   if (codes.length > MAX_CODES_PER_WRITE) throw createError({ statusCode: 400, statusMessage: WRITE_QUANTITY_ERROR })
   if (!Number.isInteger(productId) || productId <= 0) throw createError({ statusCode: 400, statusMessage: '请选择关联产品' })
   if (!batchNo) throw createError({ statusCode: 400, statusMessage: '请输入生产批次号（与产品标签喷码一致）' })
-  if (!DATE_RE.test(produceDate)) throw createError({ statusCode: 400, statusMessage: '请选择生产日期（与产品标签喷码一致）' })
+  if (!isInputDate(produceDate)) throw createError({ statusCode: 400, statusMessage: '请选择有效生产日期（与产品标签喷码一致）' })
   if (!qualityCertNo) throw createError({ statusCode: 400, statusMessage: '请输入质量合格证号' })
-  if (expireDate && !DATE_RE.test(expireDate)) throw createError({ statusCode: 400, statusMessage: '有效期至格式不正确' })
+  if (expireDate && !isInputDate(expireDate)) throw createError({ statusCode: 400, statusMessage: '有效期至不是有效日期' })
 
   const fid = user.role === 'platform_admin' ? null : user.enterprise_id
   const [prod] = await query<any[]>(
@@ -82,13 +83,11 @@ export async function importCodes(user: AuthUser, body: Record<string, any>): Pr
       // 1) 批次：按 同产品+同批号 查找 → 命中校验复用 / 未命中自动创建
       const batchCond = fid ? ' AND b.enterprise_id = ?' : ''
       const [exist] = await conn.query<any[]>(
-        'SELECT b.id, b.produce_date, b.quality_cert_no, b.qc_result FROM batch b WHERE b.product_id = ? AND b.batch_no = ?' + batchCond,
+        'SELECT b.* FROM batch b WHERE b.product_id = ? AND b.batch_no = ?' + batchCond + ' FOR UPDATE',
         fid ? [productId, batchNo, fid] : [productId, batchNo])
       if (exist.length > 0) {
         const b = exist[0]
-        if (Number(b.qc_result) === 0) {
-          throw createError({ statusCode: 400, statusMessage: '批次 ' + batchNo + ' 质检不合格，其追溯码不得绑定（请先在生产批次页处理）' })
-        }
+        assertBindingAllowed(b, productId, enterpriseId)
         const dbDate = b.produce_date ? String(b.produce_date).slice(0, 10) : ''
         const dbCert = String(b.quality_cert_no || '')
         if (dbDate !== produceDate || dbCert !== qualityCertNo) {
@@ -99,6 +98,7 @@ export async function importCodes(user: AuthUser, body: Record<string, any>): Pr
         }
         batchId = Number(b.id)
       } else {
+        assertBindingAllowed({ product_id: productId, enterprise_id: enterpriseId, batch_no: batchNo, produce_date: produceDate, quality_cert_no: qualityCertNo, qc_result: 1 }, productId, enterpriseId)
         // 自动创建批次：质检默认合格；有效期至选填（可稍后在批次页补填）；生产数量未知记 0，编辑时补填
         // mysql2 execute 返回类型为联合（QueryResult），实际 INSERT 运行时为 ResultSetHeader，断言取 insertId
         const [r] = await conn.execute(
