@@ -62,6 +62,9 @@ const form = reactive({
 // 新建入口已移除（2026-09-04 流程改造：批次由生产采集导入时自动建档）；本弹窗仅用于编辑
 const affectedCount = ref(0)
 const originalBatch = ref<Record<string, any>>({})
+const originalForm = ref<Record<string, any>>({})
+// 只提交真正改动且明确填写的字段，避免预填值覆盖单码修正。
+const changedFields = computed(() => Object.fromEntries(Object.entries(form).filter(([key, value]) => key !== 'productId' && value !== '' && value !== null && value !== originalForm.value[key])))
 const openEdit = (row: any) => {
   affectedCount.value = Number(row.code_count || 0)
   originalBatch.value = { ...row }
@@ -73,10 +76,12 @@ const openEdit = (row: any) => {
     expireDate: row.expire_date ? String(row.expire_date).slice(0, 10) : '',
     qcResult: Number(row.qc_result ?? 1), qcReportNo: row.qc_report_no || '', quantity: Number(row.quantity || 0),
   })
+  originalForm.value = { ...form }
   showModal.value = true
 }
 
 const save = async () => {
+  if (!Object.keys(changedFields.value).length) { toast.add({ title: '请先修改需要更正的字段', color: 'warning' }); return }
   if (!form.productId) { toast.add({ title: '请选择关联产品', color: 'warning' }); return }
   if (!form.batchNo.trim()) { toast.add({ title: '请输入生产批次号', color: 'warning' }); return }
   if (!form.produceDate) { toast.add({ title: '请选择生产日期', color: 'warning' }); return }
@@ -84,7 +89,7 @@ const save = async () => {
   saving.value = true
   try {
     if (!editingId.value) { toast.add({ title: '请选择要编辑的批次', color: 'warning' }); return }
-    await $fetch('/api/admin/batches/' + editingId.value, { method: 'PATCH', body: { ...form } })
+    await $fetch('/api/admin/batches/' + editingId.value, { method: 'PATCH', body: changedFields.value })
     toast.add({ title: '批次已更新', color: 'success' })
     showModal.value = false
     refresh()
@@ -240,12 +245,13 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
           </div>
         </div>
         <div class="b-modal-body">
-          <ProductionChangePreview :form="form" :count="affectedCount" :current="originalBatch" clears-expiry />
-          <p class="b-help">保存将更新整个生产批次，并覆盖该批次全部码的日期、质检和合格证号修正。仅改单码或文件请到码库管理。</p>
+          <ProductionChangePreview :form="changedFields" :count="affectedCount" :current="originalBatch" />
+          <p class="b-help">保存将把本次修改的字段同步到该生产批次全部码，覆盖这些字段的单码修正；其他字段保持原值。仅改单码或文件请到码库管理。</p>
           <div>
             <label class="b-label-lg">关联产品 <span class="b-required">*</span></label>
             <USelect
               v-model="form.productId"
+              disabled
               :items="(productData?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name + '（' + (p.spec_name || '') + '）' }))"
               placeholder="从已启用产品中选择"
               class="w-full"
