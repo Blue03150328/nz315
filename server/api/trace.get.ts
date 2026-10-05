@@ -9,6 +9,7 @@ import { lookupRegistryByCode } from '../utils/registry-lookup'
 import { collectSourceSnapshot } from '../utils/source-snapshot'
 import { allowRequest } from '../utils/rate-limit'
 import { extractTraceCode } from '#shared/utils/trace-code'
+import { chinaDate, effectiveProduction, isExpired } from '#shared/utils/production-info'
 import type { TraceOutcome, TraceResultType } from '#shared/types/trace'
 
 const CODE_RE = /^\d{32}$/
@@ -187,20 +188,13 @@ export default defineEventHandler(async (event) => {
 
   // 批次信息展示：单码字段修正只写 trace_code 覆盖列（produce_date/quality_cert_no/expire_date/qc_result），
   // 扫码展示 COALESCE 优先码级值（批次码明细单行修改功能，2026-09-04），未覆盖时回退批次级数据
-  const batchInfo = batch ? {
-    batchNo: batch.batch_no,
-    produceDate: String(tc.produce_date || batch.produce_date || '').slice(0, 10),
-    expireDate: String(tc.expire_date || batch.expire_date || '').slice(0, 10),
-    qcResult: Number(tc.qc_result ?? batch.qc_result) === 1 ? '合格' : '不合格',
-    qualityCertNo: tc.quality_cert_no || batch.quality_cert_no || '',
-    qcReportNo: batch.qc_report_no || '',
-  } : undefined
+  const batchInfo = batch ? effectiveProduction(tc, batch) : undefined
 
   const status: 'bound' | 'generated' = Number(tc.status) === 2 ? 'bound' : 'generated'
 
   // 7) 登记证已过期（8类异常-4：登记证有效期至 < 今天）
-  const today = new Date().toISOString().slice(0, 10)
-  if (prod?.registration_expire && String(prod.registration_expire).slice(0, 10) < today) {
+  const today = chinaDate()
+  if (isExpired(prod?.registration_expire, today)) {
     // 触发风险预警（同码同类未处理合并累计）
     await triggerAlert({
       alertType: 4, enterpriseId: tc.enterprise_id, codeId: tc.id, productId: tc.product_id,
@@ -215,12 +209,12 @@ export default defineEventHandler(async (event) => {
     return out
   }
 
-  // 8) 产品已过有效期（批次有效期至 < 今天）
-  if (batch?.expire_date && String(batch.expire_date).slice(0, 10) < today) {
+  // 8) 产品已过有效期：与展示共用单码覆盖后的最终日期。
+  if (isExpired(batchInfo?.expireDate, today)) {
     const out: TraceOutcome = {
       ...baseOutcome, resultType: 'expired', status, abnormalFlag: 0,
       queryCount, firstQuery, product, batch: batchInfo, recentScans: scans,
-      reasons: ['该产品已过有效期（' + String(batch.expire_date).slice(0, 10) + '），请勿使用'],
+      reasons: ['该产品已过有效期（' + batchInfo!.expireDate + '），请勿使用'],
       generatedReport: null,
     }
     return out
