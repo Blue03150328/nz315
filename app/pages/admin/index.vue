@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { NuxtLink } from '#components'
 import { adminLinks } from '#shared/utils/admin-navigation'
 // 数据概览仪表盘（PRD 5.2：统计卡片/状态分布/产品分布/30 天趋势；快捷入口板块已按用户要求下线；码库存预警已随通知配置删除）
 // Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
@@ -107,7 +108,7 @@ const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.
 
     <!-- 核心指标卡（PRD 5.2） -->
     <div class="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
-      <component :is="c.to ? resolveComponent('NuxtLink') : 'div'" v-for="c in cards" :key="c.label" :to="c.to" class="b-stat" :class="c.to ? 'hover:ring-1 hover:ring-primary focus-visible:ring-2 focus-visible:ring-primary' : ''">
+      <component :is="c.to ? NuxtLink : 'div'" v-for="c in cards" :key="c.label" :to="c.to" class="b-stat" :class="c.to ? 'hover:ring-1 hover:ring-primary focus-visible:ring-2 focus-visible:ring-primary' : ''">
         <div class="b-stat-label">
           <UIcon :name="c.icon" class="h-4 w-4 shrink-0 text-[var(--b-text-muted)]" />
           <span>{{ c.label }}</span>

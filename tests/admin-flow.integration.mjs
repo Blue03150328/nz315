@@ -16,7 +16,8 @@ try{
  const results=await Promise.all(Array.from({length:12},()=>call('/api/admin/codes/import',body)));const r=results[0];reportIds.push(r.reportId);if(r.batchCreated)batchIds.push(r.batchId);if(r.uploadBatchId)uploadIds.push(r.uploadBatchId);console.log('部分失败结果',r.imported,r.skippedDup,r.skippedInvalid);assert.equal(r.imported,1);assert.equal(r.skippedDup,1);assert.equal(r.skippedInvalid,1);assert.equal(new Set(results.map(x=>x.reportId)).size,1);
  const [[written]]=await conn.query('SELECT COUNT(*) AS total FROM trace_code WHERE code=?',[code]);assert.equal(written.total,1);
  const details=await call('/api/admin/import-reports/'+r.reportId+'/rejections');assert.equal(details.total,2);assert.equal(details.rows[1].lineNumber,4);
- const report=await call('/api/admin/import-reports/'+r.reportId);assert.equal(report.imported,1);
+ const report=await call('/api/admin/import-reports/'+r.reportId);assert.equal(report.imported,1);assert.equal(report.notificationState,'sent');
+ const [[messages]]=await conn.query('SELECT COUNT(*) AS total FROM message WHERE link=?',['/admin/import-reports/'+r.reportId]);assert.equal(messages.total,1);
  const csv=await fetch(base+'/api/admin/import-reports/'+r.reportId+'/download',{headers:{cookie}});assert.equal(csv.status,200);assert.match(await csv.text(),/原始行号/);
  const changed=await fetch(base+'/api/admin/codes/import',{method:'POST',headers:{cookie,'Content-Type':'application/json'},body:JSON.stringify({...body,content:'bad'})});assert.equal(changed.status,409);
  const failed=await call('/api/admin/codes/import',{...body,content:'bad\nwrong',requestKey:randomUUID()});reportIds.push(failed.reportId);assert.equal(failed.imported,0);assert.equal(failed.uploadBatchId,null);assert.equal(failed.skippedInvalid,2);

@@ -18,6 +18,8 @@ const toast = useToast()
 // 筛选：批次文件名 / 关联产品 / 生产批号 / 上传时间范围（下拉默认 undefined 显示 placeholder）
 const filters = reactive({
   fileName: '',
+  abnormalFlag: undefined as string | undefined,
+  uploadBatchId: undefined as number | undefined,
   productId: undefined as number | undefined,
   batchNo: '',
   dateFrom: '',
@@ -250,6 +252,19 @@ const openDetail = (row: any) => {
   showDetailModal.value = true
   loadDetail()
 }
+// 首页异常指标查看全企业码明细，包括尚未归属上传批次的生成码。
+const codesRoute = useRoute()
+const openGlobalDetail = () => {
+  if (!filters.abnormalFlag) return
+  detailRow.value = { id: undefined, file_name: filters.abnormalFlag === '1' ? '全部冻结码' : '全部作废码' }
+  detailPage.value = 1
+  Object.assign(dFilters, { keyword: '', status: undefined, abnormalFlag: filters.abnormalFlag })
+  showDetailModal.value = true
+  loadDetail()
+}
+onMounted(openGlobalDetail)
+onActivated(() => { if (!showDetailModal.value && codesRoute.path === '/admin/codes' && filters.abnormalFlag) openGlobalDetail() })
+watch(() => filters.abnormalFlag, () => { if (codesRoute.path === '/admin/codes') { if (filters.abnormalFlag) openGlobalDetail(); else showDetailModal.value = false } })
 const onDetailSearch = () => { detailPage.value = 1; loadDetail() }
 const detailTotalPages = computed(() => Math.max(1, Math.ceil(detailTotal.value / detailPageSize)))
 
@@ -428,6 +443,7 @@ const flagBadge = (f: number) => {
     </div>
 
     <div v-if="filters.abnormalFlag || filters.uploadBatchId" class="b-note">
+      <UButton v-if="filters.abnormalFlag" size="xs" variant="outline" @click="openGlobalDetail">查看全部匹配码</UButton>
       <span>当前范围：{{ filters.uploadBatchId ? '指定上传批次' : filters.abnormalFlag === '1' ? '包含冻结码的上传批次' : '包含作废码的上传批次' }} · 码总数量为批次全部码数量</span>
       <UButton size="xs" variant="link" @click="resetSearch">查看全部</UButton>
     </div>
@@ -747,7 +763,7 @@ const flagBadge = (f: number) => {
               <UIcon name="i-lucide-eye" class="h-4 w-4 text-[var(--b-text-regular)]" />
             </div>
             <div>
-              <h3 class="b-modal-title">批次码明细</h3>
+              <h3 class="b-modal-title">{{ detailRow?.id ? '批次码明细' : '追溯码明细' }}</h3>
               <p class="b-modal-sub max-w-xl truncate" :title="detailRow?.file_name">{{ detailRow?.file_name }}</p>
             </div>
           </div>
