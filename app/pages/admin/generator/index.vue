@@ -200,12 +200,12 @@ const doStockIn = async () => {
     })
     const skip = Number(res.skippedInvalid || 0) + Number(res.skippedDup || 0)
     toast.add({
-      title: skip > 0
-        ? '已入库 ' + res.imported + ' 条（状态：已生成），跳过 ' + skip + ' 条（重复/格式不符）'
-        : '已入库 ' + res.imported + ' 条（状态：已生成，未绑定生产信息）',
+      title: res.imported > 0
+        ? '已入库 ' + res.imported + ' 条，文件内重复 ' + res.duplicateFile + ' 条、库内已有 ' + res.duplicateDatabase + ' 条、校验拒绝 ' + res.skippedInvalid + ' 条'
+        : res.message,
       color: skip > 0 ? 'warning' : 'success',
     })
-    stocked.value = true
+    stocked.value = res.imported > 0 || res.skippedInvalid === 0
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || '入库失败', color: 'error' })
   } finally {
