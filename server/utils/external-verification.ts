@@ -10,9 +10,7 @@
 //      · 吃不到 SOURCE_PARSER_VERSION ⇒ 核验工单无法追溯当时用的是哪版解析规则。
 //    ⇒ 通用 HTML 抓取与「手工粘贴页面内容」两条输入现统一走 parseSourceDocument；本文件只保留
 //      「平台专用适配器（wla1 结构化接口）+ 6 项判定规则 + 触发预警」，不再自建解析。
-//    ⚠️ 刻意**未动** PRIVATE_HOST 正则（其 IP 前缀分支因末尾 `$` 失效，只剩 localhost/*.local 有效）：
-//      真实抓取已收口 source-fetch 的 BlockList + 固定地址校验 ⇒ 当前不可利用，属独立待裁定项，
-//      不与本次合并混在一起改。
+//    来源域名及解析地址共用source-fetch的公网规则，实际连接仍固定已校验地址。
 //
 // 🔴 2026-09-24 收口（第二笔）：登记库候选取数不再在本文件内联 SQL，改调
 //    `registry-lookup.ts` 的 `findRegistryRowsByUnitCode()`（与公众端 /api/trace 兜底共用同一
@@ -22,7 +20,7 @@
 //
 // 判定边界（保持合并前不变）：只核验单元识别码前 8 位（登记类别 + 登记证后六位 + 生产类型），
 // 第 9 位以后保留原码但不参与判定；原药信息**不参与判定**，仅随来源声明展示与留档。
-import { fetchSourceDocument } from './source-fetch'
+import { fetchSourceDocument, isPublicAddress } from './source-fetch'
 import { lookup } from 'node:dns/promises'
 import { query } from './db'
 import { normalizeOrgName } from './regdata'
@@ -33,7 +31,7 @@ import { parseUnitCode } from '#shared/utils/unit-code'
 import type { SourceDeclaration } from '#shared/types/source-snapshot'
 import type { ExternalSourceData, ExternalVerificationResult, VerificationItem, VerificationItemStatus } from '#shared/types/external-verification'
 
-const PRIVATE_HOST = /^(localhost|.*\.localhost|.*\.local|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)$/i
+const PRIVATE_HOST = /^(localhost|.*\.localhost|.*\.local)$/i
 
 function normalizeText(value: unknown): string {
   return String(value ?? '').replace(/[\s　、，。,.：:；;（）()［］\[\]「」]/g, '').trim()
@@ -79,8 +77,8 @@ async function assertSafeUrl(input: string): Promise<URL> {
   try { url = new URL(input) } catch { throw createError({ statusCode: 400, statusMessage: '二维码内容不是有效网址或追溯码' }) }
   if (!['http:', 'https:'].includes(url.protocol)) throw createError({ statusCode: 400, statusMessage: '只支持 HTTP 或 HTTPS 来源网址' })
   if (PRIVATE_HOST.test(url.hostname)) throw createError({ statusCode: 400, statusMessage: '来源网址不可访问本地或内网地址' })
-  const records = await lookup(url.hostname, { all: true }).catch(() => [])
-  if (records.some(r => PRIVATE_HOST.test(r.address) || r.address === '::1')) throw createError({ statusCode: 400, statusMessage: '来源网址解析到受限网络地址' })
+  const records = await lookup(url.hostname.replace(/^\[|\]$/g, ''), { all: true }).catch(() => [])
+  if (!records.length || records.some(r => !isPublicAddress(r.address))) throw createError({ statusCode: 400, statusMessage: '来源网址解析到受限网络地址或无法解析' })
   return url
 }
 

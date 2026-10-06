@@ -176,9 +176,9 @@ export function assertSameOrigin(event: any) {
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return
   const origin = getHeader(event, 'origin')
   if (!origin) return
-  // 反代场景优先取 x-forwarded-host（宝塔 nginx 默认透传 Host，两者一致）
-  const host = String(getHeader(event, 'x-forwarded-host') || getHeader(event, 'host') || '')
-  if (!host) return
+  // 只信请求Host；客户端可伪造转发头，不能拿它作为跨站校验依据。
+  const host = String(getHeader(event, 'host') || '')
+  if (!host) throw createError({ statusCode: 403, statusMessage: '跨站请求被拒绝' })
   const normalized = origin.replace(/\/+$/, '')
   if (normalized !== 'http://' + host && normalized !== 'https://' + host) {
     throw createError({ statusCode: 403, statusMessage: '跨站请求被拒绝' })
