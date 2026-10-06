@@ -48,7 +48,7 @@ test('多个登记候选只采用来源完整证号匹配的记录', () => {
 })
 test('核心资料缺失、来源对应不明及图片识别不能自动通过', () => {
   for (const mutate of [
-    v => { v.sourceSnapshot.comparisons = [{ label: '完整登记证号', status: 'match' }] },
+    v => { v.sourceSnapshot.comparisons = [{ label: '完整登记证号', status: 'insufficient' }, { label: '登记证持有人', status: 'insufficient' }] },
     v => { delete v.sourceSnapshot.source.pageCode },
     v => { v.sourceSnapshot.status = 'partial' },
     v => { v.sourceSnapshot.extractionMethod = 'vision' },
@@ -56,6 +56,29 @@ test('核心资料缺失、来源对应不明及图片识别不能自动通过',
     v => { delete v.registryCandidates[0].expireDate },
     v => { v.registryCandidates.push({ ...v.registryCandidates[0] }) },
   ]) { const value = base(); mutate(value); assert.equal(summary(value).tone, 'neutral') }
+})
+test('核心项一致但资料缺失时提示未发现明显异常，缺失项分组列出', () => {
+  const value = base()
+  value.sourceSnapshot.comparisons = [
+    { label: '登记证持有人', status: 'match' },
+    { label: '完整登记证号', status: 'insufficient' },
+    { label: '码内登记类别及后六位', status: 'insufficient' },
+    { label: '剂型', status: 'insufficient' },
+    { label: '总有效成分含量', status: 'insufficient' },
+    { label: '全部有效成分及含量', status: 'insufficient' },
+  ]
+  const result = summary(value)
+  assert.equal(result.tone, 'success')
+  assert.equal(result.title, '未发现明显异常')
+  assert.match(result.detail, /已与登记资料一致：登记证持有人/)
+  assert.match(result.detail, /登记证有效期至 2028-02-08，当前未到期/)
+  assert.match(result.detail, /请与包装标签自行核对：完整登记证号、产品名称（不含百分比标注）、剂型、总有效成分含量、全部有效成分及含量。/)
+  assert.match(result.detail, /来源页未提供、无法自动核验：来源页单元识别码、码内登记类别及后六位。/)
+})
+test('关键项全部一致仍是信息比对通过', () => {
+  const result = summary(base())
+  assert.equal(result.tone, 'success')
+  assert.equal(result.title, '信息比对通过')
 })
 test('来源码不一致与来源明确查无此码优先显示异常', () => {
   for (const issue of ['code-mismatch', 'source-not-found']) {

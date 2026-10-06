@@ -19,8 +19,12 @@ const ISSUE_HINTS: Record<string, string> = {
   'busy': '当前查询较多，请稍后重试。',
 }
 
-// 通过必须同时具备来源对应关系和全部关键字段，不能用一项一致代替完整比对。
+// 关键字段清单：全部一致时给出最强结论。
 const REQUIRED_LABELS = ['来源页单元识别码', '完整登记证号', '码内登记类别及后六位', '产品名称（不含百分比标注）', '登记证持有人', '剂型', '总有效成分含量', '全部有效成分及含量']
+// 核心项：来源页一旦提供就必须一致（不一致已在异常分支拦下）；来源页未提供不阻塞结论，只列入自核清单。
+const CORE_LABELS = ['完整登记证号', '登记证持有人']
+// 这两项只能靠来源页比对，用户翻包装也核不了，缺了只记“未核验”，不塞进自核清单。
+const UNVERIFIED_LABELS = ['来源页单元识别码', '码内登记类别及后六位']
 
 export function summarizeExternal(outcome: TraceOutcome, today: string) {
   const snapshot = outcome.sourceSnapshot
@@ -49,7 +53,20 @@ export function summarizeExternal(outcome: TraceOutcome, today: string) {
   if (snapshot?.extractionMethod === 'vision') return pending('厂家资料由图片识别取得，关键字段仍需人工核对。')
   if (!snapshot?.extractionMethod) return pending('这份来源资料需重新读取后才能确认比对结果，请重新查询。')
   if (!parts || !source.pageCode || source.pageCode !== outcome.code || snapshot.status !== 'ok') return pending('厂家页面尚未提供可核对的完整追溯码，无法确认它对应本次扫描。')
-  const missing = REQUIRED_LABELS.filter(label => !snapshot.comparisons.some(item => item.label === label && item.status === 'match'))
-  if (missing.length || !selected.expireDate) return pending('关键资料尚未齐全：' + [...missing, ...(!selected.expireDate ? ['登记证有效期'] : [])].join('、') + '。资料不足不等于产品异常。')
+  if (!selected.expireDate) return pending('登记资料未提供该登记证的有效日期，无法判断登记证当前是否在有效期内，请与包装标签核对。')
+  const statusOf = (label: string) => snapshot.comparisons.find(item => item.label === label)?.status
+  // 至少一项核心项对上才有资格给正面结论；来源页一条核心都不给时保持中性。
+  const matchedCore = CORE_LABELS.filter(label => statusOf(label) === 'match')
+  if (!matchedCore.length) return pending('来源页未提供登记证号与登记证持有人的可比对资料，无法核对是否对应同一登记证，请打开厂家原页或与包装标签核对。')
+  // 资料缺失不再否定结论：来源页未提供只说明“没自动比对”，不等于异常。
+  const missing = REQUIRED_LABELS.filter(label => statusOf(label) !== 'match')
+  if (missing.length) {
+    const selfCheck = missing.filter(label => !UNVERIFIED_LABELS.includes(label))
+    const unverified = missing.filter(label => UNVERIFIED_LABELS.includes(label))
+    const lines = ['已与登记资料一致：' + matchedCore.join('、') + '；登记证有效期至 ' + selected.expireDate + '，当前未到期。']
+    if (selfCheck.length) lines.push('以下资料本次未能自动比对，请与包装标签自行核对：' + selfCheck.join('、') + '。')
+    if (unverified.length) lines.push('来源页未提供、无法自动核验：' + unverified.join('、') + '。')
+    return { tone: 'success', title: '未发现明显异常', detail: lines.join('') }
+  }
   return { tone: 'success', title: '信息比对通过', detail: '厂家关键资料与登记资料一致。生产日期和批次仍需核对包装；此结果不代表产品质量或真伪鉴定。' }
 }
