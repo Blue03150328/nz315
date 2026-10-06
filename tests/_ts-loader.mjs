@@ -5,6 +5,10 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 export async function resolve(specifier, context, next) {
+  if (specifier.startsWith('#shared/')) {
+    const url = new URL('../shared/' + specifier.slice('#shared/'.length) + '.ts', import.meta.url)
+    if (fs.existsSync(fileURLToPath(url))) return { url: url.href, shortCircuit: true }
+  }
   if (specifier.startsWith('.') && !/\.[a-z0-9]+$/i.test(specifier) && context.parentURL) {
     const url = new URL(specifier + '.ts', context.parentURL)
     // 🔴 不要在这里指定 format：一旦写死 'module'，node 会当成普通 JS 加载、

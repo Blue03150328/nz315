@@ -15,7 +15,7 @@
 import { BILL_LIMITS, normalizeBillCategory, isValidBillDate } from '#shared/utils/bill-category'
 import { isTraceCode } from '#shared/utils/trace-code'
 
-const bad = (msg: string) => {
+function bad(msg: string): never {
   throw createError({ statusCode: 400, statusMessage: msg })
 }
 
