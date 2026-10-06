@@ -13,7 +13,7 @@ const env = Object.fromEntries(readFileSync('.env', 'utf8').split(/\r?\n/).filte
 }))
 assert.ok(['127.0.0.1', 'localhost', '::1'].includes(env.DB_HOST), '仅允许本机数据库')
 const base = 'http://localhost:3100'
-const dir = 'logs/manufacturer-2026-10-05'
+const dir = 'logs/manufacturer-2026-10-06'
 mkdirSync(dir, { recursive: true })
 const manifestPath = dir + '/manifest.json'
 const db = await mysql.createConnection({ host: env.DB_HOST, port: Number(env.DB_PORT || 3306), user: env.DB_USER, password: env.DB_PASSWORD, database: env.DB_NAME, dateStrings: true })
@@ -108,7 +108,12 @@ try {
         const r = await trace(generated.allCodes[0]); assert.equal(r.status, 'generated'); assert.equal(r.resultType, 'genuine'); assert.equal(r.product.name, state.tag); assert.equal(r.batch, null)
         assert.equal((await rows()).find(r => r.code === generated.allCodes[0]).status, 1); return { status: r.status, queryCount: r.queryCount }
       })
-      await check('重复留档明确拒绝', async () => assert.equal((await request(codesPath + '/stock-in', { codes: generated.allCodes, productId: state.productId })).status, 400))
+      await check('全部重复留档零新增且不建空记录', async () => {
+        const before = (await db.query('SELECT COUNT(*) c FROM upload_batch WHERE product_id=?', [state.productId]))[0][0].c
+        const r = await good(codesPath + '/stock-in', { codes: generated.allCodes, productId: state.productId })
+        assert.equal(r.imported, 0); assert.equal(r.duplicateDatabase, 100); assert.equal(r.uploadBatchId, null)
+        assert.equal((await db.query('SELECT COUNT(*) c FROM upload_batch WHERE product_id=?', [state.productId]))[0][0].c, before)
+      })
       await check('留档输入内部重复码应去重而非整批500', async () => {
         const g = await gen(1); const r = await request(codesPath + '/stock-in', { codes: [g.allCodes[0], g.allCodes[0]], productId: state.productId })
         assert.equal(r.status, 200, JSON.stringify(r)); assert.equal(r.data.imported, 1); assert.equal(r.data.skippedDup, 1)
@@ -160,6 +165,37 @@ try {
       await check('整批只修改生产日期应保留原有效期', async () => {
         await good(ubPath(stock.uploadBatchId) + '/correct', { produceDate: '2026-10-04' }); const [[b]] = await db.query('SELECT expire_date FROM batch WHERE id=?', [state.stockBatchId]); assert.equal(b.expire_date, '2028-10-05', '未填有效期却被改成生产日期'); return b
       })
+      await check('文件改日期保留单码有效期覆盖，生产批次保持原值', async () => {
+        assert.equal((await trace(first.code)).batch.expireDate, '2020-01-01')
+        assert.equal((await trace(generated.allCodes[3])).batch.expireDate, '2028-10-05')
+        const [[b]] = await db.query('SELECT produce_date FROM batch WHERE id=?', [state.stockBatchId]); assert.equal(b.produce_date, '2026-10-05')
+      })
+      await check('生产批次只改生产日期保留各码有效期修正', async () => {
+        await good('/api/admin/batches/' + state.stockBatchId, { produceDate: '2026-10-03' }, 'PATCH')
+        assert.equal((await trace(first.code)).batch.expireDate, '2020-01-01')
+        assert.equal((await trace(generated.allCodes[3])).batch.expireDate, '2028-10-05')
+      })
+      await check('选中码仅修改证号，日期和范围外码保持原值', async () => {
+        const target = (await rows()).find(r => r.code === generated.allCodes[3])
+        const before = await trace(target.code); const outside = await trace(generated.allCodes[4])
+        await good(codesPath + '/batch-correct', { ids: [target.id], qualityCertNo: state.tag + '_selected' })
+        const after = await trace(target.code)
+        assert.equal(after.batch.produceDate, before.batch.produceDate); assert.equal(after.batch.expireDate, before.batch.expireDate)
+        assert.deepEqual((await trace(generated.allCodes[4])).batch, outside.batch)
+        const [[u]] = await db.query('SELECT quality_cert_no FROM upload_batch WHERE id=?', [stock.uploadBatchId]); assert.equal(u.quality_cert_no, null)
+      })
+      await check('非法日期拒绝且未部分修改', async () => {
+        const before = await rows()
+        assert.equal((await request(codesPath + '/batch-correct', { ids: [first.id], produceDate: '2026-02-30', qualityCertNo: '不得写入' })).status, 400)
+        assert.deepEqual(await rows(), before)
+      })
+      await check('同一生产批次的另一上传文件不受文件修正影响', async () => {
+        const all = await rows(); const a = all.find(r => r.code === external[0]); const b = all.find(r => r.code === external[3])
+        const outside = await trace(b.code)
+        await good(ubPath(a.upload_batch_id) + '/correct', { produceDate: '2026-10-02' })
+        assert.equal((await trace(a.code)).batch.produceDate, '2026-10-02'); assert.deepEqual((await trace(b.code)).batch, outside.batch)
+        const [[batch]] = await db.query('SELECT produce_date FROM batch WHERE id=?', [state.externalBatchId]); assert.equal(batch.produce_date, '2026-10-05')
+      })
       // 恢复独立测试批次，便于后面的冻结与恢复断言。
       await good(ubPath(stock.uploadBatchId) + '/correct', { produceDate: '2026-10-05', expireDate: '2028-10-05' })
       await good(codesPath + '/' + first.id + '/correct', { expireDate: '2028-10-05' })
@@ -186,14 +222,27 @@ try {
         const target = (await rows()).find(r => r.code === generated.allCodes[7])
         assert.equal((await request(codesPath + '/' + target.id + '/correct', { batchId: state.externalBatchId })).status, 400)
       })
-      await check('过期登记证拒绝外部导入绑定', async () => {
+      await check('不合格批次在选中码和文件绑定也拒绝伪造合格参数', async () => {
+        const g = await gen(2); const s = await good(codesPath + '/stock-in', { codes: g.allCodes, productId: state.productId })
+        const all = await rows(); const ids = g.allCodes.map(code => all.find(r => r.code === code).id)
+        for (const [path, body] of [[codesPath + '/batch-correct', { ids, batchId: state.externalBatchId, qcResult: 1 }], [ubPath(s.uploadBatchId) + '/correct', { batchId: state.externalBatchId, qcResult: 1 }]]) assert.equal((await request(path, body)).status, 400)
+        assert.ok((await rows()).filter(r => ids.includes(r.id)).every(r => r.status === 1 && r.batch_id === null))
+      })
+      await check('过期登记证允许外部导入绑定且扫码提示', async () => {
         await db.query('UPDATE product SET registration_expire=? WHERE id=?', ['2020-01-01', state.productId])
-        const r = await request(codesPath + '/import', importBody([external[7]], 'expiredreg')); assert.ok(r.status === 400 || (r.data.ok === false && r.data.imported === 0), '实际返回 ' + JSON.stringify(r))
+        const r = await good(codesPath + '/import', importBody([external[7]], 'expiredreg')); assert.equal(r.ok, true); assert.equal(r.imported, 1)
+        assert.equal((await trace(external[7])).resultType, 'reg-expired')
       })
       await check('过期登记证扫码给出明确提示', async () => assert.equal((await trace(generated.allCodes[6])).resultType, 'reg-expired'))
-      await check('过期登记证整批新绑定入口拒绝且不留孤儿批次', async () => {
-        const g = await gen(1); const s = await good(codesPath + '/stock-in', { codes: g.allCodes, productId: state.productId }); assert.equal((await request(ubPath(s.uploadBatchId) + '/correct', { batchNo: state.tag + '_expiredstock', produceDate: '2026-10-05' })).status, 400)
-        const [[b]] = await db.query('SELECT COUNT(*) c FROM batch WHERE product_id=? AND batch_no=?', [state.productId, state.tag + '_expiredstock']); assert.equal(b.c, 0)
+      await check('过期登记证文件新绑定及单码批量绑定统一放行', async () => {
+        const g = await gen(3); const s = await good(codesPath + '/stock-in', { codes: g.allCodes, productId: state.productId })
+        const bound = await good(ubPath(s.uploadBatchId) + '/correct', { batchNo: state.tag + '_expiredstock', produceDate: '2026-10-05' }); assert.equal(bound.rebound, 3)
+        assert.equal((await trace(g.allCodes[0])).resultType, 'reg-expired')
+        const next = await gen(2); await good(codesPath + '/stock-in', { codes: next.allCodes, productId: state.productId })
+        const all = await rows(); const ids = next.allCodes.map(code => all.find(r => r.code === code).id)
+        assert.equal((await good(codesPath + '/' + ids[0] + '/correct', { batchId: bound.batchId })).rebound, 1)
+        assert.equal((await good(codesPath + '/batch-correct', { ids: [ids[1]], batchId: bound.batchId })).rebound, 1)
+        for (const code of next.allCodes) assert.equal((await trace(code)).resultType, 'reg-expired')
       })
       await db.query('UPDATE product SET registration_expire=? WHERE id=?', [state.productBody.registrationExpire, state.productId])
       await check('码头生产类型必须与关联产品一致', async () => {
@@ -202,6 +251,67 @@ try {
       await check('码头规格必须与关联产品规格一致', async () => {
         const [[s]] = await db.query('SELECT spec_code FROM product_spec WHERE enterprise_id=? AND id<>? AND status=1 LIMIT 1', [state.enterpriseId, state.specId]); assert.ok(s)
         const bad = external[9].slice(0, 8) + s.spec_code + external[9].slice(11); const r = await good(codesPath + '/import', importBody([bad], 'wrongspec')); assert.equal(r.imported, 0, JSON.stringify(r))
+      })
+      await check('完整头部预览提交一致，错误行拒绝且外部尾部原样保留', async () => {
+        const head = generated.allCodes[0].slice(0, 11); const valid = head + '9'.repeat(21)
+        const bad = ['2' + valid.slice(1), valid.slice(0, 7) + '3' + valid.slice(8), valid.slice(0, 8) + '999' + valid.slice(11), valid.slice(0, 1) + '999999' + valid.slice(7)]
+        const p = await good(codesPath + '/parse', { codes: [valid, ...bad], productId: state.productId })
+        assert.equal(p.validCount, 1); assert.equal(p.invalidCount, 4)
+        const s = await good(codesPath + '/stock-in', { codes: [valid, ...bad], productId: state.productId })
+        assert.equal(s.imported, 1); assert.equal(s.skippedInvalid, 4); assert.ok((await rows()).some(r => r.code === valid))
+      })
+      await check('留档12并发只新增一次且不创建空上传记录', async () => {
+        const g = await gen(4); const before = (await db.query('SELECT COUNT(*) c FROM upload_batch WHERE product_id=?', [state.productId]))[0][0].c
+        const input = [...g.allCodes, g.allCodes[0]]
+        const responses = await Promise.all(Array.from({ length: 12 }, () => good(codesPath + '/stock-in', { codes: input, productId: state.productId })))
+        assert.equal(responses.reduce((n, r) => n + r.imported, 0), 4)
+        assert.equal(responses.filter(r => r.uploadBatchId).length, 1)
+        for (const r of responses) { assert.equal(r.duplicateFile, 1); assert.equal(r.total, r.imported + r.skippedDup + r.skippedInvalid) }
+        assert.equal((await db.query('SELECT COUNT(*) c FROM upload_batch WHERE product_id=?', [state.productId]))[0][0].c, before + 1)
+        return { requests: 12, inserted: 4 }
+      })
+      await check('上传12并发只新增一次且仅一条完成通知', async () => {
+        const g = await gen(4); const body = importBody([...g.allCodes, g.allCodes[0]], 'concurrent')
+        const responses = await Promise.all(Array.from({ length: 12 }, () => good(codesPath + '/import', body)))
+        assert.ok(responses.every(r => r.ok)); assert.equal(responses.reduce((n, r) => n + r.imported, 0), 4)
+        const success = responses.find(r => r.imported > 0); assert.equal(responses.filter(r => r.uploadBatchId).length, 1)
+        assert.equal((await db.query('SELECT COUNT(*) c FROM message WHERE link=?', ['/admin/codes?uploadBatchId=' + success.uploadBatchId]))[0][0].c, 1)
+        return { requests: 12, inserted: 4, notifications: 1 }
+      })
+      await check('冻结混合选择整笔拒绝且正常码不部分修改', async () => {
+        const g = await gen(2); await good(codesPath + '/stock-in', { codes: g.allCodes, productId: state.productId })
+        const all = await rows(); const ids = g.allCodes.map(code => all.find(r => r.code === code).id)
+        await good(codesPath + '/' + ids[0], { flag: 1 }, 'PATCH')
+        const before = await rows()
+        assert.equal((await request(codesPath + '/batch-correct', { ids, produceDate: '2026-10-04' })).status, 400)
+        assert.deepEqual(await rows(), before)
+        await good(codesPath + '/' + ids[0], { flag: 0 }, 'PATCH')
+      })
+      await check('真实数据库插码故障回滚批次及上传记录，留档返回500', async () => {
+        const g = await gen(2); const trigger = 'nz315_verify_insert_' + Number(state.productId)
+        state.triggers = [trigger]; save()
+        const before = await rows(); const count = async table => (await db.query('SELECT COUNT(*) c FROM ' + table + ' WHERE product_id=?', [state.productId]))[0][0].c
+        const batches = await count('batch'); const uploads = await count('upload_batch')
+        await db.query('CREATE TRIGGER ' + trigger + " BEFORE INSERT ON trace_code FOR EACH ROW BEGIN IF NEW.product_id=" + Number(state.productId) + " THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='验收注入故障'; END IF; END")
+        try {
+          const stock = await request(codesPath + '/stock-in', { codes: [g.allCodes[0]], productId: state.productId }); assert.equal(stock.status, 500)
+          const imported = await good(codesPath + '/import', importBody([g.allCodes[1]], 'dbfault')); assert.equal(imported.ok, false); assert.equal(imported.imported, 0)
+          assert.equal(await count('batch'), batches); assert.equal(await count('upload_batch'), uploads); assert.deepEqual(await rows(), before)
+        } finally { await db.query('DROP TRIGGER IF EXISTS ' + trigger); state.triggers = []; save() }
+      })
+      await check('文件快照写入故障后修正码全部回滚', async () => {
+        const target = (await rows()).find(r => r.code === generated.allCodes[8]); const before = await rows()
+        const trigger = 'nz315_verify_update_' + Number(state.productId); state.triggers = [trigger]; save()
+        await db.query('CREATE TRIGGER ' + trigger + " BEFORE UPDATE ON upload_batch FOR EACH ROW BEGIN IF NEW.product_id=" + Number(state.productId) + " THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='验收快照故障'; END IF; END")
+        try { assert.equal((await request(codesPath + '/' + target.id + '/correct', { produceDate: '2026-10-01' })).status, 500); assert.deepEqual(await rows(), before) }
+        finally { await db.query('DROP TRIGGER IF EXISTS ' + trigger); state.triggers = []; save() }
+      })
+      await check('代表规模1万条生成留档及重复重试计数正确', async () => {
+        const started = performance.now(); const g = await gen(10000); const generatedMs = Math.round(performance.now() - started)
+        const writeStart = performance.now(); const r = await good(codesPath + '/stock-in', { codes: g.allCodes, productId: state.productId })
+        const writeMs = Math.round(performance.now() - writeStart); assert.equal(r.imported, 10000)
+        const retry = await good(codesPath + '/stock-in', { codes: g.allCodes, productId: state.productId }); assert.equal(retry.imported, 0); assert.equal(retry.duplicateDatabase, 10000); assert.equal(retry.uploadBatchId, null)
+        return { quantity: 10000, generatedMs, writeMs }
       })
       const viewer = await login('viewer'); const operator = await login('codeop')
       await check('只读账号生成/留档/导入/修正/标记全部拒绝', async () => {
@@ -223,6 +333,10 @@ try {
       if (results.some(r => !r.pass)) process.exitCode = 1
     }
     if (process.argv.includes('--cleanup')) {
+      for (const trigger of state.triggers || []) {
+        assert.match(trigger, /^nz315_verify_(insert|update)_\d+$/)
+        await db.query('DROP TRIGGER IF EXISTS ' + trigger)
+      }
       await db.beginTransaction()
       if (state.productId) {
         const [uploads] = await db.query('SELECT id FROM upload_batch WHERE product_id=?', [state.productId])
