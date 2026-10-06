@@ -313,6 +313,21 @@ try {
         const retry = await good(codesPath + '/stock-in', { codes: g.allCodes, productId: state.productId }); assert.equal(retry.imported, 0); assert.equal(retry.duplicateDatabase, 10000); assert.equal(retry.uploadBatchId, null)
         return { quantity: 10000, generatedMs, writeMs }
       })
+      await check('代表规模1万条文件解析上传绑定及重复重试正确', async () => {
+        const g = await gen(10000); const content = g.allCodes.join('\n')
+        const parseStart = performance.now()
+        const parsed = await good(codesPath + '/parse', { content, productId: state.productId, includeCodes: false })
+        const parseMs = Math.round(performance.now() - parseStart)
+        assert.equal(parsed.validCount, 10000); assert.equal(parsed.invalidCount, 0)
+        const body = { ...importBody([], 'largefile'), content }
+        const writeStart = performance.now(); const r = await good(codesPath + '/import', body)
+        const writeMs = Math.round(performance.now() - writeStart); assert.equal(r.imported, 10000)
+        const importedRows = (await rows()).filter(row => row.upload_batch_id === r.uploadBatchId)
+        assert.equal(importedRows.length, 10000); assert.ok(importedRows.every(row => row.status === 2 && row.batch_id === r.batchId))
+        const retry = await good(codesPath + '/import', body)
+        assert.equal(retry.imported, 0); assert.equal(retry.skippedDup, 10000); assert.equal(retry.uploadBatchId, null)
+        return { quantity: 10000, inputBytes: Buffer.byteLength(content), parseMs, writeMs }
+      })
       const viewer = await login('viewer'); const operator = await login('codeop')
       await check('只读账号生成/留档/导入/修正/标记全部拒绝', async () => {
         for (const [path, body, method] of [[codesPath + '/generate', { productId: state.productId, quantity: 1 }], [codesPath + '/stock-in', { productId: state.productId, codes: external }], [codesPath + '/import', importBody(external)], [codesPath + '/' + first.id + '/correct', { produceDate: '2026-10-04' }], [codesPath + '/' + first.id, { flag: 1 }, 'PATCH']]) assert.equal((await request(path, body, method || 'POST', viewer)).status, 403)
