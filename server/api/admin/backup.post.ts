@@ -21,14 +21,14 @@ export default defineEventHandler(async (event) => {
   if (!fs.existsSync(BACKUP_DIR)) fs.mkdirSync(BACKUP_DIR, { recursive: true })
 
   // mysqldump 全库备份（--single-transaction 保证一致性，不锁表）
-  const mysqldump = 'C:/Program Files/MySQL/MySQL Server 8.0/bin/mysqldump.exe'
+  const mysqldump = process.platform === 'win32' ? 'C:/Program Files/MySQL/MySQL Server 8.0/bin/mysqldump.exe' : 'mysqldump'
   try {
     await execFileAsync(mysqldump, [
       '-h', config.dbHost, '-P', String(config.dbPort),
-      '-u', config.dbUser, '-p' + config.dbPassword,
+      '-u', config.dbUser,
       '--single-transaction', '--default-character-set=utf8mb4',
       config.dbName,
-    ], { maxBuffer: 512 * 1024 * 1024 })
+    ], { maxBuffer: 512 * 1024 * 1024, env: { ...process.env, MYSQL_PWD: String(config.dbPassword) } })
       .then(({ stdout }) => {
         fs.writeFileSync(filePath, stdout, 'utf8')
       })
@@ -36,7 +36,8 @@ export default defineEventHandler(async (event) => {
     await logOperation(event, { module: '数据备份', action: '手动备份', content: JSON.stringify({ file: fileName, size }) })
     return { ok: true, file: fileName, size, time: timestamp }
   } catch (e: any) {
-    console.error('[backup] 备份失败:', e?.message || e)
-    throw createError({ statusCode: 500, statusMessage: '备份失败：' + (e?.message || '未知错误') })
+    // 不把命令参数、配置或数据库错误原文暴露给页面。
+    console.error('[backup] 备份失败，错误代码:', e?.code || '未知')
+    throw createError({ statusCode: 500, statusMessage: '备份失败，请检查数据库连接与mysqldump程序' })
   }
 })
