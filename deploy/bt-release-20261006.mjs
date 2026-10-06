@@ -10,13 +10,13 @@ import { parseEnv } from 'node:util'
 import { fileURLToPath } from 'node:url'
 
 const LIVE = '/var/www/nz315'
-const STAGE = '/var/www/.nz315-candidate-20261006-1e396e0'
-const OLD = '/var/www/.nz315-previous-20261006-1e396e0'
-const FAILED = '/var/www/.nz315-failed-20261006-1e396e0'
-const SAFE = '/var/backups/nz315/release-20261006-1e396e0'
+const STAGE = '/var/www/.nz315-candidate-20261006-201b65a'
+const OLD = '/var/www/.nz315-previous-20261006-201b65a'
+const FAILED = '/var/www/.nz315-failed-20261006-201b65a'
+const SAFE = '/var/backups/nz315/release-20261006-201b65a'
 const NODE = '/usr/local/node22/bin/node'
-const PACKAGE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'nz315-1e396e0-source.tar.gz')
-const PACKAGE_HASH = '2facc411ab7d5ef4f463912691298b72831688c6f6d2fc7b2a007ab9207f5c86'
+const PACKAGE = path.join(path.dirname(fileURLToPath(import.meta.url)), 'nz315-201b65a-source.tar.gz')
+const PACKAGE_HASH = '0a1f8734a27908740724e5cfcafa157fd3f83ff7a78e901901c26fb6409e270c'
 const TOOL_HASH = '04373ae1dc21752636f1b68945edb2dca8cff19c8b005b2ace1070cbc0a72fe8'
 const STATE = path.join(SAFE, 'state.json')
 const mode = process.argv[2]
@@ -144,7 +144,7 @@ async function prepare() {
   command('tar', ['-xzf', PACKAGE, '-C', STAGE])
   const sourceFiles = command('tar', ['-tzf', PACKAGE]).trim().split('\n').filter(f => !f.endsWith('/'))
   const differences = sourceFiles.filter(f => !fs.existsSync(LIVE + '/' + f) || sha(LIVE + '/' + f) !== sha(STAGE + '/' + f))
-  fs.writeFileSync(SAFE + '/source-diff.json', JSON.stringify({ source: '1e396e0', oldCriticalHashes: sourceBefore, changedOrAdded: differences }, null, 2), { mode: 0o600 })
+  fs.writeFileSync(SAFE + '/source-diff.json', JSON.stringify({ source: '201b65a', oldCriticalHashes: sourceBefore, changedOrAdded: differences }, null, 2), { mode: 0o600 })
   command('cp', ['-a', LIVE + '/.env', STAGE + '/.env'])
   fs.chmodSync(STAGE + '/.env', 0o600)
   syncPublic()
@@ -241,7 +241,7 @@ async function publish() {
     publicPermissions(LIVE + '/public')
     publicPermissions(LIVE + '/.output/public')
     s.phase = 'switched'; save(s)
-    fs.writeFileSync(LIVE + '/.deploy-version', JSON.stringify({ source: '1e396e0', packageSHA256: PACKAGE_HASH, build: s.next, deployedAt: new Date().toISOString() }, null, 2) + '\n')
+    fs.writeFileSync(LIVE + '/.deploy-version', JSON.stringify({ source: '201b65a', packageSHA256: PACKAGE_HASH, build: s.next, deployedAt: new Date().toISOString() }, null, 2) + '\n')
     pm2(['restart', 'nz315'])
     await verify()
     s.phase = 'published'; save(s)
@@ -277,7 +277,7 @@ async function rollback() {
   must(!fs.existsSync(FAILED), '已有失败现场目录，停止重复回退')
   if (mode === 'rollback') {
     const current = JSON.parse(fs.readFileSync(LIVE + '/.deploy-version', 'utf8'))
-    must(current.source === '1e396e0' && current.build?.id === s.next.id, '现役已不是本执行单切换的版本，停止回退')
+    must(current.source === '201b65a' && current.build?.id === s.next.id, '现役已不是本执行单切换的版本，停止回退')
   }
   pm2(['stop', 'nz315'])
   if (fs.existsSync(LIVE)) fs.renameSync(LIVE, FAILED)
