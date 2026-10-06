@@ -19,3 +19,5 @@ deploy/*.cjs  text eol=lf
 # ⚠️ 若日后新增内部文档目录，记得同样加一行，否则又会漏进包。
 .workbuddy/    export-ignore
 docs/handover/ export-ignore
+# Android独立客户端不进入网站服务器源码发布包。
+android-collector/ export-ignore

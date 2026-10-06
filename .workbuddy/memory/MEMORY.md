@@ -3,7 +3,7 @@
 > 硬约定只在这里；细节看 `AGENTS.md`（含交接索引）+ `docs/handover/` + `ARCHIVE-参考细节.md`。复测 skill `nz315-func-regression`。
 
 ## 🔴 只信公网指纹
-`curl -s www.nz315.cn/_nuxt/builds/latest.json`→`timestamp`；**每轮先量指纹再写执行单/包名**，本机记录不可信。现役 `1790496675391`（09-27 16:11 / `47bcbd7`）。
+`curl -s www.nz315.cn/_nuxt/builds/latest.json`→`timestamp`；**每轮先量指纹再写执行单/包名**，本机记录不可信。现役 `1791255581151`（10-06 10:59，对应本机 `52627d6`）；上一版 `1790755593671`（09-30 16:06）。
 
 ## 🔴 部署与数据库
 - 补列补索引一律 `db-init.mjs --migrate-only`（判据 `bad=0`）；**新建表不打印迁移行**（判据=表数+1），须同改 `DDL`+`ACTIVE_TABLES`/`EXPECTED_NEW_TABLES`。
@@ -20,6 +20,7 @@
 - 同一文件多次 Edit **绝不并行**；`node --check` 不查未声明引用；用户报「点了没反应/控件用不了」⇒ **先回退上一版对照复跑**。
 - **合成 HTML 单测全绿 ≠ 真实页面没被读坏**（`f820bcd` 单测 10/10 却读坏 2 站 ⇒ revert）；改解析口径必须真实页面**逐字段**对照。
 - **「已修」≠「已上线」**；失败命令的 fallback 输出绝不当证据；判等价必须**全表穷举集合比较**。
+- 🔴 **`UInput type="number"` 的 `v-model` 是 number 不是 string**（Nuxt UI v4 `Input.vue` 对 `type==='number'` 走 `looseToNumber`）⇒ 对它调 `.trim()` 会在按钮事件里静默抛 TypeError：请求不发出、无任何提示，**表现为「点了没反应」**。实例：记账保存自 `20caee5`(09-29) 起坏了 7 天，「新建记账」全量不可用。凡此类字段一律先 `String(v ?? '')` 归一。
 - 🔴 **两个口径别混**：①「两文件测试合计数」≠「单文件数」；②「git blob 字节(LF)」≠「包内字节(CRLF)」（本机 `core.autocrlf=true`，`git archive` 产物是 CRLF）⇒ 核执行单字节判据**必须用包内口径**。
 
 ## 外码解析
@@ -36,9 +37,11 @@
 ## 本机环境
 - 托管 Node 22.22.2-3；dev 3100（**只能用 `http://localhost:3100`**）。**`npm run build` 跑不了** ⇒ `node node_modules/nuxt/bin/nuxt.mjs build`。`curl` 走代理 ⇒ 连本机加 `--noproxy '*'`；Git Bash coreutils 全瘫 ⇒ 用 node 脚本。
 - 🔴 改 CRLF 文档别用 Edit ⇒ 补丁表+驱动脚本、**函数式替换**（见 `ARCHIVE`）。
+- 公众端真浏览器端到端回归：`playwright-core`（托管 workspace）+ 系统 Chrome + `context.addCookies` 注入自造 `nz315_consumer`（**httpOnly 只禁 JS 读、服务端不查该标志**，故可注入）⇒ 见 skill `nz315-consumer-e2e`。旧法 jsdom 只验结构不验视觉。
 
 ## 待办
 1. 🔴 存储放大**已收口**（`5a0246f`）但**未上线** ⇒ 需另打含本轮 3 文件的新包。
 2. 🔴 拿到 sdakzw 真码后补端到端验收。
 3. 微信授权域名保存状态未确认；公安备案 ~2026-10-15；HTTPS 证书 2026-12-16 到期不续期。
 4. 其余遗留（未登记标签 / 线 B 缺口 / C7·E4）见 `AGENTS.md` 待办段。
+5. 🔴 记账保存修复（`app/components/BillFormModal.vue` 的 `toText` 归一，本机已改**未提交未上线**）⇒ 上线需按 54 号流程重打包；线上当前版本该功能不可用。
