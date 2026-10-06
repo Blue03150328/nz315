@@ -34,6 +34,8 @@ export interface SourceComparison {
   reason: string
 }
 export interface SourceSnapshot {
+  /** 取材方式用于控制自动通过；图片识别内容必须人工核对。 */
+  extractionMethod?: 'page' | 'adapter' | 'vision'
   id?: string
   fetchedAt: string
   parserVersion: string

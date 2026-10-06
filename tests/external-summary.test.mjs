@@ -5,9 +5,10 @@ import { stripTypeScriptTypes } from 'node:module'
 const code = stripTypeScriptTypes(fs.readFileSync('shared/utils/external-summary.ts', 'utf8'))
 const { summarizeExternal } = await import('data:text/javascript;base64,' + Buffer.from(code).toString('base64'))
 const base = () => ({
+  code: '11722251100136950812284409766080',
   codeParts: { validLength: true, validCategory: true, validProductionType: true },
-  registryCandidates: [{ registrationNo: 'PD20172225', expired: false }],
-  sourceSnapshot: { status: 'ok', source: { registrationNo: 'PD20172225' }, comparisons: [{ label: '完整登记证号', status: 'match' }] },
+  registryCandidates: [{ registrationNo: 'PD20172225', expireDate: '2028-02-08', expired: false }],
+  sourceSnapshot: { status: 'ok', extractionMethod: 'page', source: { pageCode: '11722251100136950812284409766080', registrationNo: 'PD20172225' }, comparisons: ['来源页单元识别码', '完整登记证号', '码内登记类别及后六位', '产品名称（不含百分比标注）', '登记证持有人', '剂型', '总有效成分含量', '全部有效成分及含量'].map(label => ({ label, status: 'match' })) },
 })
 const summary = value => summarizeExternal(value, '2026-09-24')
 test('资料不足及无登记参考的批次、生产企业不计异常', () => {
@@ -44,4 +45,30 @@ test('多个登记候选只采用来源完整证号匹配的记录', () => {
   assert.equal(summary(value).tone, 'success')
   delete value.sourceSnapshot.source.registrationNo
   assert.equal(summary(value).tone, 'neutral')
+})
+test('核心资料缺失、来源对应不明及图片识别不能自动通过', () => {
+  for (const mutate of [
+    v => { v.sourceSnapshot.comparisons = [{ label: '完整登记证号', status: 'match' }] },
+    v => { delete v.sourceSnapshot.source.pageCode },
+    v => { v.sourceSnapshot.status = 'partial' },
+    v => { v.sourceSnapshot.extractionMethod = 'vision' },
+    v => { delete v.sourceSnapshot.extractionMethod },
+    v => { delete v.registryCandidates[0].expireDate },
+    v => { v.registryCandidates.push({ ...v.registryCandidates[0] }) },
+  ]) { const value = base(); mutate(value); assert.equal(summary(value).tone, 'neutral') }
+})
+test('来源码不一致与来源明确查无此码优先显示异常', () => {
+  for (const issue of ['code-mismatch', 'source-not-found']) {
+    const value = base(); value.sourceSnapshot = { status: 'unavailable', issue, comparisons: [] }
+    assert.equal(summary(value).tone, 'warning')
+  }
+  const value = base(); value.sourceSnapshot.source.pageCode = '0'.repeat(32)
+  assert.equal(summary(value).tone, 'warning')
+})
+test('登记证到期当天仍有效，次日提示结合生产日期核实', () => {
+  const value = base(); value.registryCandidates[0].expireDate = '2026-09-24'
+  assert.equal(summary(value).tone, 'success')
+  const result = summarizeExternal(value, '2026-09-25')
+  assert.equal(result.tone, 'warning')
+  assert.match(result.detail, /结合产品生产日期核实/)
 })

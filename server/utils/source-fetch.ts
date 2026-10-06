@@ -19,13 +19,14 @@ let active = 0
  *   🔴 只允许传适配器里写死的常量；**绝不能**把用户输入拼进请求头，否则等于开放请求头注入。
  *   向后兼容：不传时与既有行为逐字节一致。
  */
-export async function fetchSourceDocument(input: string, extraHeaders?: Record<string, string>, options?: { method?: 'GET' | 'POST'; body?: string }): Promise<{ url: string; body: string }> {
+export async function fetchSourceDocument(input: string, extraHeaders?: Record<string, string>, options?: { method?: 'GET' | 'POST' | 'HEAD'; body?: string; httpsOnly?: boolean }): Promise<{ url: string; body: string; frameOptions?: string; framePolicy?: string }> {
   if (active >= 4) throw new Error('来源查询繁忙，请稍后重试')
   active++
   const deadline = Date.now() + 8000
   try {
     let url = new URL(input)
     for (let jump = 0; jump <= 3; jump++) {
+      if (options?.httpsOnly && url.protocol !== 'https:') throw new Error('来源页面未使用安全连接')
       if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || (url.port && !['80', '443'].includes(url.port)) || url.href.length > 2048) throw new Error('来源网址不受支持')
       const host = url.hostname.replace(/^\[|\]$/g, '')
       const remaining = deadline - Date.now()
@@ -37,7 +38,7 @@ export async function fetchSourceDocument(input: string, extraHeaders?: Record<s
       ]).finally(() => clearTimeout(timer))
       if (!records.length || records.some(r => !isPublicAddress(r.address))) throw new Error('来源网址不是可访问的公网地址')
       const chosen = records[0]!
-      const response = await new Promise<{ location?: string; body: string }>((resolve, reject) => {
+      const response = await new Promise<{ location?: string; body: string; frameOptions?: string; framePolicy?: string }>((resolve, reject) => {
         const req = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, {
           method: options?.method || 'GET',
           headers: { accept: 'text/html,application/json', 'accept-encoding': 'identity', ...(extraHeaders || {}) },
@@ -57,7 +58,7 @@ export async function fetchSourceDocument(input: string, extraHeaders?: Record<s
             if (size > 1024 * 1024) { req.destroy(new Error('来源页面超过大小限制')); return }
             chunks.push(chunk)
           })
-          res.on('end', () => resolve({ body: Buffer.concat(chunks).toString('utf8') }))
+          res.on('end', () => resolve({ body: Buffer.concat(chunks).toString('utf8'), frameOptions: String(res.headers['x-frame-options'] || ''), framePolicy: String(res.headers['content-security-policy'] || '') }))
           res.on('error', reject)
         })
         const timeout = setTimeout(() => req.destroy(new Error('来源页面请求超时')), Math.max(1, deadline - Date.now()))
@@ -66,7 +67,7 @@ export async function fetchSourceDocument(input: string, extraHeaders?: Record<s
         if (options?.body) req.write(options.body)
         req.end()
       })
-      if (!response.location) return { url: url.href, body: response.body }
+      if (!response.location) return { url: url.href, body: response.body, frameOptions: response.frameOptions, framePolicy: response.framePolicy }
       url = new URL(response.location, url)
     }
     throw new Error('来源页面跳转次数过多')

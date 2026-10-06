@@ -64,6 +64,8 @@ export interface TraceCodeParts {
 
 /** 登记资料库（pesticide_reg）比对到的候选登记证（resultType='external-reg' 时存在） */
 export interface TraceRegistryCandidate {
+  importedAt?: string
+  ingredients?: string
   registrationNo: string
   productName: string
   commodityName?: string

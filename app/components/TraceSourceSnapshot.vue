@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { SourceSnapshot } from '#shared/types/source-snapshot'
-const props = defineProps<{ snapshot?: SourceSnapshot; historical?: boolean }>()
+const props = defineProps<{ snapshot?: SourceSnapshot; historical?: boolean; comparisonsOnly?: boolean; hideComparisons?: boolean; compact?: boolean; expandComparisons?: boolean }>()
 const source = computed(() => props.snapshot?.source)
 const labels = { match: '一致', mismatch: '存在差异', insufficient: '资料不足', review: '待人工核实' }
 const comparisonCounts = computed(() => Object.entries(labels).map(([status, label]) => ({ label, count: props.snapshot?.comparisons.filter(item => item.status === status).length || 0 })))
@@ -10,12 +10,13 @@ const production = computed(() => [
   { label: '生产日期及批号说明', value: source.value?.productionNote || '来源页未提供' },
   { label: '生产批号', value: source.value?.batchNo || '来源页未提供具体批号' },
   { label: '保质期', value: source.value?.shelfLife || '来源页未提供' },
-  { label: '产品有效期至', value: source.value?.productExpiry || '来源页未提供' },
+  { label: /^\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?$/.test(source.value?.productExpiry || '') ? '产品有效期至' : '产品有效期说明', value: source.value?.productExpiry || '来源页未提供' },
 ])
 </script>
 <template>
   <div class="space-y-4">
-    <section class="rounded-xl border border-border bg-elevated p-4 text-sm shadow-sm">
+    <template v-if="!comparisonsOnly">
+    <section v-if="!compact" class="rounded-xl border border-border bg-elevated p-4 text-sm shadow-sm">
       <h2 class="font-semibold">{{ historical ? '历史查询快照' : '外部查询页来源' }}</h2>
       <template v-if="snapshot">
         <p class="mt-2 break-words">{{ snapshot.message }}</p>
@@ -32,6 +33,7 @@ const production = computed(() => [
       <p v-else class="mt-2 text-muted">没有拿到这个码的来源页面网址，暂时看不到厂家声明的原药、生产日期与批号。请以包装标签实物为准。</p>
     </section>
     <template v-if="source">
+      <p v-if="compact" class="px-1 text-xs text-muted">以下为本次读取的厂家资料<span v-if="snapshot?.fetchedAt"> · 获取时间：{{ new Date(snapshot.fetchedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai', hour12: false }) }}</span>。厂家声明请与包装核对。<NuxtLink v-if="snapshot?.saved && snapshot.id" :to="'/trace-snapshot/' + snapshot.id" class="ml-2 text-primary underline">查看本次快照</NuxtLink></p>
       <section v-for="section in [{ title: '产品信息（来源页声明）', fields: source.productFields }, { title: '生产信息（来源页声明）', fields: production }]" :key="section.title" class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
         <h2 class="border-b border-border px-4 py-3 text-sm font-semibold">{{ section.title }}</h2>
         <dl class="divide-y divide-border"><div v-for="field in section.fields" :key="field.label" class="flex text-sm"><dt class="w-32 shrink-0 bg-muted/40 px-3 py-2.5 text-muted">{{ field.label }}</dt><dd class="min-w-0 flex-1 break-words px-3 py-2.5">{{ field.value }}</dd></div></dl>
@@ -45,14 +47,15 @@ const production = computed(() => [
         </div>
       </section>
     </template>
-    <section v-if="snapshot?.comparisons.length" class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
-      <h2 class="text-sm font-semibold">与本地登记资料逐项比对</h2>
+    </template>
+    <details v-if="!hideComparisons && snapshot?.comparisons.length" :open="comparisonsOnly ? expandComparisons : true" class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
+      <summary class="cursor-pointer text-sm font-semibold">查看逐项比对明细（{{ snapshot.comparisons.length }} 项）</summary>
       <div class="mt-3 flex flex-wrap gap-2 text-xs"><span v-for="item in comparisonCounts" :key="item.label" class="rounded-md bg-muted px-2 py-1">{{ item.label }} {{ item.count }} 项</span></div>
       <p class="mt-2 text-xs text-muted">登记资料来自本地导入数据，可能存在更新滞后；命中登记证不能证明商品为正品。</p>
       <div v-for="(item, index) in snapshot.comparisons" :key="index" class="mt-3 rounded-lg border border-border p-3 text-sm">
         <div class="flex flex-wrap justify-between gap-2 font-medium"><span>{{ item.label }}</span><span :class="item.status === 'mismatch' ? 'text-error' : item.status === 'match' ? 'text-primary' : 'text-warning'">{{ labels[item.status] }}</span></div>
         <p class="mt-2 break-words"><span class="text-muted">{{ item.label === '来源页单元识别码' ? '本次查询码' : '农资315登记资料' }}：</span>{{ item.referenceValue || '无可比对资料' }}</p><p class="mt-1 break-words"><span class="text-muted">{{ item.label === '码内登记类别及后六位' ? '查询码编码' : '外部来源页' }}：</span>{{ item.sourceValue || '未提供' }}</p><p class="mt-2 text-xs text-muted">{{ item.reason }}</p>
       </div>
-    </section>
+    </details>
   </div>
 </template>

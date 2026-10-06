@@ -73,7 +73,11 @@ async function collect(key: string, sourceUrl: string, code: string): Promise<So
   //    注：`created_at > IF(...)` 是非 sargable 条件，但 `cache_key` 是索引前导列，仍先按 key 收敛，无性能问题。
   try {
     const [cached] = await query<any[]>("SELECT payload FROM external_source_snapshot WHERE cache_key = ? AND created_at > IF(JSON_UNQUOTE(JSON_EXTRACT(payload, '$.status')) = 'unavailable', DATE_SUB(NOW(), INTERVAL ? MINUTE), DATE_SUB(NOW(), INTERVAL ? MINUTE)) ORDER BY created_at DESC LIMIT 1", [key, FAILURE_CACHE_MINUTES, SUCCESS_CACHE_MINUTES])
-    if (cached) return json(cached.payload)
+    if (cached) {
+      const payload = json(cached.payload) as SourceSnapshot
+      // 旧成功快照缺少取材方式，重新读取以避免图片识别结果被当作确定证据。
+      if (payload.status === 'unavailable' || payload.extractionMethod) return payload
+    }
   } catch { /* 未迁移时仍能查询，但明确告知没有保存历史 */ }
   const snapshot: SourceSnapshot = { id: randomUUID(), fetchedAt: new Date().toISOString(), parserVersion: SOURCE_PARSER_VERSION, status: 'unavailable', message: '', comparisons: [], saved: false }
   // 无论抓取或解析成败，都保留用户前往原查询页的入口。
@@ -92,16 +96,18 @@ async function collect(key: string, sourceUrl: string, code: string): Promise<So
     if (adapted && 'notFound' in adapted) throw new Error('来源平台查无此码')
     let source: SourceDeclaration
     if (adapted) {
+      snapshot.extractionMethod = 'adapter'
       source = adapted.source
       document = adapted.document
     } else {
+      snapshot.extractionMethod = 'page'
       const fetched = await fetchSourceDocument(sourceUrl)
       document = fetched.body
       source = parseSourceDocument(document, fetched.url, code)
       // 普通解析读不到动态页面时，尝试浏览器截图 + 视觉模型；失败则继续走原有错误提示。
       if (!source.productName && !source.commodityName && !source.registrationNo && !source.originals.length) {
         const vision = await extractSourceByVision(fetched.url, code)
-        if (vision) { source = vision.source; document = vision.document }
+        if (vision) { source = vision.source; document = vision.document; snapshot.extractionMethod = 'vision' }
       }
     }
     if (source.originals.length > 50) throw new Error('来源原药记录过多，需人工核实')

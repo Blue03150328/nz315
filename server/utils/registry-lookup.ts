@@ -24,6 +24,7 @@ export interface RegistryOriginal {
 
 /** 登记资料库比对到的候选登记证（通常 1 条；后六位撞车时可能多条） */
 export interface RegistryCandidate {
+  ingredients: string
   registrationNo: string
   productName: string
   commodityName: string
@@ -34,6 +35,7 @@ export interface RegistryCandidate {
   content: string
   ingredientMain: string
   expireDate: string
+  importedAt: string
   expired: boolean
   originals: RegistryOriginal[]
 }
@@ -45,6 +47,7 @@ export interface RegistryLookupResult {
 
 /** 登记资料库裸扫描行（`findRegistryRowsByUnitCode` 的返回，字段即 SELECT 列表） */
 export interface RegistryScanRow {
+  ingredients?: string | null
   registration_no: string
   product_name?: string | null
   commodity_name?: string | null
@@ -55,6 +58,7 @@ export interface RegistryScanRow {
   company?: string | null
   ingredient_main?: string | null
   expire_date?: string | null
+  created_at?: string | null
 }
 
 const MAX_CANDIDATES = 5        // 后端核验页 / 公众端最多展示条数（过滤后截断）
@@ -94,7 +98,7 @@ export async function findRegistryRowsByUnitCode(codeParts: ExternalCodeParts): 
   //    两处都不加会让「≥32 位」这条约束失效。
   if (!codeParts.validCategory || !codeParts.registrationLast6) return []
   const rows = await query<RegistryScanRow[]>(
-    `SELECT registration_no, product_name, commodity_name, trademark, content, dosage, toxicity, company, ingredient_main, expire_date
+    `SELECT registration_no, product_name, commodity_name, trademark, content, dosage, toxicity, company, ingredients, ingredient_main, expire_date, created_at
        FROM pesticide_reg WHERE RIGHT(registration_no, 6) = ?
       ORDER BY registration_no LIMIT ?`,
     [codeParts.registrationLast6, MAX_ROW_SCAN])
@@ -131,7 +135,7 @@ async function queryRegistry(code: string): Promise<RegistryLookupResult> {
   }
   // 取数与「后六位 + 类别」过滤统一走共用原语（与后台外部核验 external-verification.ts 同一实现）
   const rows = await findRegistryRowsByUnitCode(codeParts)
-  const today = new Date().toISOString().slice(0, 10)
+  const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const candidates: RegistryCandidate[] = rows
     .slice(0, MAX_CANDIDATES)
     .map(r => ({
@@ -144,11 +148,12 @@ async function queryRegistry(code: string): Promise<RegistryLookupResult> {
       toxicity: String(r.toxicity || ''),
       content: String(r.content || ''),
       ingredientMain: String(r.ingredient_main || ''),
+      ingredients: String(r.ingredients || ''),
       expireDate: r.expire_date ? String(r.expire_date).slice(0, 10) : '',
+      importedAt: r.created_at ? String(r.created_at).slice(0, 19).replace('T', ' ') : '',
       expired: Boolean(r.expire_date) && String(r.expire_date).slice(0, 10) < today,
       originals: [] as RegistryOriginal[],
     }))
   // 原药实际来源只能来自厂家声明，禁止用同成分候选推导。
   return { codeParts, candidates }
 }
-
