@@ -107,6 +107,14 @@ const onPresetChange = (key: PickKey) => {
   })
 }
 
+/** 文本归一：把「可能为 number」的输入框值安全转成字符串。
+ *  🔴 金额 / 数量输入框是 `UInput type="number"`，而 Nuxt UI v4 的 Input 对
+ *  `type === 'number'` 一律走 `looseToNumber()` ⇒ `v-model` 拿到的值是 **number**，
+ *  number 上没有 `trim`。曾因此让「新建记账」点保存时静默抛
+ *  `TypeError: form.totalAmount.trim is not a function` —— 请求根本没发出、页面毫无提示。
+ *  凡要对这类字段做 trim / 判空 / 比较，一律先过这里，绝不直接假设它是 string。 */
+const toText = (v: unknown) => (v === null || v === undefined ? '' : String(v))
+
 /** 本地当天（YYYY-MM-DD）。不用 toISOString —— 那是 UTC，北京时间凌晨会差一天 */
 const localToday = () => {
   const d = new Date()
@@ -174,12 +182,13 @@ watch(() => props.open, (v) => {
 })
 
 const submit = async () => {
-  if (!form.productName.trim()) {
+  if (!toText(form.productName).trim()) {
     toast.add({ title: '请填写产品名称', color: 'warning' })
     return
   }
-  const amount = Number(form.totalAmount)
-  if (form.totalAmount.trim() === '' || !Number.isFinite(amount) || amount < 0) {
+  const totalText = toText(form.totalAmount).trim()
+  const amount = Number(totalText)
+  if (totalText === '' || !Number.isFinite(amount) || amount < 0) {
     toast.add({ title: '请填写有效的总金额', color: 'warning' })
     return
   }
@@ -191,8 +200,8 @@ const submit = async () => {
   try {
     const payload: Record<string, any> = {
       billDate: form.billDate,
-      productName: form.productName.trim(),
-      dosage: form.dosage.trim(),
+      productName: toText(form.productName).trim(),
+      dosage: toText(form.dosage).trim(),
       category: pickValue('category'),
       crop: pickValue('crop'),
       quantity: form.quantity === '' ? null : Number(form.quantity),
@@ -200,8 +209,8 @@ const submit = async () => {
       unitPrice: form.unitPrice === '' ? null : Number(form.unitPrice),
       totalAmount: amount,
       channel: pickValue('channel'),
-      storeName: pickValue('channel') === '农资店' ? form.storeName.trim() : '',
-      remark: form.remark.trim(),
+      storeName: pickValue('channel') === '农资店' ? toText(form.storeName).trim() : '',
+      remark: toText(form.remark).trim(),
     }
     // 追溯码只在**新建**时提交：编辑不该改掉这条账的来源
     if (!isEdit.value && props.initial?.code) payload.code = props.initial.code
@@ -230,10 +239,10 @@ const submit = async () => {
       if (ok) {
         try {
           const payload: Record<string, any> = {
-            billDate: form.billDate, productName: form.productName.trim(), dosage: form.dosage.trim(),
+            billDate: form.billDate, productName: toText(form.productName).trim(), dosage: toText(form.dosage).trim(),
             category: pickValue('category'), crop: pickValue('crop'), quantity: form.quantity === '' ? null : Number(form.quantity),
             unit: pickValue('unit'), unitPrice: form.unitPrice === '' ? null : Number(form.unitPrice), totalAmount: amount,
-            channel: pickValue('channel'), storeName: pickValue('channel') === '农资店' ? form.storeName.trim() : '', remark: form.remark.trim(), confirmDuplicate: true,
+            channel: pickValue('channel'), storeName: pickValue('channel') === '农资店' ? toText(form.storeName).trim() : '', remark: toText(form.remark).trim(), confirmDuplicate: true,
           }
           if (props.initial?.code) payload.code = props.initial.code
           await $fetch('/api/bill', { method: 'POST', body: payload })
