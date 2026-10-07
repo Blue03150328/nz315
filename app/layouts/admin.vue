@@ -6,7 +6,40 @@
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
-const { user, roleLabel, logout, canWrite } = useUser()
+const { user, roleLabel, logout, canWrite, clearLocalSession } = useUser()
+
+// 后台停留期间检查会话；接口权限每次请求都校验，此检查负责及时清页面和提示。
+let sessionTimer: ReturnType<typeof setInterval> | undefined
+let checkingSession = false
+let sessionMonitorActive = false
+async function checkSession() {
+  if (!sessionMonitorActive || checkingSession || document.hidden || !user.value) return
+  checkingSession = true
+  try {
+    const result = await $fetch<{ user: unknown; sessionInvalidated: boolean }>('/api/auth/me')
+    if (!sessionMonitorActive || result.user || !route.path.startsWith('/admin')) return
+    const redirect = route.fullPath
+    clearLocalSession()
+    await router.replace({ path: '/login', query: { redirect, reason: result.sessionInvalidated ? 'session-invalidated' : 'session-expired' } })
+  } catch {
+    // 暂时断网或服务失败不能当作账号被挤下线，恢复连接后继续检查。
+  } finally {
+    checkingSession = false
+  }
+}
+onMounted(() => {
+  sessionMonitorActive = true
+  void checkSession()
+  sessionTimer = setInterval(checkSession, 15000)
+  window.addEventListener('focus', checkSession)
+  document.addEventListener('visibilitychange', checkSession)
+})
+onBeforeUnmount(() => {
+  sessionMonitorActive = false
+  clearInterval(sessionTimer)
+  window.removeEventListener('focus', checkSession)
+  document.removeEventListener('visibilitychange', checkSession)
+})
 
 // 已实现菜单（可点击）：展示顺序与文案按用户指定，路径/图标/权限不随排序改动
 // writeOnly：纯写流程页面（只读账号看进去只剩空白，直接在菜单层隐藏，2026-09-19）

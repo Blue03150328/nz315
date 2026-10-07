@@ -30,9 +30,8 @@ export default defineEventHandler(async (event) => {
   }
 
   const hash = await bcrypt.hash(newPassword, 10)
-  // 改密同时刷新 session_epoch（2026-09-19）：吊销该账号此前签发的全部会话——
-  // 否则旧 token 在 7 天有效期内继续可用，改密形同虚设（账号被盗场景尤其关键）
-  await execute('UPDATE \`user\` SET password = ?, session_epoch = ? WHERE id = ?', [hash, Date.now(), id])
+  // 改密原子递增会话版本，同毫秒登录和时钟回拨都不能保留旧会话。
+  await execute('UPDATE \`user\` SET password = ?, session_epoch = GREATEST(session_epoch + 1, ?) WHERE id = ?', [hash, Date.now(), id])
   await logOperation(event, { module: '用户管理', action: '重置密码', content: JSON.stringify({ id, username: target.username }) })
   return { ok: true }
 })
