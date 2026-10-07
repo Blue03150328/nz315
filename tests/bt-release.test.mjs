@@ -6,10 +6,29 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expectedColumns, permittedMissing } from '../deploy/bt-release-20261006.mjs'
+import { expectedColumns as latestColumns, permittedMissing as latestMissing, validateLiveMarker } from '../deploy/bt-release-20261007.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const expected = expectedColumns(root)
 const found = new Set(expected.map(c => c.join('.')))
+
+test('最新上线脚本保留17表212列及两列迁移边界', () => {
+  assert.deepEqual(latestColumns(root), expected)
+  assert.deepEqual(latestMissing(expected, found), [])
+  const missing = new Set(found)
+  missing.delete('farm_bill.store_name')
+  assert.deepEqual(latestMissing(expected, missing), ['farm_bill.store_name'])
+  missing.delete('user.session_epoch')
+  assert.throws(() => latestMissing(expected, missing), /未覆盖/)
+})
+
+test('源码标记必须存在且与现役公网构建一致，未知或过时版本不能发布', () => {
+  const build = { id: 'build-current', timestamp: 1791273745911 }
+  assert.doesNotThrow(() => validateLiveMarker({ source: '201b65a', build }, build))
+  for (const marker of [null, {}, { source: '未知', build }, { source: '201b65a', build: { ...build, id: 'old-build' } }, { source: '201b65a', build: { ...build, timestamp: 1 } }]) {
+    assert.throws(() => validateLiveMarker(marker, build), /标记|指纹/)
+  }
+})
 
 test('现有源码全部17表和212列被发布检查覆盖', () => {
   assert.equal(new Set(expected.map(c => c[0])).size, 17)
