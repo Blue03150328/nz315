@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { NuxtLink } from '#components'
+import { adminLinks } from '#shared/utils/admin-navigation'
 // 数据概览仪表盘（PRD 5.2：统计卡片/状态分布/产品分布/30 天趋势；快捷入口板块已按用户要求下线；码库存预警已随通知配置删除）
 // Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
@@ -45,8 +47,9 @@ const cards = computed(() => [
   { label: '今日新增', value: stats.value?.todayCodes ?? '--', icon: 'i-lucide-plus-circle' },
   { label: '累计扫码', value: stats.value?.totalScans ?? '--', icon: 'i-lucide-eye' },
   { label: '今日扫码', value: stats.value?.todayScans ?? '--', icon: 'i-lucide-eye-off' },
-  { label: '待处理异常', value: stats.value?.abnormalCodes ?? '--', icon: 'i-lucide-shield-alert', tag: '需处理' },
-  { label: '待处理预警', value: stats.value?.pendingAlerts ?? '--', icon: 'i-lucide-bell-ring', tag: '需处理' },
+  { label: '冻结码', value: stats.value?.flagDist?.[1] ?? '--', icon: 'i-lucide-snowflake', to: adminLinks.frozenCodes() },
+  { label: '作废码', value: stats.value?.flagDist?.[2] ?? '--', icon: 'i-lucide-ban', to: adminLinks.voidedCodes() },
+  { label: '待处理预警', value: stats.value?.pendingAlerts ?? '--', icon: 'i-lucide-bell-ring', tag: '需处理', to: adminLinks.pendingAlerts() },
 ])
 
 // 近 30 天扫码趋势折线图（SVG 自绘：面积渐变 + 折线 + 数据点 + 轴刻度）
@@ -104,14 +107,14 @@ const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.
 
     <!-- 核心指标卡（PRD 5.2） -->
     <div class="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
-      <div v-for="c in cards" :key="c.label" class="b-stat">
+      <component :is="c.to ? NuxtLink : 'div'" v-for="c in cards" :key="c.label" :to="c.to" class="b-stat" :class="c.to ? 'hover:ring-1 hover:ring-primary focus-visible:ring-2 focus-visible:ring-primary' : ''">
         <div class="b-stat-label">
           <UIcon :name="c.icon" class="h-4 w-4 shrink-0 text-[var(--b-text-muted)]" />
           <span>{{ c.label }}</span>
           <span v-if="c.tag" class="b-tag b-tag-warning ml-auto">{{ c.tag }}</span>
         </div>
         <div class="b-stat-value">{{ c.value }}</div>
-      </div>
+      </component>
     </div>
 
     <!-- 近 30 天扫码趋势（SVG 折线图：绘制逻辑与坐标计算保持不变，仅调整卡片外壳与文字色） -->
@@ -158,7 +161,7 @@ const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.
       <div class="b-card">
         <div class="b-card-head">
           <span class="b-card-title">码状态分布</span>
-          <span class="b-card-extra">已生成 → 已绑定（两状态模型）</span>
+          <span class="b-card-extra">已生成 → 已绑定</span>
         </div>
         <div class="b-card-body">
           <div class="flex h-2 overflow-hidden rounded bg-[var(--b-fill)]">
@@ -180,7 +183,7 @@ const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.
       <div class="b-card">
         <div class="b-card-head">
           <span class="b-card-title">异常标记分布</span>
-          <span class="b-card-extra">与码状态正交</span>
+          <span class="b-card-extra">冻结、作废标记独立统计</span>
         </div>
         <div class="b-card-body">
           <div class="grid grid-cols-3 gap-3">

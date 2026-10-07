@@ -3,7 +3,9 @@
 // 能力分层（见 useQrScanner）：BarcodeDetector 优先 → zxing 兜底；另提供「相册选图」与「手动输入」降级，
 // 微信内置浏览器（iOS 无法网页调起相机）自动展示引导文案。
 // 识别命中后跳转 /trace?code={码}（SSR 秒开查询，与扫码 URL 官方格式一致）。
-import { useQrScanner, traceCodeOf } from '~/composables/useQrScanner'
+import { useQrScanner } from '~/composables/useQrScanner'
+import { extractTraceCode } from '#shared/utils/trace-code'
+import { isHttpUrl } from '#shared/utils/trace-code'
 
 definePageMeta({ layout: 'fullbleed' })
 useHead({ title: '扫码查询' })
@@ -15,16 +17,29 @@ const fileRef = ref<HTMLInputElement | null>(null)
 const manualOpen = ref(false)      // 手动输入区展开开关
 const manualCode = ref('')
 const decodingImage = ref(false)   // 相册图片解析中
+const lastRejected = ref('')       // 上一次已提示过「不含追溯码」的二维码内容（防同一张码反复弹提示）
 
-const { phase, errorMsg, isWechat, mount, start, stop, onResult, decodeImageFile } = useQrScanner()
+const { phase, errorMsg, isWechat, mount, start, stop, onResult, onRawResult, decodeImageFile } = useQrScanner()
 
 onMounted(() => { mount(videoRef.value) })
 // 页面销毁时释放相机与解码循环（防摄像头指示灯常亮/占用）
 onBeforeUnmount(() => { stop() })
 
-// 识别成功 → 跳转追溯查询页
-onResult((code) => {
-  router.push('/trace?code=' + encodeURIComponent(code))
+// 三种入口共用原始内容处理，完整保存来源网址（包括短链接）。
+const navigateRaw = (raw: string) => {
+  const code = extractTraceCode(raw)
+  if (!/^\d{32}$/.test(code) && !isHttpUrl(raw)) return false
+  const query = new URLSearchParams({ code })
+  if (isHttpUrl(raw)) query.set('source', raw.trim())
+  router.push('/trace?' + query.toString())
+  return true
+}
+onResult((code, raw) => { navigateRaw(raw || code) })
+onRawResult((raw) => {
+  if (navigateRaw(raw)) return
+  if (raw !== lastRejected.value) toast.add({ title: '未识别到追溯码或查询网址', color: 'warning' })
+  lastRejected.value = raw
+  start()
 })
 
 const goBack = () => { router.back() }
@@ -42,10 +57,10 @@ const onFileChange = async (e: Event) => {
   if (!file) return
   decodingImage.value = true
   try {
-    const code = await decodeImageFile(file)
+    const code = await decodeImageFile(file, true)
     if (code) {
       toast.add({ title: '识别成功，正在查询', color: 'success' })
-      router.push('/trace?code=' + encodeURIComponent(code))
+      navigateRaw(code)
     } else {
       toast.add({ title: '未识别到追溯码', description: '请确认图片中包含清晰的农药追溯二维码（可稍近拍摄）', color: 'warning' })
     }
@@ -62,14 +77,8 @@ const submitManual = () => {
     toast.add({ title: '请输入32位追溯码', color: 'warning' })
     return
   }
-  // 输入容错：粘贴了完整查询 URL 时自动提取码值
-  const parsed = traceCodeOf(code) || (code.includes('?code=') ? code.split('?code=')[1]?.slice(0, 32) || null : null)
-  const final = (parsed || code).trim()
-  if (!/^\d{32}$/.test(final)) {
-    toast.add({ title: '追溯码格式不正确', description: '追溯码为 32 位数字，请核对后重试（可打开相机直接扫码）', color: 'warning' })
-    return
-  }
-  router.push('/trace?code=' + encodeURIComponent(final))
+  if (!navigateRaw(code)) toast.add({ title: '请输入32位追溯码或完整查询网址', color: 'warning' })
+
 }
 </script>
 
@@ -231,7 +240,7 @@ const submitManual = () => {
         </button>
       </div>
       <p v-if="isScanning" class="mt-3 text-center text-xs text-white/55">
-        仅识别农资315追溯二维码，其它二维码不会触发跳转
+        识别到 32 位追溯码即自动查询；其它二维码会给出提示，不会自动跳转
       </p>
     </div>
   </div>

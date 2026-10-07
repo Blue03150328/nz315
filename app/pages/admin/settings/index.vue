@@ -14,6 +14,7 @@ const settingsTabs = computed(() => {
   if (canManageUsers.value) items.push({ label: '用户权限', icon: 'i-lucide-users', value: 'users' })
   items.push({ label: '操作日志', icon: 'i-lucide-scroll-text', value: 'logs' })
   if (isPlatformAdmin.value) items.push({ label: '数据备份', icon: 'i-lucide-database-backup', value: 'backup' })
+  items.push({ label: '建档指引', icon: 'i-lucide-list-checks', value: 'onboarding' })
   return items
 })
 
@@ -407,6 +408,9 @@ const deleteBackup = async (b: any) => {
     <!-- Tab 切换：Nuxt UI v4 的 UTabs 必须显式给 value，否则回退为索引（'0'/'1'…），下方面板的 v-if 会全部落空导致内容空白 -->
     <!-- 列表由 settingsTabs 计算：只读/码管理员看不到「用户权限」、非总部看不到「数据备份」 -->
     <UTabs v-model="tab" :items="settingsTabs" />
+
+    <!-- 建档指引仅在主动进入时加载；厂家数据范围由服务端登录身份确定。 -->
+    <AdminOnboarding v-if="tab === 'onboarding'" />
 
     <!-- 企业信息（总部=入驻企业列表维护；厂家/码管理员=编辑本企业资料） -->
     <div v-if="tab === 'enterprise'" class="space-y-4">

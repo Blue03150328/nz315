@@ -56,6 +56,12 @@ const doLogin = async () => {
       </div>
 
       <div class="rounded-xl border border-border bg-elevated p-6">
+        <p v-if="route.query.reason === 'session-invalidated'" role="alert" class="mb-5 rounded-md bg-warning/10 p-3 text-sm text-default">
+          账号已在其他设备登录或登录已失效，请重新登录。
+        </p>
+        <p v-else-if="route.query.reason === 'session-expired'" role="alert" class="mb-5 rounded-md bg-warning/10 p-3 text-sm text-default">
+          登录已过期，请重新登录。
+        </p>
         <div class="space-y-1.5">
           <label class="block text-sm font-medium text-default">账号</label>
           <UInput

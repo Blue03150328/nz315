@@ -18,6 +18,7 @@ const filters = reactive({
 })
 const page = ref(1)
 const pageSize = 20
+const { applyListQuery, resetListQuery } = useAdminListRoute(filters, page, () => refresh(), ['productId', 'uploadBatchId'])
 
 const ALERT_OPTIONS = [
   { value: 1, label: '1·重复查询码' }, { value: 2, label: '2·查无此码' }, { value: 3, label: '3·登记证号不存在' },
@@ -27,6 +28,7 @@ const ALERT_OPTIONS = [
 
 const { data, pending, refresh } = await useFetch<any>('/api/admin/alerts', {
   key: 'admin-alerts',
+  watch: false,
   query: computed(() => ({
     keyword: filters.keyword || undefined,
     alertType: filters.alertType || undefined,
@@ -74,8 +76,8 @@ const submitHandle = async () => {
   }
 }
 
-const doSearch = () => { page.value = 1; refresh() }
-const resetSearch = () => { filters.keyword = ''; filters.alertType = undefined; filters.status = undefined; filters.dateFrom = ''; filters.dateTo = ''; page.value = 1; refresh() }
+const doSearch = () => applyListQuery()
+const resetSearch = () => resetListQuery()
 </script>
 
 <template>
@@ -212,8 +214,8 @@ const resetSearch = () => { filters.keyword = ''; filters.alertType = undefined;
       <div v-if="data?.total" class="b-pager">
         <span class="b-card-extra">共 {{ data?.total || 0 }} 条 · 第 {{ data.page }} / {{ totalPages }} 页</span>
         <div class="flex items-center gap-2">
-          <UButton variant="outline" color="neutral" size="sm" :disabled="page <= 1" @click="page--; refresh()">上一页</UButton>
-          <UButton variant="outline" color="neutral" size="sm" :disabled="page >= totalPages" @click="page++; refresh()">下一页</UButton>
+          <UButton variant="outline" color="neutral" size="sm" :disabled="page <= 1" @click="applyListQuery(page - 1)">上一页</UButton>
+          <UButton variant="outline" color="neutral" size="sm" :disabled="page >= totalPages" @click="applyListQuery(page + 1)">下一页</UButton>
         </div>
       </div>
     </div>

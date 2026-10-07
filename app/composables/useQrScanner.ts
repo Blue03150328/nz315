@@ -5,7 +5,7 @@
 // 约束：
 //   - 网页调起摄像头必须 HTTPS（或 localhost）且由用户手势触发（iOS 强制）；
 //   - 微信内置浏览器（尤其 iOS）不允许网页使用相机，此时不请求权限、直接给出引导文案；
-//   - 识别结果只接受「32 位纯数字追溯码」或「含 /trace?code= 的追溯 URL」，其余二维码一律忽略继续扫描；
+//   - 默认识别本平台追溯码；外部核验页可通过 onRawResult 接收任意二维码内容；
 //   - 全程中文文案，符合用户全局偏好。
 
 export type ScannerPhase =
@@ -43,7 +43,8 @@ export const useQrScanner = () => {
   let lastDecodeAt = 0
   let stopped = true
   let decoding = false   // 帧解码进行中标记（防并发重入）
-  let resultCb: ((code: string) => void) | null = null
+  let resultCb: ((code: string, raw?: string) => void) | null = null
+  let rawResultCb: ((raw: string) => void) | null = null
   // 原生扫码器实例（惰性创建；能力不足时为 null 走 zxing 兜底）
   let nativeDetector: any = null
 
@@ -55,7 +56,9 @@ export const useQrScanner = () => {
   }
 
   /** 注册识别成功回调（页面用于跳转 /trace?code=） */
-  const onResult = (cb: (code: string) => void) => { resultCb = cb }
+  const onResult = (cb: (code: string, raw?: string) => void) => { resultCb = cb }
+  /** 外部核验页接收二维码原始内容（不限制网址域名） */
+  const onRawResult = (cb: (raw: string) => void) => { rawResultCb = cb }
 
   // 创建原生 BarcodeDetector（QR + DM），能力不足返回 false
   const ensureNativeDetector = async (): Promise<boolean> => {
@@ -70,15 +73,14 @@ export const useQrScanner = () => {
     return !!nativeDetector
   }
 
-  /** 单帧解码：BarcodeDetector 优先，zxing 兜底；返回识别到的追溯码或 null */
-  const decodeCanvas = async (cv: HTMLCanvasElement): Promise<string | null> => {
+  /** 单帧解码：BarcodeDetector 优先，zxing 兜底；返回二维码原始内容 */
+  const decodeCanvasRaw = async (cv: HTMLCanvasElement): Promise<string | null> => {
     // 原生优先
     if (await ensureNativeDetector()) {
       try {
         const res = await nativeDetector.detect(cv)
         for (const hit of res || []) {
-          const code = traceCodeOf(hit.rawValue)
-          if (code) return code
+          if (hit.rawValue) return String(hit.rawValue).trim()
         }
       } catch { /* 该实现不支持 canvas 输入等 → 走 zxing 兜底 */ }
     }
@@ -89,11 +91,15 @@ export const useQrScanner = () => {
     for (const factor of [1, 0.8, 0.6]) {
       const text = await zxingDecodeOnce(zx, cv, factor)
       if (text) {
-        const code = traceCodeOf(text)
-        if (code) return code
+        if (text) return text
       }
     }
     return null
+  }
+
+  const decodeCanvas = async (cv: HTMLCanvasElement): Promise<string | null> => {
+    const raw = await decodeCanvasRaw(cv)
+    return raw ? traceCodeOf(raw) : null
   }
 
   /** 单尺度 zxing 解码：factor 为缩放比例（1=原图），返回二维码文本或 null */
@@ -165,9 +171,11 @@ export const useQrScanner = () => {
     if (!cv) return
     decoding = true
     try {
-      const code = await decodeCanvas(cv)
-      if (code) {
-        hitCode(code)
+      const raw = await decodeCanvasRaw(cv)
+      if (raw) {
+        const code = traceCodeOf(raw)
+        if (code) hitCode(code, raw)
+        else if (rawResultCb) hitRaw(raw)
         return
       }
       // 非追溯码内容静默忽略，继续扫描
@@ -177,11 +185,18 @@ export const useQrScanner = () => {
   }
 
   // 识别命中：停循环、释放相机、回调页面
-  const hitCode = (code: string) => {
+  const hitCode = (code: string, raw?: string) => {
     stopLoop()
     stopStream()
     phase.value = 'success'
-    if (resultCb) resultCb(code)
+    if (resultCb) resultCb(code, raw)
+  }
+
+  const hitRaw = (raw: string) => {
+    stopLoop()
+    stopStream()
+    phase.value = 'success'
+    if (rawResultCb) rawResultCb(raw)
   }
 
   const stopLoop = () => {
@@ -259,7 +274,7 @@ export const useQrScanner = () => {
   }
 
   /** 相册/拍照选图识别：返回追溯码（非追溯二维码返回 null），全环境可用（含 iOS 微信） */
-  const decodeImageFile = (file: File): Promise<string | null> => {
+  const decodeImageFile = (file: File, returnRaw = false): Promise<string | null> => {
     return new Promise((resolve) => {
       const url = URL.createObjectURL(file)
       const img = new Image()
@@ -276,7 +291,7 @@ export const useQrScanner = () => {
           if (!ctx) { resolve(null); return }
           // 现代浏览器 drawImage 会自动应用照片 EXIF 方向
           ctx.drawImage(img, 0, 0, w, h)
-          const code = await decodeCanvas(cv)
+          const code = returnRaw ? await decodeCanvasRaw(cv) : await decodeCanvas(cv)
           resolve(code)
         } catch { resolve(null) }
         finally { URL.revokeObjectURL(url) }
@@ -294,6 +309,7 @@ export const useQrScanner = () => {
     start,
     stop,
     onResult,
+    onRawResult,
     decodeImageFile,
   }
 }

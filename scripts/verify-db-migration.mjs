@@ -23,6 +23,15 @@
 //   ③ 行数比对区分「业务主数据」与「活跃日志表」：scan_log / operation_log 是纯追加日志，
 //      线上真实消费者扫码、管理员登录都会让它们增长——那是活的业务，不是迁移污染。
 //      故对这两张放宽为「只增不减」，其余表仍严格相等（seed 若误跑必被业务表命中）。
+//
+// 2026-09-23 修正（④ 预期新建表白名单）：
+//   原逻辑「出现基线中不存在的新表 ⇒ 一律 FAIL」是给 09-19 那次「只补列、不建表」的迁移写的判据。
+//   而 ycdb 整线上线的迁移**第一件事就是新建 `external_verification` 表** ⇒ 该判据必然命中，
+//   产出假 FAIL（退出码 1），差点被当成数据污染而回滚（真实踩到）。
+//   现改为：白名单（EXPECTED_NEW_TABLES）内的新表**不算污染**，但必须 ① 真的建出来了
+//   ② **行数为 0**（迁移路径只有 CREATE/ALTER，没有任何 INSERT —— 这条同时补上了原脚本的盲区：
+//   逐表行数循环只遍历「基线里已有的表」，新表的行数原来根本没人看）。
+//   白名单**之外**的新表仍然 FAIL。
 'use strict';
 import mysql from 'mysql2/promise';
 import fs from 'node:fs';
@@ -142,12 +151,30 @@ let bad = 0;
 const fail = (msg) => { bad++; console.log('FAIL  ' + msg); };
 const ok = (msg) => console.log('OK    ' + msg);
 
-// 活跃日志表：线上随时可能有真实业务在写（消费者扫码写 scan_log、管理员登录写 operation_log），
-// 部署窗口期（几分钟）内它们**正常增长不是污染证据**。判据放宽为「只增不减」，且不计入 FAIL。
-// ⚠️ 只有这两张是纯追加型日志表；业务主数据表一律严格相等——seed 若被误跑，
+// 活跃日志表：线上随时可能有真实业务在写（消费者扫码写 scan_log、管理员登录写 operation_log、
+// 后台「外部二维码核验」写 external_verification），部署窗口期（几分钟）内它们**正常增长不是污染证据**。
+// 判据放宽为「只增不减」（**减少仍判 FAIL**——那可能意味着数据被删），且增长不计入 FAIL。
+// ⚠️ 2026-09-23 把 external_verification 也加进来：它天生是追加型，上线后每次核验都写一行；
+//    若不列进来，日后「已上线状态再重跑一次三明治」会把正常业务写入报成迁移污染（假 FAIL）。
+// ⚠️ 2026-09-23（记账那轮）把 farm_bill 也加进来：同属追加型 —— 消费者每记一笔就写一行，
+//    而且是**消费者本人的私人账本**，部署窗口里被写进去是完全正常的业务行为。
+// ⚠️ 只有这几张是纯追加型；业务主数据表一律严格相等——seed 若被误跑，
 //    enterprise / trace_code / product / batch / upload_batch / product_spec 必被命中，逃不掉。
-const ACTIVE_TABLES = ['scan_log', 'operation_log'];
+const ACTIVE_TABLES = ['scan_log', 'operation_log', 'external_verification', 'farm_bill', 'external_source_snapshot'];
 const grew = [];
+
+// 本次迁移**预期要新建**的表（白名单）：出现在这里的新表不算污染，但必须存在且为空表。
+// 每次带来「新建表」的上线，都要把新表名加进来；不在名单里的新表仍然判 FAIL。
+// ---------------------------------------------------------------
+// 2026-09-23 入库两张（按上线批次先后）：
+//   ① external_verification —— ycdb 整线（已于 2026-09-23 11:49 上线）
+//   ② farm_bill            —— 农资记账轮（本次上线）
+// ⚠️ 名单是**累积**的：已经上线过的表仍要留在里面 —— 后续再跑三明治时它已存在于基线中，
+//    不会进 `extra`，但末尾那句「预期新建的表必须出现」仍会检查它还在（防被误删）。
+// ⚠️ 少了 ② 的后果：本次上线三明治第 ③ 步会打出
+//    `FAIL 出现了基线中不存在、且不在预期白名单里的新表: farm_bill` + 退出码 1 —— **假 FAIL**，
+//    而第 ④ 行的「新表为 0 行」真正该看的判据反而被这条红字盖住。
+const EXPECTED_NEW_TABLES = ['external_verification', 'farm_bill', 'external_source_snapshot'];
 
 console.log('--- 1) 逐表行数（业务主数据必须严格相等；活跃日志表允许只增不减）---');
 for (const t of Object.keys(base.counts)) {
@@ -162,7 +189,19 @@ for (const t of Object.keys(base.counts)) {
 }
 if (grew.length) console.log('      ↑ 窗口期内的真实业务写入：' + grew.join('、') + '（与本次迁移无关）');
 const extra = Object.keys(snap.counts).filter((t) => !(t in base.counts));
-if (extra.length) fail('出现了基线中不存在的新表: ' + extra.join(', '));
+const expectedNew = extra.filter((t) => EXPECTED_NEW_TABLES.includes(t));
+const unexpectedNew = extra.filter((t) => !EXPECTED_NEW_TABLES.includes(t));
+if (unexpectedNew.length) fail('出现了基线中不存在、且不在预期白名单里的新表: ' + unexpectedNew.join(', '));
+for (const t of expectedNew) {
+  const c = snap.counts[t];
+  // 新表必须空：迁移路径只有 CREATE TABLE / ALTER TABLE，没有任何 INSERT。
+  // 原脚本的逐表行数循环只遍历「基线里已有的表」⇒ 新表行数是个盲区，这里补上。
+  if (c === 0) ok('新表 ' + t.padEnd(22) + '0（本次迁移预期新建，空表属正常）');
+  else fail('新表 ' + t + ' 里有 ' + c + ' 行 —— 迁移路径不该往新表写数据，立刻停手排查');
+}
+for (const t of EXPECTED_NEW_TABLES) {
+  if (!(t in snap.counts)) fail('预期新建的表 ' + t + ' 没有出现 —— 第 4.2 步的迁移没把它建出来，请回看那步输出');
+}
 
 console.log('--- 2) MAX(id) 自增位（被推进说明有 INSERT）---');
 for (const k of Object.keys(base.maxIds)) {

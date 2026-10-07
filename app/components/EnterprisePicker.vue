@@ -2,9 +2,9 @@
 // 归属企业选择器（2026-09-07 用户需求）：候选 = 登记数据源（pesticide_reg）中的全部生产厂家
 // （3,637 家去重，不再使用系统 enterprise 表）；远程搜索：输入关键字防抖请求 /regdata/factories，
 // 点击展开默认加载首批 + 可输入过滤；选中值 = 厂家名（与登记数据源 company 同源，过滤无损耗）
-import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 
-const props = withDefaults(defineProps<{
+withDefaults(defineProps<{
   modelValue: string | null          // 已选厂家名
   placeholder?: string
 }>(), { placeholder: '输入厂家名搜索（登记数据源全部厂家）' })
@@ -18,11 +18,11 @@ const total = ref(0)
 const rootEl = ref<any>(null)
 let timer: any = null
 
-async function fetchFactories(kw: string, silent = false) {
-  if (!silent) loading.value = true
+async function fetchFactories(kw: string) {
+  loading.value = true
   try {
     const data = await $fetch<any>('/api/admin/regdata/factories', {
-      query: { keyword: kw || undefined, page: 1, pageSize: kw ? 100 : 100 },
+      query: { keyword: kw || undefined, page: 1, pageSize: 100 },
     })
     items.value = data?.rows || []
     total.value = data?.total || 0

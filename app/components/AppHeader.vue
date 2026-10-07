@@ -6,7 +6,8 @@ const route = useRoute()
 const MENU = [
   { path: '/', label: '首页' },
   { path: '/scan', label: '扫码查询' },
-  { path: '/nearby-stores', label: '附近农资店' },
+  // 2026-09-23：「附近门店」整体下线，原地替换为「我的账本」（见 docs/handover/29 号）
+  { path: '/bill', label: '我的账本' },
   { path: '/profile', label: '个人中心' },
 ]
 

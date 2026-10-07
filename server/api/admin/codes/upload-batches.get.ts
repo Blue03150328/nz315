@@ -26,6 +26,14 @@ export default defineEventHandler(async (event) => {
     conds.push('ub.enterprise_id = ?')
     params.push(user.enterprise_id)
   }
+  // 异常筛选按是否存在匹配码筛选批次，保留批次全部码汇总。
+  if (q.abnormalFlag !== undefined) {
+    const flag = Number(q.abnormalFlag)
+    if (![0, 1, 2].includes(flag)) throw createError({ statusCode: 400, statusMessage: '异常标记无效' })
+    conds.push('EXISTS (SELECT 1 FROM trace_code ft WHERE ft.upload_batch_id = ub.id AND ft.abnormal_flag = ?)')
+    params.push(flag)
+  }
+  if (q.uploadBatchId) { conds.push('ub.id = ?'); params.push(Number(q.uploadBatchId)) }
   // 筛选：批次文件名 / 关联产品 / 生产批号 / 上传时间范围
   if (q.fileName) {
     conds.push('ub.file_name LIKE ?')

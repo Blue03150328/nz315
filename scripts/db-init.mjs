@@ -42,6 +42,20 @@ const DB = {
 
 // 建表 DDL 全集（核心业务表 + message 消息 + consumer 消费者 + product_original/upload_batch/pesticide_reg 扩展表；表数 = DDL.length 自动统计）
 const DDL = [
+  // 公众扫码来源快照：只追加，保存原始文档、当次登记参考及解析结果。
+  `CREATE TABLE IF NOT EXISTS external_source_snapshot (
+    id CHAR(36) PRIMARY KEY,
+    cache_key CHAR(64) NOT NULL,
+    code VARCHAR(64) NOT NULL,
+    source_url TEXT NOT NULL,
+    parser_version VARCHAR(40) NOT NULL,
+    raw_document MEDIUMTEXT NULL,
+    reference_data JSON NULL,
+    payload JSON NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_cache_time (cache_key, created_at),
+    KEY idx_code_time (code, created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='公众扫码外页历史快照'`, 
   `CREATE TABLE IF NOT EXISTS enterprise (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL COMMENT '企业名称',
@@ -208,6 +222,7 @@ const DDL = [
     alert_type TINYINT NULL COMMENT '1-8 对应8类异常',
     code_id BIGINT NULL,
     product_id BIGINT NULL,
+    external_verification_id BIGINT NULL COMMENT '外部二维码核验记录ID',
     evidence JSON NULL COMMENT '证据数据',
     trigger_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     repeat_count INT NOT NULL DEFAULT 1,
@@ -219,6 +234,23 @@ const DDL = [
     KEY idx_type (alert_type),
     KEY idx_trigger (trigger_time)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+  `CREATE TABLE IF NOT EXISTS external_verification (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    source_url TEXT NOT NULL,
+    source_platform VARCHAR(120) NULL,
+    code VARCHAR(64) NOT NULL,
+    code_parts JSON NOT NULL,
+    source_data JSON NULL,
+    registration_candidates JSON NULL,
+    result JSON NOT NULL,
+    overall_status VARCHAR(20) NOT NULL,
+    created_by BIGINT NULL,
+    enterprise_id BIGINT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    KEY idx_code (code),
+    KEY idx_status (overall_status),
+    KEY idx_enterprise_time (enterprise_id, created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='外部二维码核验快照'`,
   // 站内消息（PRD 5.11 消息中心）——此前遗漏未纳入初始化脚本，新环境会缺表导致消息中心/风险预警通知报错
   `CREATE TABLE IF NOT EXISTS message (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -287,6 +319,30 @@ const DDL = [
     KEY idx_product (product_id),
     KEY idx_batch_id (batch_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='上传文件批次（码库管理聚合维度，生产采集导入时创建）'`,
+  // 农资记账（2026-09-23 新增；随「附近门店」整体下线原地替换而来，见 docs/handover/29 号）
+  // 归属键只有 consumer_id（消费者私人数据，后台/厂家不可见）；product_name 存快照，产品改名不影响历史账目
+  `CREATE TABLE IF NOT EXISTS farm_bill (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    consumer_id BIGINT NOT NULL COMMENT '消费者ID（微信登录，consumer.id）',
+    bill_date DATE NOT NULL COMMENT '记账日期（用药/购药日，默认当天可改；按月分组依据）',
+    product_name VARCHAR(255) NOT NULL COMMENT '产品名称（快照；扫码带入或手填）',
+    dosage VARCHAR(50) NULL COMMENT '剂型（扫码带入或手填）',
+    category VARCHAR(20) NULL COMMENT '类别：杀虫/杀菌/除草/杀螨/肥料/其他支出（白名单，可空）',
+    crop VARCHAR(50) NULL COMMENT '作物（自由输入，可空；统计覆盖作物时排除空值）',
+    quantity DECIMAL(12,3) NULL COMMENT '数量（可空，允许跳过补录）',
+    unit VARCHAR(10) NULL COMMENT '数量单位：瓶/袋/包/桶/千克/升/亩（可空）',
+    unit_price DECIMAL(12,2) NULL COMMENT '单价（可空）',
+    total_amount DECIMAL(12,2) NOT NULL DEFAULT 0 COMMENT '总额（必填；可直接填写或参考数量×单价）',
+    channel VARCHAR(50) NULL COMMENT '购买渠道（自由输入，可空）',
+    store_name VARCHAR(100) NULL COMMENT '具体购买门店（可空）',
+    remark VARCHAR(500) NULL COMMENT '备注',
+    code VARCHAR(32) NULL COMMENT '来源追溯码（扫码记账写入；手动记账为空。不做外键：码可能非本平台签发）',
+    source TINYINT NOT NULL DEFAULT 2 COMMENT '1扫码记账 2手动记账',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    KEY idx_consumer_date (consumer_id, bill_date),
+    KEY idx_consumer_category (consumer_id, category)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='农资记账（公众端用药/用肥花费）'`,
 ];
 
 // 增量迁移：CREATE TABLE IF NOT EXISTS 不会修改已存在的表，历史库需单独补列/补索引（幂等）
@@ -306,10 +362,27 @@ async function migrate(conn) {
     return rows.length > 0;
   };
 
+  if (!(await hasColumn('risk_alert', 'external_verification_id'))) {
+    await conn.query("ALTER TABLE risk_alert ADD COLUMN external_verification_id BIGINT NULL COMMENT '外部二维码核验记录ID' AFTER product_id");
+    console.log('[db] 迁移：risk_alert 补充列 external_verification_id');
+  }
+  if (!(await hasIndex('risk_alert', 'idx_external_verification'))) {
+    await conn.query('ALTER TABLE risk_alert ADD KEY idx_external_verification (external_verification_id)');
+    console.log('[db] 迁移：risk_alert 补充索引 idx_external_verification');
+  }
+
   // scan_log.consumer_id：消费者登录后扫码，记录归属人，支撑个人中心「我的查询记录」
   if (!(await hasColumn('scan_log', 'consumer_id'))) {
     await conn.query("ALTER TABLE scan_log ADD COLUMN consumer_id BIGINT NULL COMMENT '消费者ID（登录后扫码才有值）'");
     console.log('[db] 迁移：scan_log 补充列 consumer_id');
+  }
+  if (!(await hasColumn('farm_bill', 'dosage'))) {
+    await conn.query("ALTER TABLE farm_bill ADD COLUMN dosage VARCHAR(50) NULL COMMENT '剂型（扫码带入或手填）' AFTER product_name");
+    console.log('[db] 迁移：farm_bill 补充列 dosage');
+  }
+  if (!(await hasColumn('farm_bill', 'store_name'))) {
+    await conn.query("ALTER TABLE farm_bill ADD COLUMN store_name VARCHAR(100) NULL COMMENT '具体购买门店（可空）' AFTER channel");
+    console.log('[db] 迁移：farm_bill 补充列 store_name');
   }
   if (!(await hasIndex('scan_log', 'idx_consumer_time'))) {
     await conn.query('ALTER TABLE scan_log ADD KEY idx_consumer_time (consumer_id, scan_time)');

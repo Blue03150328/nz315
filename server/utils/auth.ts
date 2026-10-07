@@ -2,7 +2,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import bcrypt from 'bcryptjs'
 import { getCookie, setCookie, deleteCookie, getHeader, getMethod } from 'h3'
-import { query, execute } from './db'
+import { query, execute, getPool } from './db'
 
 // 平台角色（PRD 1.3 / 7.6）
 export type PlatformRole = 'platform_admin' | 'enterprise_admin' | 'code_admin' | 'viewer'
@@ -46,17 +46,16 @@ export function signSessionPayload(payload: string): string {
   return sign(payload)
 }
 
-/** 生成签名会话 token：base64url(userId.expiry.issuedAt).signature
- *  issuedAt（签发毫秒时间戳）用于与 user.session_epoch 比对，实现「登出即失效」的服务端吊销（2026-09-19） */
-export function createSessionToken(userId: number | string): string {
+/** 第三段保存数据库分配的会话版本；只有与账号当前版本完全一致的登录有效。 */
+export function createSessionToken(userId: number | string, sessionVersion: number): string {
   const now = Date.now()
   const exp = now + SESSION_TTL_MS
-  const payload = String(userId) + '.' + exp + '.' + now
+  const payload = String(userId) + '.' + exp + '.' + sessionVersion
   const sig = sign(payload)
   return Buffer.from(payload).toString('base64url') + '.' + sig
 }
 
-/** 会话校验结果：userId + 签发时间 */
+/** 沿用三段格式及 issuedAt 字段名，第三段现为单调递增的会话版本。 */
 export interface SessionInfo { userId: number; issuedAt: number }
 
 /** 验证签名 token；无效/过期/旧格式（无签发时间）返回 null */
@@ -77,7 +76,7 @@ export function verifySessionToken(token: string): SessionInfo | null {
     const exp = Number(parts[1])
     const issuedAt = Number(parts[2])
     if (!Number.isInteger(userId) || userId <= 0) return null
-    if (!Number.isFinite(exp) || !Number.isFinite(issuedAt)) return null
+    if (!Number.isFinite(exp) || !Number.isSafeInteger(issuedAt) || issuedAt <= 0) return null
     if (Date.now() > exp) return null
     return { userId, issuedAt }
   } catch {
@@ -85,10 +84,41 @@ export function verifySessionToken(token: string): SessionInfo | null {
   }
 }
 
-/** 吊销某用户此前签发的全部会话：把 session_epoch 刷新到当前毫秒（登出/重置密码时调用）。
- *  校验侧规则为 issuedAt < session_epoch 即失效（严格小于，避免同毫秒内登出后又登录被误杀） */
+/** 登录串行锁定账号并分配唯一版本，避免并发登录或同毫秒登录产生两个有效会话。 */
+export async function startBackendSession(userId: number, verifiedPassword: string, ip: string): Promise<{ user: AuthUser; sessionVersion: number }> {
+  const conn = await getPool().getConnection()
+  try {
+    await conn.beginTransaction()
+    const [rows] = await conn.query<any[]>(
+      'SELECT id, enterprise_id, username, name, phone, role, status, password, session_epoch FROM `user` WHERE id = ? FOR UPDATE',
+      [userId],
+    )
+    const u = rows[0]
+    // 密码校验期间可能发生改密或禁用，锁内重验，不能让旧密码重新取得有效会话。
+    if (!u || u.password !== verifiedPassword) throw createError({ statusCode: 401, statusMessage: '账号信息已变更，请重新登录' })
+    if (Number(u.status) !== 1) throw createError({ statusCode: 403, statusMessage: '账号已被禁用，请联系管理员' })
+    const sessionVersion = Math.max(Date.now(), Number(u.session_epoch || 0) + 1)
+    await conn.execute('UPDATE `user` SET session_epoch = ?, last_login_at = NOW(), last_login_ip = ? WHERE id = ?', [sessionVersion, ip, userId])
+    await conn.commit()
+    // 登录响应仅返回公开账号字段，不返回密码散列或会话版本。
+    const user: AuthUser = { id: u.id, enterprise_id: u.enterprise_id, username: u.username, name: u.name, phone: u.phone, role: u.role, status: u.status }
+    return { user, sessionVersion }
+  } catch (error) {
+    await conn.rollback()
+    throw error
+  } finally {
+    conn.release()
+  }
+}
+
+/** 只注销指定会话；旧设备迟到的退出请求不会注销新设备。 */
+export async function endBackendSession(session: SessionInfo): Promise<void> {
+  await execute('UPDATE `user` SET session_epoch = GREATEST(session_epoch + 1, ?) WHERE id = ? AND session_epoch = ?', [Date.now(), session.userId, session.issuedAt])
+}
+
+/** 管理操作吊销全部会话，版本必须递增，不能因同毫秒或时钟回拨恢复旧登录。 */
 export async function revokeUserSessions(userId: number): Promise<void> {
-  await execute('UPDATE `user` SET session_epoch = ? WHERE id = ?', [Date.now(), userId])
+  await execute('UPDATE `user` SET session_epoch = GREATEST(session_epoch + 1, ?) WHERE id = ?', [Date.now(), userId])
 }
 
 /** 当前登录用户（未登录返回 null；账号禁用视为未登录） */
@@ -103,13 +133,14 @@ export async function getCurrentUser(event: any): Promise<AuthUser | null> {
   )
   const u = rows[0]
   if (!u || Number(u.status) !== 1) return null
-  // 服务端会话吊销（2026-09-19）：签发时间早于 session_epoch（登出/重置密码时刷新）的 token 一律失效，
-  // 修复「登出后旧 token 在 7 天有效期内仍可用」的缺陷
-  if (session.issuedAt < Number(u.session_epoch || 0)) return null
+  if (session.issuedAt !== Number(u.session_epoch || 0)) {
+    event.context.sessionInvalidated = true
+    return null
+  }
   // 挂到请求上下文：操作日志（audit.logOperation）由此取操作人与所属企业，
   // 否则所有业务操作日志的 user_id/enterprise_id 均为 NULL，违反 PRD 5.12.4 与 8.4 审计完整性要求
   event.context.authUser = u
-  return u as AuthUser
+  return { id: u.id, enterprise_id: u.enterprise_id, username: u.username, name: u.name, phone: u.phone, role: u.role, status: u.status }
 }
 
 /** 后台守卫：要求已登录（角色过滤由各业务接口按需处理） */
@@ -117,7 +148,7 @@ export async function requireBackendUser(event: any): Promise<AuthUser> {
   assertSameOrigin(event)
   const user = await getCurrentUser(event)
   if (!user) {
-    throw createError({ statusCode: 401, statusMessage: '未登录' })
+    throw createError({ statusCode: 401, statusMessage: event.context.sessionInvalidated ? '账号已在其他设备登录或登录已失效，请重新登录' : '未登录' })
   }
   // 企业启停校验（2026-09-09）：厂家账号每次业务请求校验所属企业——被禁用或续费到期（renew_expire 早于今天/NULL）
   // 一律 403，保证「到期后不可使用系统功能」对已登录会话同样生效（7 天会话可能横跨到期点）
@@ -151,8 +182,8 @@ export async function requirePlatformAdmin(event: any): Promise<AuthUser> {
   return user
 }
 
-export function setAuthCookie(event: any, userId: number | string) {
-  const token = createSessionToken(userId)
+export function setAuthCookie(event: any, userId: number | string, sessionVersion: number) {
+  const token = createSessionToken(userId, sessionVersion)
   const isHttps = getHeader(event, 'x-forwarded-proto') === 'https' || event.node?.req?.socket?.encrypted
   setCookie(event, 'nz315_user', token, {
     httpOnly: true,
@@ -176,9 +207,9 @@ export function assertSameOrigin(event: any) {
   if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return
   const origin = getHeader(event, 'origin')
   if (!origin) return
-  // 反代场景优先取 x-forwarded-host（宝塔 nginx 默认透传 Host，两者一致）
-  const host = String(getHeader(event, 'x-forwarded-host') || getHeader(event, 'host') || '')
-  if (!host) return
+  // 只信请求Host；客户端可伪造转发头，不能拿它作为跨站校验依据。
+  const host = String(getHeader(event, 'host') || '')
+  if (!host) throw createError({ statusCode: 403, statusMessage: '跨站请求被拒绝' })
   const normalized = origin.replace(/\/+$/, '')
   if (normalized !== 'http://' + host && normalized !== 'https://' + host) {
     throw createError({ statusCode: 403, statusMessage: '跨站请求被拒绝' })

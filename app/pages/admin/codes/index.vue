@@ -18,6 +18,8 @@ const toast = useToast()
 // 筛选：批次文件名 / 关联产品 / 生产批号 / 上传时间范围（下拉默认 undefined 显示 placeholder）
 const filters = reactive({
   fileName: '',
+  abnormalFlag: undefined as string | undefined,
+  uploadBatchId: undefined as number | undefined,
   productId: undefined as number | undefined,
   batchNo: '',
   dateFrom: '',
@@ -25,19 +27,23 @@ const filters = reactive({
 })
 const page = ref(1)
 const pageSize = 20
+const { applyListQuery, resetListQuery } = useAdminListRoute(filters, page, () => refresh(), ['productId', 'uploadBatchId'])
 
 // 产品下拉（关联产品筛选；pageSize 100 与生产采集/生成页同口径）
 const { data: productData } = await useFetch<any>('/api/admin/products', {
   key: 'admin-codes-products',
-  query: { page: 1, pageSize: 100 },
+  query: { page: 1, pageSize: 100, bindable: 1 },
 })
 const PRODUCT_OPTIONS = computed(() =>
   (productData.value?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name })))
 
 const { data, pending, refresh } = await useFetch<any>('/api/admin/codes/upload-batches', {
   key: 'admin-upload-batches',
+  watch: false,
   query: computed(() => ({
     fileName: filters.fileName || undefined,
+    abnormalFlag: filters.abnormalFlag,
+    uploadBatchId: filters.uploadBatchId,
     productId: filters.productId || undefined,
     batchNo: filters.batchNo || undefined,
     dateFrom: filters.dateFrom || undefined,
@@ -48,12 +54,8 @@ const { data, pending, refresh } = await useFetch<any>('/api/admin/codes/upload-
 })
 const totalPages = computed(() => Math.max(1, Math.ceil((data.value?.total || 0) / pageSize)))
 
-const doSearch = () => { page.value = 1; refresh() }
-const resetSearch = () => {
-  Object.assign(filters, { fileName: '', productId: undefined, batchNo: '', dateFrom: '', dateTo: '' })
-  page.value = 1
-  refresh()
-}
+const doSearch = () => applyListQuery()
+const resetSearch = () => resetListQuery()
 
 // 码状态汇总标签（作废为终态最需关注，红系；冻结黄系；正常绿）
 const SUMMARY_BADGE: Record<string, string> = {
@@ -246,10 +248,23 @@ const loadDetail = async () => {
 const openDetail = (row: any) => {
   detailRow.value = row
   detailPage.value = 1
-  Object.assign(dFilters, { keyword: '', status: undefined, abnormalFlag: undefined })
+  Object.assign(dFilters, { keyword: '', status: undefined, abnormalFlag: filters.abnormalFlag })
   showDetailModal.value = true
   loadDetail()
 }
+// 首页异常指标查看全企业码明细，包括尚未归属上传批次的生成码。
+const codesRoute = useRoute()
+const openGlobalDetail = () => {
+  if (!filters.abnormalFlag) return
+  detailRow.value = { id: undefined, file_name: filters.abnormalFlag === '1' ? '全部冻结码' : '全部作废码' }
+  detailPage.value = 1
+  Object.assign(dFilters, { keyword: '', status: undefined, abnormalFlag: filters.abnormalFlag })
+  showDetailModal.value = true
+  loadDetail()
+}
+onMounted(openGlobalDetail)
+onActivated(() => { if (!showDetailModal.value && codesRoute.path === '/admin/codes' && filters.abnormalFlag) openGlobalDetail() })
+watch(() => filters.abnormalFlag, () => { if (codesRoute.path === '/admin/codes') { if (filters.abnormalFlag) openGlobalDetail(); else showDetailModal.value = false } })
 const onDetailSearch = () => { detailPage.value = 1; loadDetail() }
 const detailTotalPages = computed(() => Math.max(1, Math.ceil(detailTotal.value / detailPageSize)))
 
@@ -304,6 +319,9 @@ const rowEditForm = reactive({
   produceDate: '', expireDate: '', qcResult: 'keep', qualityCertNo: '',
 })
 const openRowEdit = (row: any) => {
+  if (Number(row.abnormal_flag) !== 0) {
+    toast.add({ title: '冻结码请先恢复正常；作废码不可修改', color: 'warning' }); return
+  }
   rowEditTarget.value = row
   Object.assign(rowEditForm, { batchId: 0, produceDate: '', expireDate: '', qcResult: 'keep', qualityCertNo: '' })
   showRowEditModal.value = true
@@ -427,6 +445,11 @@ const flagBadge = (f: number) => {
       </div>
     </div>
 
+    <div v-if="filters.abnormalFlag || filters.uploadBatchId" class="b-note">
+      <UButton v-if="filters.abnormalFlag" size="xs" variant="outline" @click="openGlobalDetail">查看全部匹配码</UButton>
+      <span>当前范围：{{ filters.uploadBatchId ? '指定上传批次' : filters.abnormalFlag === '1' ? '包含冻结码的上传批次' : '包含作废码的上传批次' }} · 码总数量为批次全部码数量</span>
+      <UButton size="xs" variant="link" @click="resetSearch">查看全部</UButton>
+    </div>
     <!-- 批次聚合列表 -->
     <div class="b-card b-card-clip">
       <div class="b-card-head">
@@ -508,8 +531,8 @@ const flagBadge = (f: number) => {
       <div v-if="data?.total" class="b-pager">
         <span class="b-card-extra">共 {{ data?.total || 0 }} 个批次 · 第 {{ data.page }} / {{ totalPages }} 页</span>
         <div class="flex items-center gap-2">
-          <UButton variant="outline" color="neutral" size="sm" :disabled="page <= 1" @click="page--; refresh()">上一页</UButton>
-          <UButton variant="outline" color="neutral" size="sm" :disabled="page >= totalPages" @click="page++; refresh()">下一页</UButton>
+          <UButton variant="outline" color="neutral" size="sm" :disabled="page <= 1" @click="applyListQuery(page - 1)">上一页</UButton>
+          <UButton variant="outline" color="neutral" size="sm" :disabled="page >= totalPages" @click="applyListQuery(page + 1)">下一页</UButton>
         </div>
       </div>
     </div>
@@ -558,11 +581,12 @@ const flagBadge = (f: number) => {
             </div>
           </div>
           <div class="b-modal-body">
+            <ProductionChangePreview :form="correctForm" :count="correctTarget?.codeTotal || 0" />
             <div v-if="!newBatchMode">
               <label class="b-label-lg">重新绑定批次（仅"已生成"码生效，绑定后自动置为"已绑定"）</label>
               <USelect
                 v-model="correctForm.batchId"
-                :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
+                :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).filter((b: any) => Number(b.product_id) === Number(correctTarget?.product_id)).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
                 class="w-full"
                 :content="{ class: 'min-w-72' }"
                 :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
@@ -638,11 +662,12 @@ const flagBadge = (f: number) => {
             </div>
           </div>
           <div class="b-modal-body">
+            <ProductionChangePreview :form="correctForm" :count="correctTarget?.codeTotal || 0" />
             <div v-if="!newBatchMode">
               <label class="b-label-lg">重新绑定批次（仅"已生成"码生效，绑定后自动置为"已绑定"）</label>
               <USelect
                 v-model="correctForm.batchId"
-                :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
+                :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).filter((b: any) => Number(b.product_id) === Number(correctTarget?.product_id)).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
                 class="w-full"
                 :content="{ class: 'min-w-72' }"
                 :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
@@ -743,7 +768,7 @@ const flagBadge = (f: number) => {
               <UIcon name="i-lucide-eye" class="h-4 w-4 text-[var(--b-text-regular)]" />
             </div>
             <div>
-              <h3 class="b-modal-title">批次码明细</h3>
+              <h3 class="b-modal-title">{{ detailRow?.id ? '批次码明细' : '追溯码明细' }}</h3>
               <p class="b-modal-sub max-w-xl truncate" :title="detailRow?.file_name">{{ detailRow?.file_name }}</p>
             </div>
           </div>
@@ -808,8 +833,6 @@ const flagBadge = (f: number) => {
                       </div>
                       <div v-else-if="canWrite && Number(r.abnormal_flag) === 1" class="b-actions justify-end">
                         <UButton v-if="canWrite" variant="link" color="neutral" size="xs" @click="openRowFlag('restore', r)">恢复正常</UButton>
-                        <span class="b-sep" />
-                        <UButton v-if="canWrite" variant="link" color="neutral" size="xs" @click="openRowEdit(r)">修改</UButton>
                         <span class="b-sep" />
                         <span v-if="canWrite && Number(r.status) === 2" :title="'该追溯码已绑定，不允许删除'">
                           <UButton variant="link" color="error" size="xs" icon="i-lucide-trash-2" disabled>删除</UButton>
@@ -899,10 +922,11 @@ const flagBadge = (f: number) => {
           </div>
           <div class="b-modal-body">
             <div>
+              <ProductionChangePreview :form="rowEditForm" :count="1" :current="rowEditTarget" />
               <label class="b-label-lg">重新绑定批次（仅修改当前这条码的关联，不会影响同批次其他码）</label>
               <USelect
                 v-model="rowEditForm.batchId"
-                :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
+                :items="[{ value: 0, label: '不修改批次' }, ...(batchAll?.rows || []).filter((b: any) => Number(b.product_id) === Number(rowEditTarget?.product_id)).map((b: any) => ({ value: Number(b.id), label: b.batch_no + '（' + b.product_name + '）' }))]"
                 class="w-full"
                 :content="{ class: 'min-w-72' }"
                 :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
@@ -931,7 +955,7 @@ const flagBadge = (f: number) => {
             </div>
             <div class="b-note">
               <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
-              <p class="b-note-text">修改仅作用于当前追溯码（不触碰批次共享数据，同批次其他码不受影响）；扫码页展示以本条为准；已作废码为终态不可修改（冻结码可正常修改）</p>
+              <p class="b-note-text">修改仅作用于当前追溯码，同批次其他码不受影响；冻结码先恢复正常，作废码不可修改。</p>
             </div>
           </div>
           <div class="b-modal-foot">

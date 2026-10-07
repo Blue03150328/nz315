@@ -59,21 +59,15 @@ const form = reactive({
   expireDate: '', qcResult: 1, qcReportNo: '', quantity: 0,
 })
 
-const selectedProduct = computed(() => (productData.value?.rows || []).find((p: any) => Number(p.id) === Number(form.productId)))
-
-// 有效期自动计算：生产日期 + 产品保质期（如 "2年"），可覆盖
-const autoExpire = () => {
-  const p = selectedProduct.value
-  if (!p || !form.produceDate || !p.shelf_life) return
-  const m = String(p.shelf_life).match(/(\d+)\s*年/)
-  if (!m) return
-  const d = new Date(form.produceDate + 'T00:00:00')
-  d.setFullYear(d.getFullYear() + Number(m[1]))
-  form.expireDate = d.toISOString().slice(0, 10)
-}
-
 // 新建入口已移除（2026-09-04 流程改造：批次由生产采集导入时自动建档）；本弹窗仅用于编辑
+const affectedCount = ref(0)
+const originalBatch = ref<Record<string, any>>({})
+const originalForm = ref<Record<string, any>>({})
+// 只提交真正改动且明确填写的字段，避免预填值覆盖单码修正。
+const changedFields = computed(() => Object.fromEntries(Object.entries(form).filter(([key, value]) => key !== 'productId' && value !== '' && value !== null && value !== originalForm.value[key])))
 const openEdit = (row: any) => {
+  affectedCount.value = Number(row.code_count || 0)
+  originalBatch.value = { ...row }
   editingId.value = row.id
   Object.assign(form, {
     productId: row.product_id, batchNo: row.batch_no,
@@ -82,10 +76,12 @@ const openEdit = (row: any) => {
     expireDate: row.expire_date ? String(row.expire_date).slice(0, 10) : '',
     qcResult: Number(row.qc_result ?? 1), qcReportNo: row.qc_report_no || '', quantity: Number(row.quantity || 0),
   })
+  originalForm.value = { ...form }
   showModal.value = true
 }
 
 const save = async () => {
+  if (!Object.keys(changedFields.value).length) { toast.add({ title: '请先修改需要更正的字段', color: 'warning' }); return }
   if (!form.productId) { toast.add({ title: '请选择关联产品', color: 'warning' }); return }
   if (!form.batchNo.trim()) { toast.add({ title: '请输入生产批次号', color: 'warning' }); return }
   if (!form.produceDate) { toast.add({ title: '请选择生产日期', color: 'warning' }); return }
@@ -93,7 +89,7 @@ const save = async () => {
   saving.value = true
   try {
     if (!editingId.value) { toast.add({ title: '请选择要编辑的批次', color: 'warning' }); return }
-    await $fetch('/api/admin/batches/' + editingId.value, { method: 'PATCH', body: { ...form } })
+    await $fetch('/api/admin/batches/' + editingId.value, { method: 'PATCH', body: changedFields.value })
     toast.add({ title: '批次已更新', color: 'success' })
     showModal.value = false
     refresh()
@@ -249,10 +245,13 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
           </div>
         </div>
         <div class="b-modal-body">
+          <ProductionChangePreview :form="changedFields" :count="affectedCount" :current="originalBatch" />
+          <p class="b-help">保存将把本次修改的字段同步到该生产批次全部码，覆盖这些字段的单码修正；其他字段保持原值。仅改单码或文件请到码库管理。</p>
           <div>
             <label class="b-label-lg">关联产品 <span class="b-required">*</span></label>
             <USelect
               v-model="form.productId"
+              disabled
               :items="(productData?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name + '（' + (p.spec_name || '') + '）' }))"
               placeholder="从已启用产品中选择"
               class="w-full"
@@ -267,7 +266,7 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="b-label-lg">生产日期 <span class="b-required">*</span></label>
-              <UInput v-model="form.produceDate" type="date" @change="autoExpire" />
+              <UInput v-model="form.produceDate" type="date" />
               <p class="b-help">请确认与产品标签喷码日期一致</p>
             </div>
             <div>

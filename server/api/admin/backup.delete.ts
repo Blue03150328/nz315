@@ -7,7 +7,7 @@ import { logOperation } from '../../utils/audit'
 const BACKUP_DIR = path.resolve(process.cwd(), 'backup')
 
 export default defineEventHandler(async (event) => {
-  const user = await requirePlatformAdmin(event)
+  await requirePlatformAdmin(event)
   const q = getQuery(event)
   const file = String(q.file || '')
   // 防路径穿越：仅允许 backup 目录内的 nz315_*.sql 文件

@@ -1,16 +1,49 @@
 <script setup lang="ts">
 // 后台布局：左侧深色导航（复用 B 端令牌）+ 右侧内容区
-// 菜单按角色渲染；已实现模块可点击，规划中模块置灰提示
+// 菜单按角色渲染，只显示已经实现的模块。
 // 路由高亮说明：数据概览（/admin 根路径）仅精确匹配当前路由；其余模块按前缀匹配，
 // 否则 /admin 前缀会吞掉全部 /admin/* 子路由，导致数据概览永远高亮
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
-const { user, roleLabel, logout, canWrite } = useUser()
+const { user, roleLabel, logout, canWrite, clearLocalSession } = useUser()
+
+// 后台停留期间检查会话；接口权限每次请求都校验，此检查负责及时清页面和提示。
+let sessionTimer: ReturnType<typeof setInterval> | undefined
+let checkingSession = false
+let sessionMonitorActive = false
+async function checkSession() {
+  if (!sessionMonitorActive || checkingSession || document.hidden || !user.value) return
+  checkingSession = true
+  try {
+    const result = await $fetch<{ user: unknown; sessionInvalidated: boolean }>('/api/auth/me')
+    if (!sessionMonitorActive || result.user || !route.path.startsWith('/admin')) return
+    const redirect = route.fullPath
+    clearLocalSession()
+    await router.replace({ path: '/login', query: { redirect, reason: result.sessionInvalidated ? 'session-invalidated' : 'session-expired' } })
+  } catch {
+    // 暂时断网或服务失败不能当作账号被挤下线，恢复连接后继续检查。
+  } finally {
+    checkingSession = false
+  }
+}
+onMounted(() => {
+  sessionMonitorActive = true
+  void checkSession()
+  sessionTimer = setInterval(checkSession, 15000)
+  window.addEventListener('focus', checkSession)
+  document.addEventListener('visibilitychange', checkSession)
+})
+onBeforeUnmount(() => {
+  sessionMonitorActive = false
+  clearInterval(sessionTimer)
+  window.removeEventListener('focus', checkSession)
+  document.removeEventListener('visibilitychange', checkSession)
+})
 
 // 已实现菜单（可点击）：展示顺序与文案按用户指定，路径/图标/权限不随排序改动
 // writeOnly：纯写流程页面（只读账号看进去只剩空白，直接在菜单层隐藏，2026-09-19）
-const MENU_READY: { path: string; label: string; icon: string; writeOnly?: boolean }[] = [
+const MENU_READY: { path: string; label: string; icon: string; writeOnly?: boolean; platformOnly?: boolean }[] = [
   { path: '/admin', label: '数据概览', icon: 'i-lucide-layout-dashboard' },
   { path: '/admin/products', label: '产品管理', icon: 'i-lucide-package' },
   { path: '/admin/specs', label: '规格管理', icon: 'i-lucide-ruler' },
@@ -20,15 +53,14 @@ const MENU_READY: { path: string; label: string; icon: string; writeOnly?: boole
   { path: '/admin/batches', label: '效期预警', icon: 'i-lucide-boxes' },
   { path: '/admin/statistics', label: '扫码统计', icon: 'i-lucide-bar-chart-3' },
   { path: '/admin/alerts', label: '风险预警', icon: 'i-lucide-shield-alert' },
+  { path: '/admin/external-verify', label: '外部二维码核验', icon: 'i-lucide-scan-line', writeOnly: true },
+  { path: '/admin/source-snapshots', label: '外页历史快照', icon: 'i-lucide-history', platformOnly: true },
   { path: '/admin/messages', label: '消息中心', icon: 'i-lucide-bell' },
   { path: '/admin/settings', label: '系统设置', icon: 'i-lucide-settings' },
 ]
 
 /** 按角色可见菜单：只读账号隐藏纯写流程条目 */
-const visibleMenu = computed(() => MENU_READY.filter(item => canWrite.value || !item.writeOnly))
-
-// V1.0 规划菜单（模块建设中）
-const MENU_PLANNED: { label: string; icon: string }[] = []
+const visibleMenu = computed(() => MENU_READY.filter(item => (!item.platformOnly || user.value?.role === 'platform_admin') && (canWrite.value || !item.writeOnly)))
 
 const isActive = (path: string) => {
   // 根路径菜单（数据概览）：仅当前路由恰为该路径时高亮
@@ -67,20 +99,6 @@ const onLogout = async () => {
           </NuxtLink>
         </div>
 
-        <!-- 规划中模块：置灰不可点击 -->
-        <div class="mb-1 mt-4 border-t border-white/10 pt-3">
-          <div class="px-3 pb-1 text-xs text-white/40">规划中模块</div>
-        </div>
-        <button
-          v-for="item in MENU_PLANNED"
-          :key="item.label"
-          type="button"
-          class="flex w-full cursor-not-allowed items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-white/30"
-          @click="toast.add({ title: item.label + '模块建设中，敬请期待', color: 'primary' })"
-        >
-          <UIcon :name="item.icon" class="h-4.5 w-4.5 shrink-0" />
-          {{ item.label }}
-        </button>
       </nav>
 
       <div class="border-t border-white/10 px-4 py-4">

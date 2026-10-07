@@ -3,7 +3,8 @@
 // 至少 1 行且每行两字段必填；写入 product + product_original（事务）
 import { getPool, query } from '../../utils/db'
 import { requireWritableUser } from '../../utils/auth'
-import { normalizeOrgName } from '../../utils/regdata'
+import { normalizeOrgName, registrationExistsInRegistry } from '../../utils/regdata'
+import { triggerAlert } from '../../utils/risk-alert'
 
 /** 厂家名（登记数据源 company）→ 系统企业 id：企业名称归一化相等匹配；未入驻返回 null */
 async function resolveEnterpriseByCompany(companyName: string): Promise<number | null> {
@@ -58,6 +59,22 @@ export default defineEventHandler(async (event) => {
     }
   }
 
+  // 🔴 N1 修复（2026-09-23）：登记证号必须存在于国家农药登记资料库（`pesticide_reg`）。
+  //    PRD 5.9 异常清单第 3 条要求「后台预警 + 产品建档时阻断」——此前两半都没做：
+  //    本文件只校验**非空**与**本系统内重复**，从不查登记库。
+  //    位置刻意放在**归属企业解析之后**：豁免留痕要把预警归到正确的 enterprise_id 上。
+  //    豁免通道（用户 2026-09-23 裁定「开一个豁免通道方便新证收录」）：仅 `platform_admin`
+  //    可带 `regExempt: true` 放行 —— 登记资料库是《2026农药登记证大全》静态导入，
+  //    新批登记证不会自动进来，硬阻断会把真实新证堵死。
+  //    豁免**不是静默放行**：落库后写 `risk_alert(alert_type=3)` 留痕，供后台核实并补录登记库。
+  const regExempt = body.regExempt === true && user.role === 'platform_admin'
+  if (!(await registrationExistsInRegistry(registrationNo)) && !regExempt) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: '登记证号「' + registrationNo + '」在农药登记资料库中不存在，无法建档。如确为新增登记（登记库尚未收录），请由平台管理员勾选「新证豁免」后提交',
+    })
+  }
+
   const pool = getPool()
   const conn = await pool.getConnection()
   try {
@@ -90,6 +107,18 @@ export default defineEventHandler(async (event) => {
       )
     }
     await conn.commit()
+    // 豁免建档留痕：**必须带 product_id** —— `triggerAlert` 的合并键是
+    // (enterprise_id, code_id, product_id, external_verification_id, alert_type, handle_status)，
+    // 若 product_id 为 null，同企业的所有豁免会合并成一条、`evidence` 被逐次覆盖（N2 踩过同款坑）。
+    // 用事件本体在事务之外调用：预警写失败不得回滚已建档的产品（triggerAlert 内部已自行 try/catch）。
+    if (regExempt) {
+      await triggerAlert({
+        alertType: 3,
+        enterpriseId: fid,
+        productId: result.insertId,
+        evidence: { registrationNo, productName: name, action: 'create', exempt: true, operator: user.username },
+      })
+    }
     return { ok: true, id: result.insertId }
   } catch (e: any) {
     await conn.rollback()

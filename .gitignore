@@ -27,6 +27,8 @@ scripts/_tmp-*
 
 # 截图与验证产物
 screenshots/
+# 异常场景扫码测试产物（九张码 + 总览页 + manifest.json，由 scripts/seed-abnormal-demo.mjs 一键再生，不入库）
+qr-test/
 
 # 数据库备份文件（含全量数据，隐私）
 backup/
@@ -60,3 +62,14 @@ public/tools/app-data/
 
 # Added by code-review-graph
 .code-review-graph/
+# PPT 生成产物（slidep 流程，2026-09-28 起）
+# ---------------------------------------------------------------
+# 与产品无关的**一次性工作产物**，整体不入库（否则 `git status` 永远挂着一条未跟踪项）：
+#   `.ppt-build-<日期>/build-deck.mjs` / `finalize.mjs`（文案与版式源码）与成品 `ppt-output/*.pptx`
+#   **只留在本机磁盘**；已另备份到
+#   `E:/software/workbuddy/文件存放处/2026-09-28-PPT九月工作总结-成品与源码/`。
+# 2026-09-28 实测：该目录曾长到 425MB / 12,134 文件（大头是 py-runtime），已清理并进回收站。
+.ppt-build-*/
+/.ppt-build-*/
+ppt-output/
+.slidep/

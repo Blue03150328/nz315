@@ -16,6 +16,7 @@ export default defineEventHandler(async (event) => {
     conds.push('(b.batch_no LIKE ? OR p.name LIKE ? OR b.quality_cert_no LIKE ?)'); params.push(kw, kw, kw)
   }
   if (q.productId) { conds.push('b.product_id = ?'); params.push(Number(q.productId)) }
+  if (q.bindable === '1' || q.bindable === 1) conds.push("b.qc_result = 1 AND b.produce_date IS NOT NULL AND TRIM(COALESCE(b.quality_cert_no, '')) <> ''")
 
   const whereSql = conds.length ? 'WHERE ' + conds.join(' AND ') : ''
   const page = Math.max(1, parseInt(String(q.page || '1')))

@@ -54,6 +54,9 @@ const form = reactive({
   regCategory: 1, holderName: '', produceType: 1, dosage: '', toxicity: '低毒',
   specId: null as number | null, content: '', category: '杀虫剂',
   isRestricted: false, status: 1,
+  // 新证豁免（N1，2026-09-23）：登记证号在登记资料库查不到时，**仅总部管理员**可勾选放行；
+  // 服务端会校验角色并落 risk_alert(alert_type=3) 留痕。见 server/api/admin/products.post.ts
+  regExempt: false,
 })
 
 // 登记数据源选择状态
@@ -224,6 +227,7 @@ const openCreate = async () => {
     trademark: '', name: '', registrationNo: '', registrationExpire: '', regCategory: 1, holderName: '',
     produceType: 1, dosage: '', toxicity: '低毒', specId: null, content: '',
     category: '杀虫剂', isRestricted: false, status: 1,
+    regExempt: false,
   })
   pickedReg.value = null
   resetOrigRows()
@@ -249,6 +253,7 @@ const openEdit = (row: any) => {
     specId: row.spec_id, content: row.content || '',
     category: row.category || '杀虫剂', isRestricted: Number(row.is_restricted) === 1,
     status: Number(row.status),
+    regExempt: false,
   })
   pickedReg.value = {
     registration_no: row.registration_no,
@@ -292,6 +297,8 @@ const save = async () => {
       produceType: form.produceType, dosage: form.dosage, toxicity: form.toxicity,
       specId: form.specId, content: form.content, category: form.category,
       isRestricted: form.isRestricted, status: form.status,
+      // 新证豁免（N1）：服务端会再校验角色（仅 platform_admin 生效）并落预警留痕，前端只是提交意愿
+      regExempt: form.regExempt === true,
       originals: origRows.value.map(r => ({ ingredient: r.ingredient, regNo: r.regNo.trim(), company: r.company.trim() })),
     }
     if (isPlatformAdmin.value && !editingId.value) {
@@ -336,7 +343,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
     <div class="flex items-center justify-between">
       <div>
         <h1 class="b-page-title">产品管理</h1>
-        <p class="b-page-desc">产品 SKU 化 · 规格来自主数据下拉选择 · 登记信息可从登记数据源自动带出后修改 · 原药信息支持多行（复配多原药）</p>
+        <p class="b-page-desc">产品 SKU 化 · 规格来自主数据下拉选择 · 登记信息可从登记数据源自动带出 · <b>登记证号须存在于国家农药登记资料库</b>（新证由总部管理员勾选豁免并留预警）· 原药信息支持多行（复配多原药）</p>
       </div>
       <UButton v-if="canWrite" color="neutral" variant="solid" icon="i-lucide-plus" @click="openCreate">新增产品</UButton>
     </div>
@@ -417,7 +424,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
               <td colspan="8" class="b-empty">
                 <div class="b-empty-inner">
                   <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
-                  <span class="text-sm">暂无产品数据，点击右上角「新增产品」创建</span>
+                  <span class="text-sm">{{ filters.keyword || filters.category || filters.status ? '没有符合筛选条件的产品，请重置筛选。' : canWrite ? '尚未建立产品，请先维护规格，再新增产品。' : '企业尚未建立产品，请联系企业管理员建档。' }}</span>
                 </div>
               </td>
             </tr>
@@ -483,7 +490,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
             <!-- 第 3 步：登记信息（数据源带出默认值，全部可修改） -->
             <div class="rounded border border-[var(--b-border)] p-3">
               <div class="mb-2 flex items-center justify-between">
-                <span class="text-[13px] font-medium text-[var(--b-text-title)]">登记信息（数据源带出，可修改）</span>
+                <span class="text-[13px] font-medium text-[var(--b-text-title)]">登记信息（数据源带出；登记证号须存在于国家登记资料库）</span>
                 <span class="text-xs text-[var(--b-text-muted)]">切换登记产品后按数据源覆盖刷新</span>
               </div>
               <div class="grid grid-cols-2 gap-3">
@@ -493,7 +500,16 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                 </div>
                 <div>
                   <label class="b-label">登记证号 <span class="b-required">*</span></label>
-                  <UInput v-model="form.registrationNo" class="font-code" placeholder="选中产品自动带出，可修改" />
+                  <UInput v-model="form.registrationNo" class="font-code" placeholder="自动带出；手填须为登记库中存在的证号" />
+                </div>
+                <!-- 新证豁免（N1，2026-09-23）：登记证号不在国家登记资料库时的唯一放行通道，仅总部管理员可见。
+                     不是「绕过校验」而是「带留痕放行」——服务端仍会校验角色，并在建档成功后落
+                     risk_alert(alert_type=3)，供平台核实并补录登记资料库。 -->
+                <div v-if="isPlatformAdmin" class="col-span-2 rounded-lg border border-warning/40 bg-warning-soft/60 px-3 py-2.5">
+                  <UCheckbox v-model="form.regExempt" label="新证豁免：该登记证号登记库尚未收录，申请豁免建档（会留一条预警待核实）" />
+                  <p class="mt-1 pl-6 text-xs text-[var(--b-text-muted)]">
+                    仅总部管理员可用。登记资料库是定期导入的静态数据，新批登记证可能尚未收录；勾选后允许建档，同时生成一条「登记证号不存在」风险预警供核实。
+                  </p>
                 </div>
                 <div>
                   <label class="b-label">登记证有效期至</label>
@@ -629,4 +645,3 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
     </UModal>
   </div>
 </template>
-

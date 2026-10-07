@@ -17,22 +17,8 @@ const copyCode = async () => {
   }
 }
 
-// 信息栏分三栏，1049 六项必显字段按性质归栏：
-//   产品信息 → 农药名称、登记证持有人名称
-//   生产信息 → 生产日期、生产批次
-//   原药信息 → 原药（母药）登记证号、原药生产企业名称
-// 厂商信息栏按需求不设
-type TabKey = 'product' | 'batch' | 'original'
-
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'product', label: '产品信息' },
-  { key: 'batch', label: '生产信息' },
-  { key: 'original', label: '原药信息' },
-]
-
-const activeTab = ref<TabKey>('product')
-
-// 产品信息栏
+// 产品、生产及全部原药资料在同一页连续展示，无需切换标签。
+// 产品信息
 const productFields = computed(() => {
   const p = product.value
   if (!p) return []
@@ -81,6 +67,13 @@ const handleShare = async () => {
     }
   }
 }
+
+// ---------------- 记一笔 ----------------
+// 🔁 2026-09-23 两次收口，现由 `TraceBillEntry` 组件承担（入口在页面底部操作区、撑满一行）：
+//   ① 内联实现删除 → 改走组件（未登录直达微信授权、支持 `bill=1` 回跳自动开表单，文案与其它页一致）；
+//   ② 入口从页头 `size="xs"` 小按钮**移到操作区并撑满一行**（用户裁定「也做成这样」）
+//      ⇒ 四个结果页（正品 / 外码 / 异常 / 查无此码）形态与位置统一。
+// 组件说明与各页预填口径见 `TraceBillEntry.vue` 顶部注释。
 </script>
 
 <template>
@@ -114,33 +107,17 @@ const handleShare = async () => {
         <div class="mt-1 font-code text-sm font-medium break-all text-default">{{ outcome.formattedCode }}</div>
       </div>
 
-      <!-- 信息栏：产品信息 / 生产信息 / 原药信息（左浅底标签列 + 右值列的表格版式） -->
+      <!-- 全部追溯资料连续展示，保留左标签、右值的表格版式 -->
       <div class="overflow-hidden rounded-xl border border-border bg-elevated shadow-sm">
-        <div class="flex border-b border-border">
-          <button
-            v-for="t in TABS"
-            :key="t.key"
-            type="button"
-            class="-mb-px flex-1 border-b-2 py-3 text-sm transition-colors"
-            :class="activeTab === t.key
-              ? 'border-primary font-semibold text-primary'
-              : 'border-transparent text-muted hover:text-default'"
-            @click="activeTab = t.key"
-          >
-            {{ t.label }}
-          </button>
-        </div>
-
-        <!-- 产品信息栏 -->
-        <div v-if="activeTab === 'product'" class="divide-y divide-border/60">
+        <div class="divide-y divide-border/60">
           <div v-for="f in productFields" :key="f.label" class="flex text-sm">
             <div class="w-36 shrink-0 border-r border-border/60 bg-muted/40 px-4 py-2.5 text-muted">{{ f.label }}</div>
             <div class="min-w-0 flex-1 px-4 py-2.5 font-medium break-words text-default">{{ f.value }}</div>
           </div>
         </div>
 
-        <!-- 生产信息栏 -->
-        <div v-else-if="activeTab === 'batch'">
+        <!-- 生产信息直接接在产品信息后面 -->
+        <div class="border-t border-border/60">
           <!-- 码已生成但未绑定批次：生产日期与批次确实无从取出，明确告知而非留空 -->
           <div v-if="!batch" class="flex items-start gap-2 border-b border-border/60 bg-warning-soft px-4 py-3 text-xs">
             <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
@@ -154,24 +131,21 @@ const handleShare = async () => {
           </div>
         </div>
 
-        <!-- 原药信息栏 -->
-        <div v-else class="p-4">
-          <div v-if="hasOriginalInfo" class="space-y-3">
-            <div v-for="(o, idx) in originals" :key="idx" class="overflow-hidden rounded-lg border border-border">
-              <div v-if="originals.length > 1" class="border-b border-border/60 bg-primary/10 px-4 py-2 text-xs font-medium text-primary">
-                原药组分 {{ idx + 1 }}
-              </div>
+        <!-- 复配产品的全部原药组分直接逐条展示 -->
+        <div class="border-t border-border/60">
+          <div v-if="hasOriginalInfo" class="divide-y divide-border/60">
+            <div v-for="(o, idx) in originals" :key="idx">
               <div class="flex text-sm">
-                <div class="w-36 shrink-0 border-r border-border/60 bg-muted/40 px-4 py-2.5 text-muted">原药（母药）登记证号</div>
+                <div class="w-36 shrink-0 border-r border-border/60 bg-muted/40 px-4 py-2.5 text-muted">原药（母药）登记证号<span v-if="originals.length > 1">（{{ idx + 1 }}）</span></div>
                 <div class="min-w-0 flex-1 px-4 py-2.5 font-medium break-words text-default">{{ o.regNo || '-' }}</div>
               </div>
               <div class="flex border-t border-border/60 text-sm">
-                <div class="w-36 shrink-0 border-r border-border/60 bg-muted/40 px-4 py-2.5 text-muted">原药生产企业名称</div>
+                <div class="w-36 shrink-0 border-r border-border/60 bg-muted/40 px-4 py-2.5 text-muted">原药生产企业名称<span v-if="originals.length > 1">（{{ idx + 1 }}）</span></div>
                 <div class="min-w-0 flex-1 px-4 py-2.5 font-medium break-words text-default">{{ o.company || '-' }}</div>
               </div>
             </div>
           </div>
-          <div v-else class="flex items-start gap-2 rounded-lg bg-muted/40 px-4 py-3 text-xs">
+          <div v-else class="flex items-start gap-2 bg-muted/40 px-4 py-3 text-xs">
             <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted" />
             <span class="text-muted">该产品未录入原药（母药）信息，请联系生产企业核实。</span>
           </div>
@@ -196,6 +170,33 @@ const handleShare = async () => {
         </div>
       </div>
 
+      <!-- 反馈入口（2026-09-23 N2 修复新增）：消费者要发现「信息与包装标签不符」，
+           **必须先在页面上看到产品信息**，而产品信息只在正品页（本组件）展示 ⇒
+           只把入口放在异常页 = 把最该反馈的人挡在外面。故正品页也放一个低调的文字入口。 -->
+      <div class="text-center">
+        <TraceFeedback
+          :code="outcome.code"
+          :result-type="outcome.resultType"
+          label="信息与包装标签不一致？点此反馈"
+          variant="link"
+          color="neutral"
+          size="sm"
+        />
+      </div>
+
+      <!-- 记一笔账（2026-09-23 17:3x 用户裁定「这个页面的记一笔也做成这样」）：
+           此前只在页头右上角放一个 `size="xs"` 的小按钮 —— 正品页信息量最大、页面最长，
+           那个小按钮恰恰最不起眼。现移到操作区、撑满一行，与其它三个结果页
+           （外码 / 异常 / 查无此码）**形态与位置完全一致**。 -->
+      <TraceBillEntry
+        :code="outcome.code"
+        :product-name="product?.name || ''"
+        :category="product?.category || ''"
+        :dosage="product?.formulation || ''"
+        :bill-date="batch?.produceDate || ''"
+        block
+      />
+
       <!-- 操作 -->
       <UButton variant="outline" color="neutral" size="lg" icon="i-lucide-arrow-left" class="w-full" @click="router.back()">
         返回
@@ -204,5 +205,6 @@ const handleShare = async () => {
         查询结果仅供参考，如有疑问请联系生产企业核实
       </p>
     </div>
+
   </div>
 </template>

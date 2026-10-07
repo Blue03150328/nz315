@@ -5,6 +5,7 @@ import { query } from '../../../utils/db'
 import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
 import { generateBatch, segments, type GenerateConfig } from '../../../utils/code-generator'
+import { productCodeHead } from '../../../utils/code-head'
 
 // 自定义段固定配置（PRD 3.2）：时间戳段=毫秒级、随机数字段=6位随机+2位校验、校验位段=MD5取后2位
 // 平台标准锁定：生成接口不接受客户端传入配置，防止客户乱配置导致追溯码结构错乱（引擎逻辑不变）
@@ -46,10 +47,7 @@ export default defineEventHandler(async (event) => {
 
   // 批量生成
   const ctx = {
-    regCategory: Number(prod.reg_category || 1),
-    regLast6: String(prod.registration_no).slice(-6),
-    produceType: Number(prod.produce_type || 1),
-    specCode: String(prod.spec_code),
+    ...productCodeHead(prod),
     existingSet,
   }
   const result = generateBatch(ctx, quantity, cfg)

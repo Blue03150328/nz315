@@ -2,6 +2,8 @@
 // 原药多行化（2026-09-04）：body.originals 全量替换 product_original（先删后插，事务）
 import { getPool, query, execute } from '../../../utils/db'
 import { requireWritableUser } from '../../../utils/auth'
+import { registrationExistsInRegistry } from '../../../utils/regdata'
+import { triggerAlert } from '../../../utils/risk-alert'
 
 export default defineEventHandler(async (event) => {
   const user = await requireWritableUser(event)
@@ -38,6 +40,21 @@ export default defineEventHandler(async (event) => {
     'SELECT id FROM product WHERE registration_no = ? AND id <> ? LIMIT 1', [registrationNo, id])
   if (dup) throw createError({ statusCode: 400, statusMessage: '该登记证号已存在' })
 
+  // 🔴 N1 修复（2026-09-23）：登记证号**发生变更**时，新证号必须存在于国家农药登记资料库。
+  //    ⚠️ `regChanged` 这个前提是必须的，不是保险起见 —— 无条件校验会**锁死存量孤儿产品**：
+  //    本机实测库里就有 2 条证号不在登记库的产品（`PD20990001` / `PD20990002`），
+  //    它们此后连改名字、停用都会 400。改其它字段完全不受影响
+  //    （仅改 `status` 的请求在更上方的单独分支已 return）。
+  //    豁免口径与 `products.post.ts` 保持一致（仅 platform_admin + `regExempt: true`）。
+  const regChanged = registrationNo !== String(prod.registration_no || '').trim().toUpperCase()
+  const regExempt = body.regExempt === true && user.role === 'platform_admin'
+  if (regChanged && !(await registrationExistsInRegistry(registrationNo)) && !regExempt) {
+    throw createError({
+      statusCode: 400,
+      statusMessage: '登记证号「' + registrationNo + '」在农药登记资料库中不存在，无法保存。如确为新增登记（登记库尚未收录），请由平台管理员勾选「新证豁免」后提交',
+    })
+  }
+
   const pool = getPool()
   const conn = await pool.getConnection()
   try {
@@ -69,6 +86,15 @@ export default defineEventHandler(async (event) => {
       )
     }
     await conn.commit()
+    // 豁免变更留痕（同新建口径；带 product_id 以避免被 triggerAlert 的合并键吃掉）
+    if (regChanged && regExempt) {
+      await triggerAlert({
+        alertType: 3,
+        enterpriseId: prod.enterprise_id ?? null,
+        productId: id,
+        evidence: { registrationNo, productName: name, action: 'update', exempt: true, operator: user.username },
+      })
+    }
     return { ok: true }
   } catch (e: any) {
     await conn.rollback()

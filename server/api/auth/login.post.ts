@@ -1,6 +1,6 @@
 // POST /api/auth/login —— 账号密码登录（PRD 5.1）
 import { query } from '../../utils/db'
-import { verifyPassword, setAuthCookie, getCurrentUser, assertSameOrigin } from '../../utils/auth'
+import { verifyPassword, setAuthCookie, startBackendSession, assertSameOrigin } from '../../utils/auth'
 import { clientIpOf } from '../../utils/audit'
 import { logLogin } from '../../utils/audit'
 
@@ -79,12 +79,10 @@ export default defineEventHandler(async (event) => {
       throw createError({ statusCode: 403, statusMessage: '厂家服务已到期未续费，账号暂不可登录使用，请联系平台续费' })
     }
   }
-  setAuthCookie(event, u.id)
-  // 记录最后登录时间与 IP（PRD 5.1 登录日志）
   const ip = clientIp(event)
-  await query('UPDATE `user` SET last_login_at = NOW(), last_login_ip = ? WHERE id = ?', [ip, u.id])
+  const { user, sessionVersion } = await startBackendSession(u.id, String(u.password), ip)
+  setAuthCookie(event, u.id, sessionVersion)
   // 操作日志（PRD 5.12.4 登录日志：时间/IP/设备/结果）
   await logLogin(event, u.id, u.enterprise_id ?? null, true)
-  const user = await getCurrentUser(event)
   return { ok: true, user }
 })

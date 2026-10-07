@@ -1,0 +1,488 @@
+
+
+<body onload="geolocation.getLocation(showPosition,options)">
+
+
+
+
+
+
+
+	
+<head><meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title></title>
+    <meta name="viewport" content="width=device-width,height=device-height,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="format-detection" content="telephone=no">
+    
+    
+    
+    
+
+
+
+
+ 
+
+</head>
+
+<body>
+
+<div class="addWrap">
+
+<div class="log_btb claname">二维码追溯系统</div>
+
+
+	<div class="swipe" id="mySwipe">
+		<div class="swipe-wrap">
+			<div></div>		</div>
+	</div>
+	
+	<ul id="position">
+		<!--<li class="cur"></li>
+		<li></li>
+        <li></li>-->
+	</ul>
+    
+    
+    
+    <div class="prolisthome" style="width: 97%; margin-top:10px;margin-right:auto; margin-left:auto; ">
+        <!-- 二维码信息   -->
+        <div class="claname"><div class="cls colo_4"><a href="javascript:showsub(1)">二维码信息</a></div></div> 
+    
+    <div class="proinfo" id="sub1" style="display:block">
+        
+
+            
+            
+            
+            <table style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto; margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr style="border: 0px;color: #000;">
+                        <td width="30%" class="td" style="border-color:#02af6f; height: 30px;border-bottom: 0px;border-top: 0px;border-left: 0px;">单元识别码</td>
+                        <td width="70%" class="rightfont" > 21800462100136950812284409766080</td>
+                    </tr>
+              </tbody>
+          </table>
+      <table style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto; margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr>
+                        <td width="30%" class="td" style="border-color:#02af6f; height: 30px;border-bottom: 0px;border-top: 0px;border-left: 0px;">追溯网址</td>
+                        
+                        <td width="70%" class="rightfont"> <a style="text-decoration:none;font-size:12px;" class="zsurl" href="http://ddspp.cn/u/?q=21800462100136950812284409766080&szs=Y#">http://www.ddspp.cn</a> </td>
+                    </tr>
+                </tbody>
+          </table>        
+           
+           <table style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto; margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr style="border: 0px;color: #000;">
+                        <td width="30%" class="td" style="border-color:#02af6f; height: 30px;border-bottom: 0px;border-top: 0px;border-left: 0px;">质量检验</td>
+                        <td width="70%" class="rightfont" ><font style="color:red; border:red 1px solid">合格</font></td>
+                    </tr>
+                </tbody>
+          </table>    
+       
+           
+           <div class="shbq">
+            <table style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto; margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr style="border: 0px;color: #000;">
+                        <td width="30%" class="td" style="border-color:#02af6f; height: 30px;border-bottom: 0px;border-top: 0px;border-left: 0px;">数据流水号</td>
+                        <td width="70%" class="rightfont" > 128268</td>
+                    </tr>
+                </tbody>
+            </table>
+                      
+ <table style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto; margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr style="border: 0px;color: #000;">
+                        <td width="30%" class="td" style="border-color:#02af6f; height: 30px;border-bottom: 0px;border-top: 0px;border-left: 0px;">扫描次数</td><td width="70%" class="rightfont" >9</td>
+                    </tr>
+                </tbody>
+          </table> 
+       
+           
+           
+   
+ 
+     </div>       
+          
+            
+        </div>
+
+
+      <!--产品信息-->
+        <div class="claname bor_1" id="cpxx"><div class="cls colo_1"><a href="javascript:showsub(1)">原药<font class="shbq">登记</font>信息</a></div></div>
+
+     <table id="tdprodname" style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto;  margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr>
+                        <td width="30%" class="td">原药名称</td>
+                        <td width="70%" class="td" id="prodname">残杀威</td>
+                    </tr>
+                </tbody>
+            </table>
+<table id="tdprodname" style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto;  margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr>
+                        <td width="30%" class="td">原药厂家名称</td>
+                        <td width="70%" class="td" id="prodname">湖南海利化工股份有限公司</td>
+                    </tr>
+                </tbody>
+            </table>
+<table id="tdprodname" style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto;  margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr>
+                        <td width="30%" class="td">原药证件号</td>
+                        <td width="70%" class="td" id="prodname">WPN1-94</td>
+                    </tr>
+                </tbody>
+            </table>
+<table id="tdprodname" style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto;  margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr>
+                        <td width="30%" class="td">原药名称</td>
+                        <td width="70%" class="td" id="prodname">高效氯氰菊酯</td>
+                    </tr>
+                </tbody>
+            </table>
+<table id="tdprodname" style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto;  margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr>
+                        <td width="30%" class="td">原药厂家名称</td>
+                        <td width="70%" class="td" id="prodname">印度联合磷化物有限公司</td>
+                    </tr>
+                </tbody>
+            </table>
+<table id="tdprodname" style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto;  margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr>
+                        <td width="30%" class="td">原药证件号</td>
+                        <td width="70%" class="td" id="prodname">PD20101070</td>
+                    </tr>
+                </tbody>
+            </table>
+
+
+
+      <!--产品信息-->
+        <div class="claname bor_1" id="cpxx"><div class="cls colo_1"><a href="javascript:showsub(1)">产品<font class="shbq">详情</font>信息</a></div></div>
+
+
+   
+      
+            <table id="tdprodname" style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto;  margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr>
+                        <td width="30%" class="td">产品名称</td>
+                        <td width="70%" class="td" id="prodname">10%高氯·残杀威</td>
+                    </tr>
+                </tbody>
+            </table>
+                    
+    
+            <table id="tdprodname" style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto;  margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr style="border: 0px;color: #000;">
+                        <td width="30%" class="td" style="border-color:#02af6f; height: 30px;border-bottom: 0px;border-top: 0px;border-left: 0px;">农药登记证号</td>
+                        <td width="70%" class="td" id="prodname" >WP20180046</td>
+                    </tr>
+
+                </tbody>
+            </table>
+            
+          
+          
+         <!-- -->    
+                        
+              
+    
+            
+          
+          
+          
+          
+          
+          
+         <!-- --> 
+         
+          
+            
+            <table id="tdprodname" style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto;  margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr style="border: 0px;color: #000;">
+                        <td width="30%" class="td" style="border-color:#02af6f; height: 30px;border-bottom: 0px;border-top: 0px;border-left: 0px;">执行标准</td>
+                        <td width="70%" class="td" id="prodname" style="height: 30px;border: 0px;">Q/PSK012-2022</td>
+                    </tr>
+
+                </tbody>
+            </table>
+                    
+            
+    
+            <table id="tdprodname" style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto;  margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr style="border: 0px;color: #000;">
+                        <td width="30%" class="td" style="border-color:#02af6f; height: 30px;border-bottom: 0px;border-top: 0px;border-left: 0px;">生产许可证</td>
+                        <td width="70%" class="td" id="prodname" style="height: 30px;border: 0px;">农药生许(豫)0021</td>
+                    </tr>
+
+                </tbody>
+            </table>
+            
+
+   <table id="tdprodname" style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto;  margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr style="border: 0px;color: #000;">
+                        <td width="30%" class="td" style="border-color:#02af6f; height: 30px;border-bottom: 0px;border-top: 0px;border-left: 0px;">净含量</td>
+                        <td width="70%" class="td" id="prodname" style="height: 30px;border: 0px;">500克</td>
+                    </tr>
+
+                </tbody>
+            </table>
+    <div class="shbq">      
+  
+            <table id="tdprodname" style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto;  margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr style="border: 0px;color: #000;">
+                        <td width="30%" class="td" style="border-color:#02af6f; height: 30px;border-bottom: 0px;border-top: 0px;border-left: 0px;">质量保证期</td>
+                        <td width="70%" class="td" id="prodname" style="height: 30px;border: 0px;">2年 生产日期及批号：见瓶盖或瓶体，袋装请见喷码</td>
+                    </tr>
+
+                </tbody>
+            </table>
+                      
+          
+
+     
+    
+          
+        
+  <div id="div1" align="left"><table width="100%" border="0" cellpadding="0" cellspacing="0" bordercolorlight="#000000" class="kuang" data-extentions-extra-tablecapture-id="765031"><tr>
+                    <td width="50%" height="85">
+                        <table width="100%" border="0" data-extentions-extra-tablecapture-id="963032">
+                            <tr>
+                                <td><span class="style4">农药登记证号：</span><span>WP20180046</span></td>
+                            </tr>
+                            <tr>
+                                <td><span class="style4">登记证持有人：</span><span>洛阳派仕克农业科技有限公司</span></td>
+                            </tr>
+                            <tr>
+                                <td><span class="style4">农药名称：</span><span>高氯·残杀威</span></td>
+                            </tr>
+                            <tr>
+                                <td><span class="style4">剂型：</span><span>悬浮剂</span></td>
+                            </tr>
+                            <tr>
+                                <td valign="middle">
+                                    <span class="style4" style="float: left;">毒性及其标识：</span>
+                                    <div class="style12" style="float:left;">
+                                        
+                                            
+                                                
+                                            
+                                            
+                                        
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                                <tr>
+                                    <td><span class="style4">总有效成分含量：</span><span>10%</span></td>
+                                </tr>
+                            
+                            <tr>
+                                <td>
+                                    <div class="style4">有效成分及其含量：</div>
+                                    <span>&nbsp;&nbsp;&nbsp;
+									
+                                        高效氯氰菊酯4%   &nbsp;&nbsp;&nbsp;
+                                    
+                                        残杀威6%   &nbsp;&nbsp;&nbsp;
+                                    
+                                    </span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <div class="style4">使用范围和使用方法：</div>
+                                    <table width="100%" border="1" bordercolorlight="#000000" cellpadding="0" cellspacing="0" data-extentions-extra-tablecapture-id="60896">
+                                        <tr>
+                                            <td width="28%"><span class="style7">作物/场所</span></td>
+                                            <td width="28%"><span class="style7">防治对象</span></td>
+                                            <td width="24%"><span class="style7">用药量（制剂量/亩）</span></td>
+                                            <td width="20%"><span class="style7">施用方式</span></td>
+                                        </tr>
+                                        
+                                            <tr>
+                                                <td><span class="style7">卫生</span></td>
+                                                <td><span class="style7">蚊、蝇、蜚蠊</span></td>
+                                                <td><span class="style7">0.5-1毫升/平方米</span></td>
+                                                <td><span class="style7">滞留喷洒</span></td>
+                                            </tr>
+                                        
+                                    </table>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <span class="style4">使用技术要求:</span><br>
+                                    <span class="style7">使用本品按上述用药量, 稀释100倍，直接对准蚊、蝇、蜚蠊喷雾，或滞留喷洒于地面、墙角等其出没或栖息处。     </span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <span class="style4">产品性能:</span><br>
+                                    <span class="style7">本品为卫生杀虫剂，可用于防治蚊、蝇、蜚蠊卫生害虫。     </span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td><span class="style4">注意事项：</span><br><span class="style7">1.对人、畜有毒，使用本品时应采取安全防护措施，穿戴防护服和手套，口罩。避免吸入药液。施药期间不可吃东西、饮水或吸烟。2.对鱼等水生动物、蜜蜂高毒，对家蚕剧毒，使用时注意不可污染鱼塘等水域及饲养蜂、蚕场地。蚕室内及其附近禁用。禁止在河塘等水域清洗施药器械。3.喷药后及时脱下衣服，用洗衣粉水洗涤，并用肥皂水和大量清水冲洗皮肤裸露部位。4.切勿让儿童和宠物接触。5.不能与碱性物质混用。切勿在人体、食物上使用。6.过敏者禁用；使用中有任何不良反应请及时就医。7.孕妇及哺乳期妇女禁止接触本品。8.仅用于室内。     </span></td>
+                            </tr>
+                            <tr>
+                                <td><span class="style4">中毒急救措施：</span><br><span class="style7">1.中毒症状：接触部位皮肤感到刺痛，尤其在口、鼻周围，但无红斑很少引起全身性中毒，接触量大时会引起头晕、恶心、呕吐、双手颤抖，全身抽搐或惊厥、昏迷、休克。 2.急救治疗：眼睛溅入、皮肤粘附后用清水冲洗，误食、吸入时可洗胃不能催吐，应对症治疗。若以残杀威中毒为主，可用阿托品0.5－2mg口服或肌肉注射，重者加用肾上腺素；禁用解磷定，氯磷定，双复磷，吗啡。     </span></td>
+                            </tr>
+                            <tr>
+                                <td><span class="style4">储存和运输方法：</span><br><span class="style7">1.本品应避免光直射，应储存在阴凉干燥处 。2.应轻装轻卸，避免倒置 。3.应存放在儿童接触不到的地方，并加锁。4.不能与食物、饮料、种子、粮食、种子、饲料或易燃易爆品等混合储存或运输。     </span></td>
+                            </tr>
+                            <tr>
+                                <td><span class="style4">质量保证期：</span><span class="style7">2年</span></td>
+                            </tr>
+                            <tr>
+                                <td><span class="style4">备注：</span><br><span class="style7"></span></td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <span class="style4">核准日期：</span><span class="style7">
+								   	
+                                        2018-02-09
+                                    
+	                                
+	                                </span>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>
+                                    <span class="style4">重新核准日期：</span><span class="style7">
+                                    
+                                        2025-12-09
+                                    
+									
+                                    </span>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            
+        
+    </table>
+    <div style="margin:5px;">
+        <input type="button" value="查看商标" id="showBrandInfo">
+        <input type="button" value="查看历史标签" id="selectHistory">
+    </div></div>
+          
+
+<div id="myModal" class="modal">
+    <iframe id="myIframe" width="90%" height="60%"></iframe>
+</div>
+<div id="modalOverlay" class="modal-overlay"></div>
+
+  <br>    
+          
+                     
+
+         </div>
+  <br>
+ 
+     
+  
+  
+  
+     
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+     
+    
+     
+         
+     
+      
+<!-- 企业信息   -->
+        <div class="claname bor_4"><div class="cls colo_4"><a href="javascript:showsub(1)">企业信息</a></div></div>
+        <div class="proinfo" id="sub1" style="display:block">
+        
+    
+            <table id="tdprodname" style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto;  margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr style="border: 0px;color: #000;">
+                        <td width="30%" class="td" style="border-color:#02af6f; height: 30px;border-bottom: 0px;border-top: 0px;border-left: 0px;">生产企业</td>
+                        <td width="70%" class="td" id="prodname" style="height: 30px;border: 0px;">河南科辉实业有限公司</td>
+                    </tr>
+
+                </tbody>
+            </table>
+                
+            
+  
+            <table id="tdprodname" style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto;  margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr style="border: 0px;color: #000;">
+                        <td width="30%" class="td" style="border-color:#02af6f; height: 30px;border-bottom: 0px;border-top: 0px;border-left: 0px;">地址</td>
+                        <td width="70%" class="td" id="prodname" style="height: 30px;border: 0px;">新密市白寨镇光武陈村</td>
+                    </tr>
+
+                </tbody>
+            </table>
+                                                           
+  
+  
+            <table id="tdprodname" style="font-size:16px; width: 97%; margin-top:10px;margin-right:auto;  margin-left:auto;border: 0px; ">
+                <tbody>
+                    <tr style="border: 0px;color: #000;">
+                        <td width="30%" class="td" style="border-color:#02af6f; height: 30px;border-bottom: 0px;border-top: 0px;border-left: 0px;">电话</td>
+                        <td width="70%" class="td" id="prodname" style="height: 30px;border: 0px;">0371-69916666</td>
+                    </tr>
+
+                </tbody>
+            </table>
+                      
+              
+
+ 
+           
+
+
+
+
+                                   
+        </div>
+        
+        
+        
+
+      
+       
+    </div>
+    
+    
+</div><!--/addWrap--> 
+
+
+
+
+
+
+
+
+<div style="width:100vw; margin-top:6px; margin-bottom:12px;line-height:2em; font-size:1.2em; color:#FFF;" align="center"><a href="http://www.ddspp.com" style="color:#FFF;"><!--二维码台账支持:[胜聪®] --></a></div>	
