@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import ProductionDatePicker from '~/components/ProductionDatePicker.vue'
 definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
 useHead({ title: '生产任务与剩余码审核' })
 const { user, canWrite, canManageUsers } = useUser()
@@ -6,9 +7,24 @@ const toast = useToast()
 const page = ref(1)
 const { data, pending, error, refresh } = await useFetch<any>('/api/admin/production-tasks', { query: { page } })
 const productKeyword = ref('')
-const { data: products } = await useFetch<any>('/api/admin/products', { query: { page: 1, pageSize: 100, status: 1, keyword: productKeyword } })
-const emptyForm = () => ({ requestId: crypto.randomUUID(), name: '', productId: '', batchNo: '', produceDate: '', expireDate: '', qcResult: '', qualityCertNo: '', content: '' })
+const productSearch = ref('')
+const { data: products, pending: productLoading, error: productError } = await useFetch<any>('/api/admin/products', { query: { page: 1, pageSize: 100, status: 1, keyword: productKeyword } })
+const emptyForm = () => ({ requestId: crypto.randomUUID(), name: '', productId: null as string | null, batchNo: '', produceDate: '', expireDate: '', qcResult: '', qualityCertNo: '', content: '' })
 const form = ref(emptyForm())
+// 远程搜索保留已选项，避免新候选返回后已选产品名称消失。
+const productCache = new Map<string, { value: string; label: string }>()
+watch(products, result => {
+  for (const row of result?.rows || []) productCache.set(String(row.id), { value: String(row.id), label: `${row.name} · ${row.registration_no}` })
+}, { immediate: true })
+const productItems = computed(() => (products.value?.rows || []).map((row: any) => ({ value: String(row.id), label: `${row.name} · ${row.registration_no}` })))
+const selectedProductLabel = computed(() => form.value.productId ? productCache.get(form.value.productId)?.label : '')
+watch(productSearch, (value, _, onCleanup) => {
+  const timer = setTimeout(() => { productKeyword.value = value.trim() }, 250)
+  onCleanup(() => clearTimeout(timer))
+})
+watch(() => form.value.produceDate, date => {
+  if (date && form.value.expireDate && form.value.expireDate < date) form.value.expireDate = ''
+})
 const busy = ref(false)
 watch(() => [form.value.name, form.value.productId, form.value.batchNo, form.value.produceDate, form.value.expireDate, form.value.qcResult, form.value.qualityCertNo, form.value.content], () => { if (!busy.value) form.value.requestId = crypto.randomUUID() })
 const selected = ref<number | null>(null)
@@ -35,11 +51,15 @@ watch(detailPage, () => { void loadDetail() })
 async function selectTask(id: number) { state.value = ''; detailPage.value = 1; await loadDetail(id) }
 async function createTask() {
   if (busy.value) return
+  if (!form.value.produceDate || !form.value.expireDate) {
+    toast.add({ title: '请选择生产日期和有效期至', color: 'warning' })
+    return
+  }
   busy.value = true
   try {
     const result = await $fetch<any>('/api/admin/production-tasks', { method: 'POST', body: { ...form.value, productId: Number(form.value.productId), qcResult: Number(form.value.qcResult), codes: codes.value } })
     toast.add({ title: '领用成功，实际生产扫码后才绑定生产资料', color: 'success' })
-    form.value = emptyForm(); await refresh(); await selectTask(result.id)
+    form.value = emptyForm(); productSearch.value = ''; await refresh(); await selectTask(result.id)
   } catch (e) { toast.add({ title: message(e), color: 'error' }) }
   finally { busy.value = false }
 }
@@ -68,11 +88,17 @@ async function act(action: 'end' | 'review' | 'scan', body: Record<string, unkno
       <h2 class="font-semibold">开始生产并领用</h2>
       <fieldset :disabled="busy" class="grid grid-cols-1 gap-3 md:grid-cols-3">
         <label class="space-y-1"><span>任务名称</span><input v-model="form.name" required maxlength="100" class="w-full rounded border p-2" placeholder="例如：一号线上午生产" /></label>
-        <label class="space-y-1"><span>搜索产品</span><input v-model="productKeyword" class="w-full rounded border p-2" placeholder="输入产品名或登记证号" /></label>
-        <label class="space-y-1"><span>产品</span><select v-model="form.productId" required class="w-full rounded border p-2"><option value="">请选择产品</option><option v-for="p in products?.rows || []" :key="p.id" :value="p.id">{{ p.name }} · {{ p.registration_no }}</option></select></label>
+        <div class="space-y-1"><label for="production-product">产品</label>
+          <USelectMenu id="production-product" v-model="form.productId" v-model:search-term="productSearch" :items="productItems" value-key="value" :loading="productLoading" :disabled="busy" required ignore-filter aria-label="产品"
+            :clear="{ 'aria-label': '清除产品选择' }" :search-input="{ placeholder: '输入产品名或登记证号搜索' }" placeholder="搜索并选择产品" class="w-full">
+            <template #default><span class="truncate" :class="{ 'text-muted': !form.productId }">{{ selectedProductLabel || '搜索并选择产品' }}</span></template>
+            <template #empty>{{ productError ? '产品加载失败，请重新搜索' : productLoading ? '正在搜索…' : '没有匹配的产品' }}</template>
+            <template #content-bottom><p v-if="products?.total > 100" class="px-3 py-2 text-xs text-muted">匹配产品较多，请输入更具体的关键词。</p></template>
+          </USelectMenu>
+        </div>
         <label class="space-y-1"><span>生产批号</span><input v-model="form.batchNo" required maxlength="64" class="w-full rounded border p-2" /></label>
-        <label class="space-y-1"><span>生产日期</span><input v-model="form.produceDate" required type="date" class="w-full rounded border p-2" /></label>
-        <label class="space-y-1"><span>有效期至</span><input v-model="form.expireDate" required type="date" class="w-full rounded border p-2" /></label>
+        <div class="space-y-1"><span>生产日期</span><ProductionDatePicker v-model="form.produceDate" label="生产日期" :disabled="busy" /></div>
+        <div class="space-y-1"><span>有效期至</span><ProductionDatePicker v-model="form.expireDate" label="有效期至" :min="form.produceDate" :disabled="busy" /></div>
         <label class="space-y-1"><span>质检结果</span><select v-model="form.qcResult" required class="w-full rounded border p-2"><option value="">请选择</option><option value="1">合格</option></select></label>
         <label class="space-y-1"><span>质量合格证号</span><input v-model="form.qualityCertNo" required maxlength="100" class="w-full rounded border p-2" /></label>
         <label class="space-y-1"><span>导入领用码清单</span><input type="file" accept=".txt,.csv" @change="readFile" /></label>
