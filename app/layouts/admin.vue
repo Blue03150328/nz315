@@ -49,6 +49,7 @@ const MENU_READY: { path: string; label: string; icon: string; writeOnly?: boole
   { path: '/admin/specs', label: '规格管理', icon: 'i-lucide-ruler' },
   { path: '/admin/generator', label: '追溯码生成', icon: 'i-lucide-wand-2', writeOnly: true },
   { path: '/admin/collection', label: '追溯码上传', icon: 'i-lucide-factory', writeOnly: true },
+  { path: '/admin/production-tasks', label: '生产任务与审核', icon: 'i-lucide-clipboard-check' },
   { path: '/admin/codes', label: '码库管理', icon: 'i-lucide-qr-code' },
   { path: '/admin/batches', label: '效期预警', icon: 'i-lucide-boxes' },
   { path: '/admin/statistics', label: '扫码统计', icon: 'i-lucide-bar-chart-3' },

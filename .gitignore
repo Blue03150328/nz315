@@ -62,6 +62,7 @@ public/tools/app-data/
 
 # Added by code-review-graph
 .code-review-graph/
+.playwright-cli/
 # PPT 生成产物（slidep 流程，2026-09-28 起）
 # ---------------------------------------------------------------
 # 与产品无关的**一次性工作产物**，整体不入库（否则 `git status` 永远挂着一条未跟踪项）：
