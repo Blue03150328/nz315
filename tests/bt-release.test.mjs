@@ -6,7 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expectedColumns, permittedMissing } from '../deploy/bt-release-20261006.mjs'
-import { expectedColumns as latestColumns, permittedMissing as latestMissing, validateLiveMarker } from '../deploy/bt-release-20261007.mjs'
+import { expectedColumns as latestColumns, permittedMissing as latestMissing, validateLiveMarker } from '../deploy/bt-release-20261008.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const expected = expectedColumns(root)
