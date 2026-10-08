@@ -31,17 +31,29 @@ const { data: entData, refresh: refreshEnt } = await useFetch<any>('/api/admin/s
 })
 
 // —— 总部视角：入驻企业列表（enterprise 表全部租户；factories API 即企业列表源）——
-const { data: entAdminData, refresh: refreshEntAdmin } = await useFetch<any>('/api/admin/factories', {
+const entKeyword = ref('')
+const entSearch = ref('')
+const entPage = ref(1)
+const entPageSize = 20
+const { data: entAdminData, pending: entPending, error: entError, refresh: refreshEntAdmin } = await useFetch<any>('/api/admin/factories', {
   key: 'settings-ent-admin-list',
-  query: { page: 1, pageSize: 100 },
+  query: computed(() => ({ page: entPage.value, pageSize: entPageSize, keyword: entSearch.value || undefined })),
   immediate: isPlatformAdmin,
 })
+const entTotalPages = computed(() => Math.max(1, Math.ceil((entAdminData.value?.total || 0) / entPageSize)))
+const searchEnterprises = () => {
+  entPage.value = 1
+  entSearch.value = entKeyword.value.trim()
+  refreshEntAdmin()
+}
 const showEntModal = ref(false)
 const entEditId = ref<number | null>(null)
 const entEditName = ref('')
 const entStatus = ref(1) // 编辑弹窗内的企业启用/禁用状态（仅总部可改）
+const entRenewExpire = ref('')
+const createdEnterprise = ref<{ id: number; name: string; contact: string; phone: string } | null>(null)
 watch(entData, (d) => {
-  if (d) {
+  if (d && !isPlatformAdmin.value) {
     Object.assign(entForm, {
       name: d.name || '', creditCode: d.credit_code || '', unitCode: d.unit_code || '',
       contact: d.contact || '', phone: d.phone || '', legalPerson: d.legal_person || '',
@@ -82,6 +94,15 @@ const saveEnterprise = async () => {
 }
 
 // —— 总部：打开某企业编辑弹窗（行字段为 snake_case，映射进表单 camelCase）——
+const openEntCreate = () => {
+  if (!isPlatformAdmin.value) return
+  entEditId.value = null
+  entEditName.value = ''
+  Object.assign(entForm, { name: '', creditCode: '', unitCode: '', contact: '', phone: '', legalPerson: '', licenseNo: '', qualificationExpire: '' })
+  entStatus.value = 1
+  entRenewExpire.value = ''
+  showEntModal.value = true
+}
 const openEntEdit = (row: any) => {
   entEditId.value = Number(row.id)
   entEditName.value = row.name || ''
@@ -95,19 +116,34 @@ const openEntEdit = (row: any) => {
   showEntModal.value = true
 }
 
-// —— 总部：保存企业编辑（PATCH 已支持总部改任意企业，含 status）——
+// —— 总部：新建走专用POST，编辑沿用原PATCH；两者均由服务端检查权限。——
 const saveEntEdit = async () => {
+  if (!isPlatformAdmin.value || entSaving.value) return
   const missing = checkEntRequired()
   if (missing) { toast.add({ title: '请填写：' + missing, color: 'warning' }); return }
+  if (!entEditId.value && !entRenewExpire.value) { toast.add({ title: '请填写：服务到期日', color: 'warning' }); return }
   entSaving.value = true
   try {
-    await $fetch('/api/admin/settings/enterprise/' + entEditId.value, {
-      method: 'PATCH',
-      body: { ...entForm, status: Number(entStatus.value) === 1 ? 1 : 0 },
-    })
-    toast.add({ title: '企业信息已保存', color: 'success' })
+    if (entEditId.value) {
+      await $fetch('/api/admin/settings/enterprise/' + entEditId.value, {
+        method: 'PATCH',
+        body: { ...entForm, status: Number(entStatus.value) === 1 ? 1 : 0 },
+      })
+      toast.add({ title: '企业信息已保存', color: 'success' })
+    } else {
+      const result = await $fetch<{ id: number; name: string }>('/api/admin/enterprises', {
+        method: 'POST', body: { ...entForm, status: Number(entStatus.value), renewExpire: entRenewExpire.value },
+      })
+      createdEnterprise.value = { id: result.id, name: result.name, contact: entForm.contact, phone: entForm.phone }
+      entKeyword.value = ''
+      entSearch.value = ''
+      entPage.value = 1
+      toast.add({ title: '企业已创建，可继续创建厂家主账号', color: 'success' })
+    }
     showEntModal.value = false
     refreshEntAdmin()
+    refreshEntList()
+    refreshUsers()
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || '保存失败', color: 'error' })
   } finally {
@@ -150,21 +186,54 @@ watch(userData, (d) => {
   }
 })
 
-const { data: entList } = await useFetch<any>('/api/admin/factories', {
+// 企业选项支持独立搜索和翻页，选中项跨页保留，避免第100家之后无法分配账号。
+const entOptionKeyword = ref('')
+const entOptionSearch = ref('')
+const entOptionPage = ref(1)
+const selectedEnterprise = ref<{ value: number; label: string } | null>(null)
+const { data: entList, pending: entOptionsPending, error: entOptionsError, refresh: refreshEntList } = await useFetch<any>('/api/admin/factories', {
   key: 'settings-factories',
-  query: { page: 1, pageSize: 100 },
-}).catch(() => ({ data: ref(null) }))
+  query: computed(() => ({ page: entOptionPage.value, pageSize: 20, keyword: entOptionSearch.value || undefined })),
+  immediate: isPlatformAdmin,
+})
+const entOptionPages = computed(() => Math.max(1, Math.ceil((entList.value?.total || 0) / 20)))
+const enterpriseOptions = computed(() => {
+  const options = (entList.value?.rows || []).map((e: any) => ({ value: Number(e.id), label: e.name }))
+  if (selectedEnterprise.value && !options.some((e: any) => e.value === selectedEnterprise.value!.value)) options.unshift(selectedEnterprise.value)
+  return options
+})
+const searchEnterpriseOptions = () => {
+  entOptionPage.value = 1
+  entOptionSearch.value = entOptionKeyword.value.trim()
+  refreshEntList()
+}
 
 // 新增用户对话框
 const showUserModal = ref(false)
 const userSaving = ref(false)
 const uform = reactive({ username: '', password: '', name: '', phone: '', role: 'code_admin', enterpriseId: null as number | null })
+watch(() => uform.enterpriseId, (id) => {
+  selectedEnterprise.value = enterpriseOptions.value.find((e: any) => e.value === id) || null
+})
 
 const openCreateUser = () => {
   Object.assign(uform, { username: '', password: '', name: '', phone: '', role: 'code_admin', enterpriseId: null })
+  selectedEnterprise.value = null
+  entOptionKeyword.value = ''
+  entOptionSearch.value = ''
+  entOptionPage.value = 1
+  if (isPlatformAdmin.value) refreshEntList()
   showUserModal.value = true
 }
+const createEnterpriseAdmin = (enterprise: { id: number; name: string; contact?: string; phone?: string }) => {
+  if (!isPlatformAdmin.value) return
+  tab.value = 'users'
+  openCreateUser()
+  selectedEnterprise.value = { value: Number(enterprise.id), label: enterprise.name }
+  Object.assign(uform, { enterpriseId: Number(enterprise.id), role: 'enterprise_admin', name: enterprise.contact || '', phone: enterprise.phone || '' })
+}
 const saveUser = async () => {
+  if (userSaving.value) return
   if (!uform.username.trim()) { toast.add({ title: '请输入登录名', color: 'warning' }); return }
   if ((uform.password || '').length < 6) { toast.add({ title: '密码至少 6 位', color: 'warning' }); return }
   userSaving.value = true
@@ -173,6 +242,10 @@ const saveUser = async () => {
     toast.add({ title: '用户已创建', color: 'success' })
     showUserModal.value = false
     refreshUsers()
+    if (isPlatformAdmin.value) {
+      refreshEntAdmin()
+      if (createdEnterprise.value?.id === uform.enterpriseId && uform.role === 'enterprise_admin') createdEnterprise.value = null
+    }
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || '创建失败', color: 'error' })
   } finally {
@@ -332,7 +405,10 @@ watch(logData, (d) => {
 const resetPanel = async () => {
   if (tab.value === 'enterprise') {
     if (isPlatformAdmin.value) {
-      // 总部视角为企业列表：重置=刷新列表（无表单草稿）
+      // 总部视角重置搜索与分页，返回完整企业列表。
+      entKeyword.value = ''
+      entSearch.value = ''
+      entPage.value = 1
       refreshEntAdmin()
       toast.add({ title: '已刷新企业列表', color: 'primary' })
     } else {
@@ -416,10 +492,20 @@ const deleteBackup = async (b: any) => {
     <div v-if="tab === 'enterprise'" class="space-y-4">
       <!-- 总部视角：使用本系统的企业（租户）列表 -->
       <template v-if="isPlatformAdmin">
+        <div v-if="createdEnterprise" class="b-card p-4 flex flex-wrap items-center justify-between gap-3">
+          <span>企业「{{ createdEnterprise.name }}」已创建，下一步可创建厂家主账号。</span>
+          <UButton color="neutral" variant="outline" icon="i-lucide-user-plus" @click="createEnterpriseAdmin(createdEnterprise)">创建厂家主账号</UButton>
+        </div>
         <div class="b-card b-card-clip">
           <div class="b-card-head">
             <span class="b-card-title">入驻企业列表</span>
-            <span class="b-card-extra">使用本系统的企业（租户）共 {{ entAdminData?.total || 0 }} 家 · 扫码页展示的企业资料以此为准</span>
+            <span class="b-card-extra">共 {{ entAdminData?.total || 0 }} 家{{ entSearch ? '匹配企业' : '入驻企业' }} · 扫码页展示的企业资料以此为准</span>
+            <UButton color="neutral" variant="solid" icon="i-lucide-plus" @click="openEntCreate">新增企业</UButton>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 p-4">
+            <UInput v-model="entKeyword" placeholder="企业名称、信用代码或联系人" class="w-72" @keyup.enter="searchEnterprises" />
+            <UButton color="neutral" variant="outline" :loading="entPending" @click="searchEnterprises">查询企业</UButton>
+            <span v-if="entError" class="text-sm text-red-600">企业列表加载失败，请重试查询</span>
           </div>
           <div class="b-scroll-x">
             <table class="b-table">
@@ -429,6 +515,7 @@ const deleteBackup = async (b: any) => {
                   <th>统一社会信用代码</th>
                   <th>联系人</th>
                   <th>联系电话</th>
+                  <th>服务到期日</th>
                   <th>状态</th>
                   <th>账号数</th>
                   <th>入驻时间</th>
@@ -441,6 +528,7 @@ const deleteBackup = async (b: any) => {
                   <td class="font-code text-xs">{{ e.credit_code || '-' }}</td>
                   <td>{{ e.contact || '-' }}</td>
                   <td>{{ e.phone || '-' }}</td>
+                  <td>{{ e.renew_expire ? String(e.renew_expire).slice(0, 10) : '未设置' }}</td>
                   <td>
                     <span class="b-tag" :class="Number(e.status) === 1 ? 'b-tag-success' : 'b-tag-danger'">
                       {{ Number(e.status) === 1 ? '启用' : '禁用' }}
@@ -450,23 +538,32 @@ const deleteBackup = async (b: any) => {
                   <td class="whitespace-nowrap text-xs text-[var(--b-text-muted)]">{{ e.created_at ? String(e.created_at).slice(0, 10) : '-' }}</td>
                   <td>
                     <UButton variant="link" color="neutral" size="xs" icon="i-lucide-pencil" @click="openEntEdit(e)">编辑</UButton>
+                    <UButton v-if="Number(e.user_count) === 0" variant="link" color="neutral" size="xs" @click="createEnterpriseAdmin(e)">创建厂家主账号</UButton>
                   </td>
                 </tr>
                 <tr v-if="!entAdminData?.rows?.length">
-                  <td colspan="8" class="b-empty">
+                  <td colspan="9" class="b-empty">
                     <div class="b-empty-inner">
                       <UIcon name="i-lucide-building-2" class="b-empty-icon h-8 w-8" />
-                      <span class="text-sm">暂无入驻企业</span>
+                      <span class="text-sm">{{ entPending ? '正在加载企业' : entError ? '企业列表加载失败' : entSearch ? '未找到匹配企业，请调整查询条件' : '暂无入驻企业' }}</span>
+                      <UButton v-if="!entPending && !entError && !entSearch" color="neutral" variant="outline" @click="openEntCreate">新增企业</UButton>
                     </div>
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
+          <div v-if="entAdminData?.total" class="b-pager">
+            <span class="b-card-extra">第 {{ entPage }} / {{ entTotalPages }} 页</span>
+            <div class="flex items-center gap-2">
+              <UButton color="neutral" variant="outline" size="sm" :disabled="entPending || entPage <= 1" @click="entPage--">上一页</UButton>
+              <UButton color="neutral" variant="outline" size="sm" :disabled="entPending || entPage >= entTotalPages" @click="entPage++">下一页</UButton>
+            </div>
+          </div>
         </div>
 
         <!-- 编辑企业弹窗（Nuxt UI v4：v-model:open + #content 插槽） -->
-        <UModal v-model:open="showEntModal">
+        <UModal v-model:open="showEntModal" :dismissible="!entSaving">
           <template #content>
             <div class="b-modal">
               <div class="b-modal-head">
@@ -474,7 +571,7 @@ const deleteBackup = async (b: any) => {
                   <UIcon name="i-lucide-building-2" class="h-4 w-4 text-[var(--b-text-regular)]" />
                 </div>
                 <div>
-                  <h3 class="b-modal-title">编辑企业信息（{{ entEditName }}）</h3>
+                  <h3 class="b-modal-title">{{ entEditId ? '编辑企业信息（' + entEditName + '）' : '新增企业' }}</h3>
                   <p class="b-modal-sub">1049 号公告主体信息，扫码页展示的企业资料以此为准</p>
                 </div>
               </div>
@@ -517,13 +614,18 @@ const deleteBackup = async (b: any) => {
                     <label class="b-label">状态</label>
                     <USelect v-model="entStatus" :items="[{ value: 1, label: '启用' }, { value: 0, label: '禁用' }]" class="w-full" />
                   </div>
+                  <div v-if="!entEditId">
+                    <label class="b-label">服务到期日 <span class="b-required">*</span></label>
+                    <UInput v-model="entRenewExpire" type="date" />
+                    <p class="b-help">与资质到期日分别填写；服务到期日当天可使用，次日起禁止登录。后续可在用户权限中设置续费。</p>
+                  </div>
                 </div>
               </div>
               <div class="b-modal-foot">
                 <span class="b-card-extra">带 <span class="b-required">*</span> 的为必填项，保存后立即生效</span>
                 <div class="flex items-center gap-2">
-                  <UButton variant="outline" color="neutral" @click="showEntModal = false">取消</UButton>
-                  <UButton color="neutral" variant="solid" icon="i-lucide-save" :loading="entSaving" @click="saveEntEdit">保存企业信息</UButton>
+                  <UButton variant="outline" color="neutral" :disabled="entSaving" @click="showEntModal = false">取消</UButton>
+                  <UButton color="neutral" variant="solid" icon="i-lucide-save" :loading="entSaving" @click="saveEntEdit">{{ entEditId ? '保存企业信息' : '创建企业' }}</UButton>
                 </div>
               </div>
             </div>
@@ -831,11 +933,11 @@ const deleteBackup = async (b: any) => {
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="b-label-lg">登录名 <span class="b-required">*</span></label>
-                <UInput v-model="uform.username" placeholder="3-30 位字母/数字/下划线" />
+                <UInput v-model="uform.username" autocomplete="off" placeholder="3-30 位字母/数字/下划线" />
               </div>
               <div>
                 <label class="b-label-lg">初始密码 <span class="b-required">*</span></label>
-                <UInput v-model="uform.password" type="password" placeholder="至少 6 位" />
+                <UInput v-model="uform.password" type="password" autocomplete="new-password" placeholder="至少 6 位" />
               </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
@@ -859,7 +961,17 @@ const deleteBackup = async (b: any) => {
               </div>
               <div v-if="isPlatformAdmin">
                 <label class="b-label-lg">所属企业 <span class="b-required">*</span></label>
-                <USelect v-model="uform.enterpriseId" :items="(entList?.rows || []).map((e: any) => ({ value: Number(e.id), label: e.name }))" placeholder="选择企业" class="w-full" />
+                <div class="flex gap-2 mb-2">
+                  <UInput v-model="entOptionKeyword" placeholder="搜索企业名称或信用代码" class="min-w-0 flex-1" @keyup.enter="searchEnterpriseOptions" />
+                  <UButton color="neutral" variant="outline" :loading="entOptionsPending" @click="searchEnterpriseOptions">查询</UButton>
+                </div>
+                <USelect v-model="uform.enterpriseId" :items="enterpriseOptions" placeholder="选择企业" class="w-full" :loading="entOptionsPending" />
+                <p v-if="entOptionsError" class="b-help text-red-600">企业选项加载失败，请重新查询</p>
+                <div class="flex items-center gap-2 mt-2">
+                  <UButton color="neutral" variant="outline" size="xs" :disabled="entOptionsPending || entOptionPage <= 1" @click="entOptionPage--">上一页</UButton>
+                  <span class="b-card-extra">{{ entOptionPage }} / {{ entOptionPages }} 页</span>
+                  <UButton color="neutral" variant="outline" size="xs" :disabled="entOptionsPending || entOptionPage >= entOptionPages" @click="entOptionPage++">下一页</UButton>
+                </div>
               </div>
             </div>
           </div>
