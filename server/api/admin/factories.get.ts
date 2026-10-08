@@ -12,12 +12,12 @@ export default defineEventHandler(async (event) => {
   const params: any[] = []
   if (q.keyword) {
     const kw = '%' + String(q.keyword).trim() + '%'
-    conds.push('(name LIKE ? OR contact LIKE ?)'); params.push(kw, kw)
+    conds.push('(name LIKE ? OR contact LIKE ? OR credit_code LIKE ?)'); params.push(kw, kw, kw)
   }
   if (q.status !== undefined && q.status !== '') { conds.push('status = ?'); params.push(Number(q.status)) }
   const whereSql = conds.length ? 'WHERE ' + conds.join(' AND ') : ''
-  const page = Math.max(1, parseInt(String(q.page || '1')))
-  const pageSize = Math.min(100, Math.max(1, parseInt(String(q.pageSize || '20'))))
+  const page = Math.max(1, parseInt(String(q.page || '1')) || 1)
+  const pageSize = Math.min(100, Math.max(1, parseInt(String(q.pageSize || '20')) || 20))
   const offset = (page - 1) * pageSize
 
   const [cntRow] = await query<any[]>(
@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
   const rows = await query<any[]>(
     // 2026-09-08 精简：企业信息不再维护 website/address/description，列表显式列清单不再返回
     `SELECT e.id, e.name, e.credit_code, e.unit_code, e.contact, e.phone, e.legal_person, e.logo,
-       e.license_no, e.qualification_expire, e.status, e.created_at,
+       e.license_no, e.qualification_expire, e.renew_expire, e.status, e.created_at,
        (SELECT COUNT(*) FROM \`user\` u WHERE u.enterprise_id = e.id) AS user_count
      FROM enterprise e ` + whereSql + ' ORDER BY e.id DESC LIMIT ? OFFSET ?', [...params, pageSize, offset])
   return { total: Number(cntRow?.c || 0), page, pageSize, rows }
