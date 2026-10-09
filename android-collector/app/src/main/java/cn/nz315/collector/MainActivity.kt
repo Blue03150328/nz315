@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.text.InputType
+import android.text.TextUtils
 import android.view.KeyEvent
 import android.view.View
 import android.view.WindowInsets
@@ -20,6 +21,8 @@ import cn.nz315.collector.core.*
 import cn.nz315.collector.export.FolderExporter
 import cn.nz315.collector.scanner.*
 import java.time.LocalDateTime
+import java.time.Instant
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 class MainActivity : Activity() {
@@ -31,6 +34,7 @@ class MainActivity : Activity() {
     private lateinit var root: LinearLayout
     private lateinit var content: LinearLayout
     private lateinit var status: TextView
+    private lateinit var scroll: ScrollView
     private var scanner: ScannerPort? = null
     private var taskId: String? = null
     private var currentTask: CollectionTask? = null
@@ -47,19 +51,47 @@ class MainActivity : Activity() {
     private var screenRevision = 0
     private val exportObserver: () -> Unit = { notify(app.exportMessage); startScanner() }
     private var recordsOffset = 0
+    private var screenKind = "tasks"
+    private var feedback: ScanFeedbackView? = null
+    private var recentRows: LinearLayout? = null
+    private var recentTitle: TextView? = null
+    private var feedbackTaskId: String? = null
+    private var feedbackGroupId: String? = null
+    private var feedbackLabel = ""
+    private var feedbackValue = ""
+    private var feedbackDetail = ""
+    private var feedbackFailed = false
+    private var groupOpen = false
+    private data class CapturePreview(val summary: TaskSummary, val group: BoxGroup, val count: Int, val codes: List<CollectedCode>)
+    private data class SavedScan(val receipt: ScanReceipt, val target: ScanTarget, val preview: CapturePreview, val savedAt: Long)
     private val green = Color.rgb(40, 91, 61)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        taskId = savedInstanceState?.getString("taskId")
+        taskId = savedInstanceState?.getString("taskId") ?: prefs.getString("selectedTaskId", null)
         paused = savedInstanceState?.getBoolean("paused") ?: false
         exportTaskId = savedInstanceState?.getString("exportTaskId")
         exportQr = savedInstanceState?.getBoolean("exportQr") ?: false
-        if (taskId != null) showTask(taskId!!) else showHome()
+        feedbackTaskId = savedInstanceState?.getString("feedbackTaskId")
+        feedbackGroupId = savedInstanceState?.getString("feedbackGroupId")
+        feedbackLabel = savedInstanceState?.getString("feedbackLabel").orEmpty()
+        feedbackValue = savedInstanceState?.getString("feedbackValue").orEmpty()
+        feedbackDetail = savedInstanceState?.getString("feedbackDetail").orEmpty()
+        feedbackFailed = savedInstanceState?.getBoolean("feedbackFailed") ?: false
+        when (savedInstanceState?.getString("screenKind")) {
+            "task" -> taskId?.let(::showTask) ?: showHome()
+            "records" -> taskId?.let { showRecords(it, savedInstanceState.getInt("recordsOffset")) } ?: showRecordTasks()
+            "recordTasks" -> showRecordTasks()
+            else -> showHome()
+        }
     }
     override fun onSaveInstanceState(out: Bundle) {
         out.putString("taskId", taskId); out.putBoolean("paused", paused)
         out.putString("exportTaskId", exportTaskId); out.putBoolean("exportQr", exportQr)
+        out.putString("screenKind", screenKind); out.putInt("recordsOffset", recordsOffset)
+        out.putString("feedbackTaskId", feedbackTaskId); out.putString("feedbackGroupId", feedbackGroupId)
+        out.putString("feedbackLabel", feedbackLabel); out.putString("feedbackValue", feedbackValue)
+        out.putString("feedbackDetail", feedbackDetail); out.putBoolean("feedbackFailed", feedbackFailed)
         super.onSaveInstanceState(out)
     }
     override fun onResume() { super.onResume(); foreground = true; app.observeExport(exportObserver); if (app.exportMessage.isNotEmpty()) notify(app.exportMessage); startScanner() }
@@ -77,19 +109,34 @@ class MainActivity : Activity() {
         setOnClickListener { action() }
         parent.addView(this, LinearLayout.LayoutParams(-1, dp(54)).apply { bottomMargin = dp(6) })
     }
-    private fun screen(title: String, hint: String) {
+    private fun screen(title: String, hint: String, recordsPage: Boolean = false, kind: String = "tasks") {
         screenRevision++
+        screenKind = kind
         collectingScreen = false
-        scanner?.stop(); scanner = null; input = null
+        scanner?.stop(); scanner = null; input = null; feedback = null; recentRows = null
+        countText = null; boxText = null; targetText = null; recentTitle = null
         root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.rgb(243, 245, 242)) }
         root.addView(text(title, 23f, true).apply { setPadding(dp(20), dp(14), dp(20), dp(14)); setTextColor(Color.WHITE); setBackgroundColor(green) })
-        val scroll = ScrollView(this)
+        scroll = ScrollView(this)
         content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(8), dp(16), dp(20)) }
         scroll.addView(content)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        content.addView(text(hint, 14f))
+        if (hint.isNotEmpty()) content.addView(text(hint, 14f))
         status = text("数据仅保存在本机，完成后请导出备份", 14f).apply { setPadding(dp(16), dp(10), dp(16), dp(10)) }
         root.addView(status)
+        val navigation = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(dp(8), 0, dp(8), dp(4)) }
+        listOf("生产采集任务" to R.id.nav_tasks, "生产采集任务记录" to R.id.nav_records).forEachIndexed { index, (label, viewId) ->
+            navigation.addView(Button(this).apply {
+                id = viewId; text = label; textSize = 14f; isAllCaps = false
+                val selected = (index == 1) == recordsPage
+                setTextColor(if (selected) Color.WHITE else green)
+                background = background(if (selected) green else Color.WHITE)
+                setOnClickListener {
+                    if (index == 0) showHome() else taskId?.let(::showTask) ?: showRecordTasks()
+                }
+            }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { setMargins(dp(3), 0, dp(3), 0) })
+        }
+        root.addView(navigation)
         setContentView(root)
         root.setOnApplyWindowInsetsListener { view, insets ->
             @Suppress("DEPRECATION")
@@ -109,8 +156,8 @@ class MainActivity : Activity() {
     }
 
     private fun showHome() {
-        taskId = null; currentTask = null
-        screen("农资315 · 采集", "选择任务继续采集，或新建一个任务。箱码与产品码均使用实体扫码键。")
+        currentTask = null
+        screen("生产采集任务", "在这里设置产品、批次和采集方式，再进入记录页扫码。")
         button("＋ 新建采集任务") { editInfo(null) }
         button("扫码设备设置") { settings() }
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }; content.addView(list)
@@ -122,7 +169,23 @@ class MainActivity : Activity() {
                 list.addView(card, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) })
                 card.addView(text(task.info.name, 18f, true))
                 card.addView(text("${if (task.mode == CodeMode.INTERNAL) "内部码" else "外部码"} · ${summary.codeCount}件 · ${summary.boxCount}箱\n${if (task.status == TaskStatus.OPEN) "采集中" else "已完成"} · 待关联${summary.pendingCount}件 · 待补资料${task.info.missingFields().size}项", 14f))
-                button("打开任务", card) { paused = false; showTask(task.id) }
+                button("设置任务资料", card) {
+                    if (task.status == TaskStatus.OPEN) editInfo(task) else notify("任务已完成，请在记录页重新打开后修改", true)
+                }
+                button("进入采集记录", card) { paused = false; showTask(task.id) }
+            }
+        }
+    }
+
+    private fun showRecordTasks() {
+        screen("生产采集任务记录", "选择要查看或继续采集的任务。已完成的任务也保留在这里。", true, "recordTasks")
+        button("返回设置任务") { showHome() }
+        val rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }; content.addView(rows)
+        run({ db.summaries() }) { summaries ->
+            if (summaries.isEmpty()) rows.addView(text("暂无采集记录，请先设置一个生产采集任务"))
+            summaries.forEach { summary ->
+                rows.addView(text("${summary.task.info.name}\n${summary.codeCount}件 · ${summary.boxCount}箱 · ${if (summary.task.status == TaskStatus.OPEN) "采集中" else "已完成"}", 16f, true))
+                button("查看此任务记录", rows) { showTask(summary.task.id) }
             }
         }
     }
@@ -138,7 +201,7 @@ class MainActivity : Activity() {
     private fun editInfo(task: CollectionTask?) {
         val previous = task?.info ?: TaskInfo("采集_${LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmm"))}",
             operator = prefs.getString("operator", "").orEmpty(), line = prefs.getString("line", "").orEmpty())
-        screen(if (task == null) "新建采集任务" else "补充任务资料", "批号与生产日期按真实标签填写。未知资料可留空，导出时标记待补；资料不会自动绑定到网站。")
+        screen(if (task == null) "设置生产采集任务" else "设置任务资料", "批号与生产日期按真实标签填写。未知资料可留空，导出时标记待补；资料不会自动绑定到网站。", kind = "edit")
         val fields = listOf("任务名称（必填）" to previous.name, "企业" to previous.enterprise,
             "产品" to previous.product, "规格" to previous.specification, "生产批号" to previous.batchNo,
             "生产日期（YYYY-MM-DD）" to previous.produceDate, "质量合格证号" to previous.qualityCertNo,
@@ -167,73 +230,159 @@ class MainActivity : Activity() {
                 paused = false; showTask(saved.id)
             }
         }
-        button("返回") { if (task == null) showHome() else showTask(task.id) }
+        button("返回任务页") { showHome() }
     }
 
     private fun showTask(id: String) {
         taskId = id
-        screen("生产采集", "当前类型必须与实物一致。扫箱码后自动进入产品采集，先扫产品时可随时补采箱码。")
+        prefs.edit().putString("selectedTaskId", id).apply()
+        currentTask = null
+        screen("生产采集任务记录", "", true, "task")
         collectingScreen = true
-        countText = text("正在读取采集记录…", 21f, true); content.addView(countText)
-        boxText = text("", 15f); content.addView(boxText)
-        targetText = text("", 20f, true).apply { setTextColor(green) }; content.addView(targetText)
-        button("采集箱码") { mutation { flow.target(id, ScanTarget.BOX) } }
-        button("采集产品码") { mutation { flow.target(id, ScanTarget.PRODUCT) } }
-        button("暂停／恢复采集") { paused = !paused; refreshTask(); startScanner() }
+        countText = text("正在读取采集记录…", 20f, true); content.addView(countText)
+        boxText = text("", 14f); content.addView(boxText)
+        targetText = text("", 17f, true).apply { setTextColor(green) }; content.addView(targetText)
+        val targets = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }; content.addView(targets)
+        compactButton("采集箱码", targets) { mutation { flow.target(id, ScanTarget.BOX) } }
+        compactButton("采集产品码", targets) { mutation { flow.target(id, ScanTarget.PRODUCT) } }
+        compactButton("暂停／恢复", targets) { paused = !paused; refreshTask(); startScanner() }
+        val entry = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = android.view.Gravity.CENTER_VERTICAL }
+        content.addView(entry)
         input = EditText(this).apply {
+            this.id = R.id.scan_input
             hint = "手工补录或键盘扫码内容"; textSize = 16f; setSingleLine(true)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             imeOptions = EditorInfo.IME_ACTION_DONE
             setOnEditorActionListener { _, action, event ->
                 if (action == EditorInfo.IME_ACTION_DONE || (event?.keyCode == KeyEvent.KEYCODE_ENTER && event.action == KeyEvent.ACTION_UP)) {
-                    val value = text.toString(); setText(""); submitScan(ScanInput(value, if (prefs.getBoolean("keyboard", false)) "扫码头键盘" else "手工补录")); true
+                    val value = text.toString()
+                    // 部分输入法会同时回调完成键和回车释放；输入已消费时不再提交空码覆盖成功反馈。
+                    if (value.isNotEmpty()) {
+                        setText(""); submitScan(ScanInput(value, if (prefs.getBoolean("keyboard", false)) "扫码头键盘" else "手工补录"))
+                    }
+                    true
                 } else false
             }
             if (prefs.getBoolean("keyboard", false)) showSoftInputOnFocus = false
-        }.also { content.addView(it, LinearLayout.LayoutParams(-1, dp(54))) }
-        button("提交输入内容") { val value = input?.text.toString(); input?.setText(""); submitScan(ScanInput(value, "手工补录")) }
-        button("完成本箱／本组") {
+        }.also { entry.addView(it, LinearLayout.LayoutParams(0, dp(54), 1f)) }
+        entry.addView(Button(this).apply {
+            text = "录入"; textSize = 16f; setTextColor(green)
+            setOnClickListener { val value = input?.text?.toString().orEmpty(); input?.setText(""); submitScan(ScanInput(value, "手工补录")) }
+        }, LinearLayout.LayoutParams(dp(76), dp(54)))
+        feedback = ScanFeedbackView(this).also { view ->
+            content.addView(view, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(6) })
+            view.setOnClickListener { showCodeValue("本次录入内容", view.fullValue) }
+        }
+        recentTitle = text("本箱已录入（最新5条）", 15f, true); content.addView(recentTitle)
+        recentRows = LinearLayout(this).apply { this.id = R.id.recent_codes; orientation = LinearLayout.VERTICAL }
+            .also { content.addView(it) }
+        val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }; content.addView(actions)
+        compactButton("完成本箱／本组", actions) {
             confirm("完成当前箱", "确认箱内实物与采集数量一致后完成。数量按实际记录，不预设装箱瓶数。") { mutation { flow.seal(id) } }
         }
-        button("下一箱／下一组") { mutation { flow.next(id, prefs.getBoolean("boxFirst", true)) } }
-        button("查看箱与产品记录") { showRecords(id, 0) }
-        button("更正当前箱码") { prompt("更正箱码", "输入或粘贴实际箱码，修改会保留操作记录") { value -> mutation { flow.replaceBox(id, value) } } }
-        button("清除误扫箱码") { confirm("清除当前箱码", "产品记录保留并转为待关联。空的误扫箱会从已使用箱统计中移除。") { mutation { flow.clearBox(id) } } }
-        button("补充任务资料") { currentTask?.let { task -> if (task.status == TaskStatus.OPEN) editInfo(task) else notify("请先重新打开任务", true) } }
+        compactButton("下一箱／下一组", actions) { mutation { flow.next(id, prefs.getBoolean("boxFirst", true)) } }
+        button("查看全部箱与产品记录") { showRecords(id, 0) }
         button("导出文件夹") { exportOptions(id) }
-        button("完成／重新打开任务") {
+        button("更多任务操作") { taskActions(id) }
+        button("切换采集任务") { showRecordTasks() }
+        refreshTask()
+    }
+    private fun compactButton(label: String, parent: LinearLayout, action: () -> Unit) {
+        parent.addView(Button(this).apply {
+            text = label; textSize = 14f; isAllCaps = false; setTextColor(green); setOnClickListener { action() }
+        }, LinearLayout.LayoutParams(0, dp(48), 1f))
+    }
+    private fun showCodeValue(title: String, value: String) {
+        modal = true; scanner?.stop()
+        val field = text(value, 16f).apply { setTextIsSelectable(true); setPadding(dp(18), dp(10), dp(18), dp(10)) }
+        AlertDialog.Builder(this).setTitle(title).setView(ScrollView(this).apply { addView(field) })
+            .setPositiveButton("关闭", null).create().also { dialog -> dialog.setOnDismissListener { modal = false; startScanner() }; dialog.show() }
+    }
+    private fun taskActions(id: String) {
+        modal = true; scanner?.stop()
+        val choices = arrayOf("设置任务资料", "更正当前箱码", "清除误扫箱码", "完成／重新打开任务")
+        AlertDialog.Builder(this).setTitle("更多任务操作").setItems(choices) { _, which ->
+            // 菜单关闭后再执行，避免嵌套弹窗的关闭事件提前恢复扫码。
+            root.post {
+                when (which) {
+                    0 -> currentTask?.let { if (it.status == TaskStatus.OPEN) editInfo(it) else notify("请先重新打开任务", true) }
+                    1 -> prompt("更正箱码", "输入或粘贴实际箱码，修改会保留操作记录") { value -> mutation { flow.replaceBox(id, value) } }
+                    2 -> confirm("清除当前箱码", "产品记录保留并转为待关联。") { mutation { flow.clearBox(id) } }
+                    3 -> changeTaskStatus(id)
+                }
+            }
+        }.setNegativeButton("取消", null).create().also { dialog -> dialog.setOnDismissListener { modal = false; startScanner() }; dialog.show() }
+    }
+    private fun changeTaskStatus(id: String) {
             currentTask?.let { task ->
                 confirm("确认任务状态", if (task.status == TaskStatus.OPEN) "所有已使用的箱必须完成。缺失资料会标记待补，采集完成不代表已经上传平台。" else "重新打开后可以补资料或更正采集记录。") {
                     mutation { if (task.status == TaskStatus.OPEN) flow.complete(id) else flow.reopenTask(id) }
                 }
             }
-        }
-        button("返回任务列表") { showHome() }
-        refreshTask()
     }
-    private fun mutation(action: () -> Unit) { run(action) { refreshTask(); notify("操作已保存") } }
+    private fun clearFeedback() { feedbackTaskId = null; feedbackGroupId = null; feedbackLabel = "" }
+    private fun mutation(action: () -> Unit) { run(action) { clearFeedback(); refreshTask(); notify("操作已保存") } }
+    private fun preview(id: String): CapturePreview = db.transaction {
+        val task = db.task(id)
+        CapturePreview(db.summary(task), db.group(task.currentGroupId), db.countInGroup(task.currentGroupId), db.recentCodesInGroup(task.currentGroupId))
+    }
+    private fun timeLabel(at: Long): String = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm:ss"))
+    private fun displayResult(label: String, value: String, description: String, failed: Boolean, groupId: String?) {
+        feedbackTaskId = taskId; feedbackGroupId = groupId
+        feedbackLabel = label; feedbackValue = value; feedbackDetail = description; feedbackFailed = failed
+        feedback?.display(label, value, description, failed)
+    }
+    private fun renderPreview(value: CapturePreview) {
+        val (summary, group, count, codes) = value
+        currentTask = summary.task
+        groupOpen = !group.sealed
+        countText?.text = getString(R.string.collection_counts, count, summary.codeCount, summary.boxCount)
+        boxText?.text = getString(R.string.group_summary, summary.task.info.name, group.ordinal,
+            group.boxRaw ?: if (summary.task.boxing) "待关联箱码" else "未启用装箱")
+        boxText?.apply {
+            maxLines = 2; ellipsize = TextUtils.TruncateAt.END
+            setOnClickListener { group.boxRaw?.let { showCodeValue("当前箱码", it) } }
+        }
+        targetText?.text = when {
+            summary.task.status == TaskStatus.COMPLETED -> "任务已完成 · 可查看和导出"
+            paused -> "采集已暂停"
+            group.sealed -> "本箱已完成，请开始下一箱"
+            summary.task.target == ScanTarget.BOX -> "当前采集：箱码"
+            else -> "当前采集：产品码"
+        }
+        input?.isEnabled = summary.task.status == TaskStatus.OPEN && !paused && !group.sealed && !app.exporting
+        if (feedbackTaskId == taskId && feedbackGroupId == group.id && feedbackLabel.isNotEmpty()) {
+            feedback?.display(feedbackLabel, feedbackValue, feedbackDetail, feedbackFailed)
+        } else {
+            val last = codes.firstOrNull()
+            when {
+                last != null -> displayResult("已录入 · 产品码", last.value,
+                    "${timeLabel(last.scannedAt)} · ${if (summary.task.boxing && group.boxRaw == null) "待关联箱码" else "第${group.ordinal}箱／组"} · 点击查看完整内容", false, group.id)
+                group.boxRaw != null -> displayResult("已录入 · 箱码", group.boxRaw.orEmpty(), "第${group.ordinal}箱 · 请继续录入产品码", false, group.id)
+                else -> displayResult("等待录入", "本箱／本组还没有录入二维码", "扫码结果会显示在这里，成功保存后才计入数量", false, group.id)
+            }
+        }
+        recentTitle?.text = getString(R.string.recent_codes_title, count)
+        recentRows?.let { rows ->
+            rows.removeAllViews()
+            if (codes.isEmpty()) rows.addView(text("暂无已录入的产品码", 14f))
+            codes.forEachIndexed { index, code ->
+                rows.addView(text("✓ 已录入 · ${timeLabel(code.scannedAt)}\n${code.value}", 14f).apply {
+                    maxLines = 3; ellipsize = TextUtils.TruncateAt.END
+                    setPadding(dp(10), dp(5), dp(10), dp(5)); setBackgroundColor(if (index == 0) Color.WHITE else Color.rgb(237, 240, 237))
+                    setOnClickListener { showCodeValue("已录入的产品码", code.value) }
+                }, LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(4) })
+            }
+        }
+        startScanner()
+    }
     private fun refreshTask() {
         val id = taskId ?: return
-        run({ val task = db.task(id); Triple(db.summary(task), db.group(task.currentGroupId), db.countInGroup(task.currentGroupId)) }) { (summary, group, count) ->
-            if (taskId != id) return@run
-            currentTask = summary.task
-            countText?.text = getString(R.string.collection_counts, count, summary.codeCount, summary.boxCount)
-            boxText?.text = getString(R.string.group_summary, summary.task.info.name, group.ordinal,
-                group.boxRaw ?: if (summary.task.boxing) "待关联箱码" else "未启用装箱",
-                if (group.sealed) "本箱已完成" else "本箱采集中", summary.task.info.missingFields().size)
-            targetText?.text = when {
-                summary.task.status == TaskStatus.COMPLETED -> "任务已完成"
-                paused -> "采集已暂停"
-                group.sealed -> "本箱已完成，请开始下一箱"
-                summary.task.target == ScanTarget.BOX -> "当前采集：箱码"
-                else -> "当前采集：产品码"
-            }
-            startScanner()
-        }
+        run({ preview(id) }) { if (taskId == id) renderPreview(it) }
     }
     private fun startScanner() {
         scanner?.stop(); scanner = null
-        if (!foreground || !collectingScreen || taskId == null || paused || modal || app.exporting || currentTask?.status != TaskStatus.OPEN) return
+        if (!foreground || !collectingScreen || taskId == null || paused || modal || app.exporting || !groupOpen || currentTask?.status != TaskStatus.OPEN) return
         if (prefs.getBoolean("keyboard", false)) { input?.requestFocus(); return }
         scanner = UrovoBroadcastScanner(this, ScannerConfig(
             actions = setOf(prefs.getString("action", "android.intent.ACTION_DECODE_DATA").orEmpty()),
@@ -243,20 +392,52 @@ class MainActivity : Activity() {
     }
     private fun submitScan(scan: ScanInput) {
         val id = taskId ?: return
-        if (paused || modal || app.exporting || !foreground || !collectingScreen) { notify("采集已暂停，未收录本次输入", true); return }
-        run({ flow.scan(id, scan.raw, scan.source) }) { receipt ->
-            if (taskId != id) return@run
+        if (paused || modal || app.exporting || !foreground || !collectingScreen) {
+            displayResult("未录入", scan.raw, "采集已暂停，请恢复后重新扫描", true, currentTask?.currentGroupId)
+            notify("采集已暂停，未收录本次输入", true); return
+        }
+        val revision = screenRevision
+        control.execute({ db.transaction {
+            val target = db.task(id).target
+            val receipt = flow.scan(id, scan.raw, scan.source)
+            SavedScan(receipt, target, preview(id), System.currentTimeMillis())
+        } }, { result ->
+            if (taskId != id || revision != screenRevision || isFinishing || isDestroyed) return@execute
             val vibrator = getSystemService(VIBRATOR_SERVICE) as Vibrator
             vibrator.vibrate(VibrationEffect.createOneShot(55, VibrationEffect.DEFAULT_AMPLITUDE))
-            refreshTask(); notify("${receipt.message}\n${receipt.value.take(150)}")
-        }
+            val group = result.preview.group
+            displayResult("已录入 · ${if (result.target == ScanTarget.BOX) "箱码" else "产品码"}", result.receipt.value,
+                "${timeLabel(result.savedAt)} · 第${group.ordinal}箱／组 · ${group.boxRaw?.take(36) ?: if (result.preview.summary.task.boxing) "待关联箱码" else "未启用装箱"}\n${result.receipt.message} · 点击查看完整内容", false, group.id)
+            renderPreview(result.preview)
+            notify("${result.receipt.message} · ${timeLabel(result.savedAt)}")
+            revealFeedback()
+        }, { message ->
+            if (taskId != id || revision != screenRevision || isFinishing || isDestroyed) return@execute
+            val repeated = message.contains("已采集") || message.contains("已属于") || message.contains("已在本任务")
+            displayResult(if (repeated) "重复码 · 未新增" else "未录入 · 请核对", scan.raw,
+                "${timeLabel(System.currentTimeMillis())} · $message", true, currentTask?.currentGroupId)
+            notify(message, true); revealFeedback()
+        })
+    }
+    private fun revealFeedback() {
+        // 连续扫码时把输入框和本次结果带回可视区域，不让成功提示藏在页面底部。
+        feedback?.let { view -> scroll.post {
+            if (view !== feedback || !collectingScreen) return@post
+            val resultLocation = IntArray(2); val viewportLocation = IntArray(2)
+            view.getLocationOnScreen(resultLocation); scroll.getLocationOnScreen(viewportLocation)
+            if (resultLocation[1] < viewportLocation[1] || resultLocation[1] + view.height > viewportLocation[1] + scroll.height) {
+                scroll.smoothScrollTo(0, (input?.parent as? View)?.top ?: view.top)
+            }
+        } }
     }
 
     private fun showRecords(id: String, offset: Int) {
         scanner?.stop(); scanner = null
+        clearFeedback()
         recordsOffset = offset
-        screen("箱与产品记录", "删除、移箱前需重新打开相关箱。历史修改保留记录，任务之间不互相移动产品。")
-        button("返回采集") { showTask(id) }
+        screen("全部采集记录", "删除、移箱前需重新打开相关箱。历史修改保留记录，任务之间不互相移动产品。", true, "records")
+        button("返回扫码录入") { showTask(id) }
+        button("导出文件夹") { exportOptions(id) }
         val rows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }; content.addView(rows)
         run({ Triple(db.task(id), db.groups(id), db.recentCodes(id, offset)) }) { (task, groups, codes) ->
             currentTask = task
@@ -265,10 +446,10 @@ class MainActivity : Activity() {
                     showGroupMenu(id, group)
                 }
             }
-            rows.addView(text("产品记录 ${offset + 1}—${offset + codes.size}（每页最多80条）", 15f, true))
+            rows.addView(text(if (codes.isEmpty()) "暂无产品记录" else "产品记录 ${offset + 1}—${offset + codes.size}（每页最多80条）", 15f, true))
             codes.forEach { code ->
                 val group = groups.first { it.id == code.groupId }
-                val line = text("第${group.ordinal}组 · ${code.value}", 15f).apply { setTextIsSelectable(true) }
+                val line = text("已录入 · ${timeLabel(code.scannedAt)} · 第${group.ordinal}箱／组\n${group.boxRaw ?: "未关联箱码"}\n${code.value}", 15f).apply { setTextIsSelectable(true) }
                 rows.addView(line)
                 button("处理此产品记录", rows) { showCodeMenu(id, code, groups) }
             }
@@ -313,7 +494,7 @@ class MainActivity : Activity() {
     }
 
     private fun settings() {
-        screen("扫码设备设置", "在优博讯设备的扫码设置中选择对应输出方式。广播动作与字段名须与设备设置一致，本APP不会改动设备全局配置。")
+        screen("扫码设备设置", "在优博讯设备的扫码设置中选择对应输出方式。广播动作与字段名须与设备设置一致，本APP不会改动设备全局配置。", kind = "settings")
         val keyboard = CheckBox(this).apply { text = "使用键盘输出（需扫码后附加回车）"; isChecked = prefs.getBoolean("keyboard", false) }; content.addView(keyboard)
         val action = editField(content, "广播动作", prefs.getString("action", "android.intent.ACTION_DECODE_DATA").orEmpty())
         val extra = editField(content, "扫码内容字段", prefs.getString("extra", "barcode_string").orEmpty())
@@ -352,5 +533,11 @@ class MainActivity : Activity() {
             { message -> app.exportState(false, "导出未完成，请重新选择可写目录。$message") })
     }
     @Deprecated("兼容Android12返回键")
-    override fun onBackPressed() { if (taskId != null) showHome() else super.onBackPressed() }
+    override fun onBackPressed() {
+        when (screenKind) {
+            "tasks" -> super.onBackPressed()
+            "records" -> taskId?.let(::showTask) ?: showRecordTasks()
+            else -> showHome()
+        }
+    }
 }

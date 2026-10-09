@@ -1,10 +1,11 @@
-﻿param([switch]$Release, [switch]$DeviceTests, [int]$VersionCode = 1, [string]$VersionName = '1.0.0')
+﻿param([switch]$Release, [switch]$DeviceTests, [int]$VersionCode = 3, [string]$VersionName = '1.1.0')
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
 $workspaceRoot = Split-Path $projectRoot -Parent
 $mappedDrive = $null
 $buildRoot = $projectRoot
 $originalJavaHome = $env:JAVA_HOME
+$originalGradleHome = $env:GRADLE_USER_HOME
 $localPropertiesPath = Join-Path $projectRoot 'local.properties'
 $originalProperties = if (Test-Path -LiteralPath $localPropertiesPath) { [IO.File]::ReadAllBytes($localPropertiesPath) } else { $null }
 try {
@@ -18,6 +19,10 @@ try {
         $buildRoot = Join-Path ($mappedDrive + '\') (Split-Path $projectRoot -Leaf)
     }
     $portableRoot = Join-Path (Split-Path $buildRoot -Parent) '.cache\toolchain'
+    # Gradle测试进程的类路径同样需要ASCII路径，缓存目录随源码盘符一起映射。
+    if ($mappedDrive -and $env:GRADLE_USER_HOME -and $env:GRADLE_USER_HOME.StartsWith($workspaceRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+        $env:GRADLE_USER_HOME = $mappedDrive + $env:GRADLE_USER_HOME.Substring($workspaceRoot.Length)
+    }
     if (!$env:JAVA_HOME) {
         $portableJdk = Get-ChildItem -LiteralPath (Join-Path $portableRoot 'jdk') -Directory -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($portableJdk) { $env:JAVA_HOME = $portableJdk.FullName }
@@ -44,5 +49,6 @@ try {
     if ($null -ne $originalProperties) { [IO.File]::WriteAllBytes($localPropertiesPath, $originalProperties) }
     elseif (Test-Path -LiteralPath $localPropertiesPath) { Remove-Item -LiteralPath $localPropertiesPath }
     $env:JAVA_HOME = $originalJavaHome
+    $env:GRADLE_USER_HOME = $originalGradleHome
     if ($mappedDrive) { & subst.exe $mappedDrive /D }
 }

@@ -1,0 +1,23 @@
+{
+  "error": true,
+  "url": "http://localhost:3100/api/auth/session",
+  "statusCode": 404,
+  "statusMessage": "Page not found: /api/auth/session",
+  "message": "Page not found: /api/auth/session",
+  "data": {
+    "path": "/api/auth/session"
+  },
+  "stack": [
+    "Page not found: /api/auth/session",
+    "at createError (E:/二维码管理/node_modules/h3/dist/index.mjs:71:15)",
+    "at createError (E:/二维码管理/node_modules/nuxt/dist/app/composables/error.js:78:57)",
+    "at E:/二维码管理/node_modules/nuxt/dist/pages/runtime/plugins/router.js:209:160)",
+    "at fn (E:/二维码管理/node_modules/nuxt/dist/app/nuxt.js:240:43)",
+    "at Object.callAsync (E:/二维码管理/node_modules/unctx/dist/index.mjs:69:66)",
+    "at E:/二维码管理/node_modules/nuxt/dist/app/nuxt.js:242:63)",
+    "at Object.runWithContext (E:/二维码管理/node_modules/@vue/runtime-core/dist/runtime-core.cjs.js:4396:18)",
+    "at callWithNuxt (E:/二维码管理/node_modules/nuxt/dist/app/nuxt.js:242:31)",
+    "at E:/二维码管理/node_modules/nuxt/dist/app/nuxt.js:58:111)",
+    "at EffectScope.run (E:/二维码管理/node_modules/@vue/reactivity/dist/reactivity.cjs.js:96:16)"
+  ]
+}

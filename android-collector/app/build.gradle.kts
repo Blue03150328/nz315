@@ -6,8 +6,8 @@ android {
         applicationId = "cn.nz315.collector"
         minSdk = 26
         targetSdk = 35
-        versionCode = providers.gradleProperty("collectorVersionCode").getOrElse("1").toInt()
-        versionName = providers.gradleProperty("collectorVersionName").getOrElse("1.0.0")
+        versionCode = providers.gradleProperty("collectorVersionCode").getOrElse("3").toInt()
+        versionName = providers.gradleProperty("collectorVersionName").getOrElse("1.1.0")
     }
     signingConfigs {
         create("localRelease") {

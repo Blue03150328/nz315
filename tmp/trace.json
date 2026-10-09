@@ -1,0 +1,15 @@
+{
+  "code": "PD202401010001",
+  "formattedCode": "PD20240101 0001",
+  "formatValid": false,
+  "resultType": "not-found",
+  "status": null,
+  "abnormalFlag": 0,
+  "queryCount": 0,
+  "firstQuery": false,
+  "recentScans": [],
+  "reasons": [
+    "追溯码格式不符合 32 位阿拉伯数字规则"
+  ],
+  "generatedReport": null
+}

@@ -1,0 +1,14 @@
+{
+  "commit": "e6a7f2a4147e5baa48c12b6839f78fded5142968",
+  "runtimeCommit": "a5f2b4c1625f1d79b1e94b32a786891c3e338526",
+  "file": "nz315-ycdb-e6a7f2a-source.tar.gz",
+  "bytes": 819230,
+  "sha256": "cde45ea8f93ed71e8e869352ed1a8c7bc0b6ce7b416f59f91234835fd533831c",
+  "files": 228,
+  "onlineTimestamp": 1790755593671,
+  "onlineSourceCommit": "尚未核对",
+  "exeFile": "nz315-qr-tool-v1.2.0.exe",
+  "exeBytes": 95035957,
+  "exeSha256": "04373ae1dc21752636f1b68945edb2dca8cff19c8b005b2ace1070cbc0a72fe8",
+  "status": "待人工验收及线上基线确认，未部署"
+}

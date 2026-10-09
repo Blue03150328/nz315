@@ -3,7 +3,7 @@
 > 硬约定只在这里；细节看 `AGENTS.md`（含交接索引）+ `docs/handover/` + `ARCHIVE-参考细节.md`。复测 skill `nz315-func-regression`。
 
 ## 🔴 只信公网指纹
-`curl -s www.nz315.cn/_nuxt/builds/latest.json`→`timestamp`；**每轮先量指纹再写执行单/包名**，本机记录不可信。现役 `1791255581151`（10-06 10:59，对应本机 `52627d6`）；上一版 `1790755593671`（09-30 16:06）。
+`curl -s www.nz315.cn/_nuxt/builds/latest.json`→`timestamp`；**每轮先量指纹再写执行单/包名**，本机记录不可信。现役 **`1791357027077`**（10-07 15:1x 上线，源码 **`1dc0f13`**，含后台单设备登录）；上一版 `1791273745911`（10-06 16:02，源码 `201b65a`）；再上一版 `1790755593671`（09-30 16:06）。
 
 ## 🔴 部署与数据库
 - 补列补索引一律 `db-init.mjs --migrate-only`（判据 `bad=0`）；**新建表不打印迁移行**（判据=表数+1），须同改 `DDL`+`ACTIVE_TABLES`/`EXPECTED_NEW_TABLES`。
