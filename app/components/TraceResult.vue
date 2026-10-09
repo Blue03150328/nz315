@@ -69,10 +69,11 @@ const handleShare = async () => {
 }
 
 // ---------------- 记一笔 ----------------
-// 🔁 2026-09-23 两次收口，现由 `TraceBillEntry` 组件承担（入口在页面底部操作区、撑满一行）：
-//   ① 内联实现删除 → 改走组件（未登录直达微信授权、支持 `bill=1` 回跳自动开表单，文案与其它页一致）；
-//   ② 入口从页头 `size="xs"` 小按钮**移到操作区并撑满一行**（用户裁定「也做成这样」）
-//      ⇒ 四个结果页（正品 / 外码 / 异常 / 查无此码）形态与位置统一。
+// 🔁 三次收口，现由 `TraceBillEntry` 组件承担：
+//   ① 2026-09-23 内联实现删除 → 改走组件（未登录直达微信授权、支持 `bill=1` 回跳自动开表单）；
+//   ② 2026-09-23 入口从页头 `size="xs"` 小按钮移到页面底部操作区并撑满一行；
+//   ③ 2026-10-09 用户裁定「结果页主推记账」⇒ 入口**从底部再上移到横幅下方第一卡** —
+//      正品页是全站最长的一页，底部位置多数用户滑不到。
 // 组件说明与各页预填口径见 `TraceBillEntry.vue` 顶部注释。
 </script>
 
@@ -96,6 +97,26 @@ const handleShare = async () => {
     </div>
 
     <div class="-mt-4 space-y-4 px-4">
+      <!-- 记一笔账：主 CTA 置顶（2026-10-09 用户裁定「结果页主推记账」）——
+           看到「查询结果正常」的瞬间就是记账的最佳时机。原先入口只在页面最底部，
+           而正品页是全站最长的一页（产品+生产+原药+图片），多数用户根本滑不到那里。
+           预填口径不变：产品名/类别/剂型/生产日期自动带入，用户只补数量金额。 -->
+      <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
+        <div class="mb-3 flex items-center gap-2">
+          <UIcon name="i-lucide-receipt-text" class="h-4 w-4 shrink-0 text-primary" />
+          <span class="text-sm font-semibold text-default">已购买？顺手记一笔</span>
+          <span class="text-xs text-muted">产品信息已自动填好</span>
+        </div>
+        <TraceBillEntry
+          :code="outcome.code"
+          :product-name="product?.name || ''"
+          :category="product?.category || ''"
+          :dosage="product?.formulation || ''"
+          :bill-date="batch?.produceDate || ''"
+          block
+        />
+      </div>
+
       <!-- 追溯码 -->
       <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
         <div class="flex items-center justify-between">
@@ -183,19 +204,6 @@ const handleShare = async () => {
           size="sm"
         />
       </div>
-
-      <!-- 记一笔账（2026-09-23 17:3x 用户裁定「这个页面的记一笔也做成这样」）：
-           此前只在页头右上角放一个 `size="xs"` 的小按钮 —— 正品页信息量最大、页面最长，
-           那个小按钮恰恰最不起眼。现移到操作区、撑满一行，与其它三个结果页
-           （外码 / 异常 / 查无此码）**形态与位置完全一致**。 -->
-      <TraceBillEntry
-        :code="outcome.code"
-        :product-name="product?.name || ''"
-        :category="product?.category || ''"
-        :dosage="product?.formulation || ''"
-        :bill-date="batch?.produceDate || ''"
-        block
-      />
 
       <!-- 操作 -->
       <UButton variant="outline" color="neutral" size="lg" icon="i-lucide-arrow-left" class="w-full" @click="router.back()">

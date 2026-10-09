@@ -41,27 +41,66 @@ onBeforeUnmount(() => {
   document.removeEventListener('visibilitychange', checkSession)
 })
 
-// 已实现菜单（可点击）：展示顺序与文案按用户指定，路径/图标/权限不随排序改动
+// 菜单按「业务阶段」分组（2026-10-09 用户确认）：让新用户一眼看出操作顺序——
+// 先建档准备，再追溯码，之后日常盯监控；系统组放低频管理与平台工具。
+// 数据概览单独置顶（无组名），它是登录后的首页。
 // writeOnly：纯写流程页面（只读账号看进去只剩空白，直接在菜单层隐藏，2026-09-19）
-const MENU_READY: { path: string; label: string; icon: string; writeOnly?: boolean; platformOnly?: boolean }[] = [
-  { path: '/admin', label: '数据概览', icon: 'i-lucide-layout-dashboard' },
-  { path: '/admin/products', label: '产品管理', icon: 'i-lucide-package' },
-  { path: '/admin/specs', label: '规格管理', icon: 'i-lucide-ruler' },
-  { path: '/admin/generator', label: '追溯码生成', icon: 'i-lucide-wand-2', writeOnly: true },
-  { path: '/admin/collection', label: '追溯码上传', icon: 'i-lucide-factory', writeOnly: true },
-  { path: '/admin/production-tasks', label: '生产任务与审核', icon: 'i-lucide-clipboard-check' },
-  { path: '/admin/codes', label: '码库管理', icon: 'i-lucide-qr-code' },
-  { path: '/admin/batches', label: '效期预警', icon: 'i-lucide-boxes' },
-  { path: '/admin/statistics', label: '扫码统计', icon: 'i-lucide-bar-chart-3' },
-  { path: '/admin/alerts', label: '风险预警', icon: 'i-lucide-shield-alert' },
-  { path: '/admin/external-verify', label: '外部二维码核验', icon: 'i-lucide-scan-line', writeOnly: true },
-  { path: '/admin/source-snapshots', label: '外页历史快照', icon: 'i-lucide-history', platformOnly: true },
-  { path: '/admin/messages', label: '消息中心', icon: 'i-lucide-bell' },
-  { path: '/admin/settings', label: '系统设置', icon: 'i-lucide-settings' },
+// platformOnly：仅平台管理员可见
+type MenuItem = { path: string; label: string; icon: string; writeOnly?: boolean; platformOnly?: boolean }
+const MENU_GROUPS: { title?: string; items: MenuItem[] }[] = [
+  {
+    items: [
+      { path: '/admin', label: '数据概览', icon: 'i-lucide-layout-dashboard' },
+    ],
+  },
+  {
+    title: '建档准备',
+    items: [
+      { path: '/admin/products', label: '产品管理', icon: 'i-lucide-package' },
+      { path: '/admin/specs', label: '规格管理', icon: 'i-lucide-ruler' },
+    ],
+  },
+  {
+    title: '追溯码',
+    items: [
+      { path: '/admin/generator', label: '追溯码生成', icon: 'i-lucide-wand-2', writeOnly: true },
+      { path: '/admin/collection', label: '追溯码上传', icon: 'i-lucide-factory', writeOnly: true },
+      { path: '/admin/production-tasks', label: '生产任务与审核', icon: 'i-lucide-scan-line' },
+      { path: '/admin/codes', label: '码库管理', icon: 'i-lucide-qr-code' },
+    ],
+  },
+  {
+    title: '监控',
+    items: [
+      { path: '/admin/batches', label: '效期预警', icon: 'i-lucide-boxes' },
+      { path: '/admin/statistics', label: '扫码统计', icon: 'i-lucide-bar-chart-3' },
+      { path: '/admin/alerts', label: '风险预警', icon: 'i-lucide-shield-alert' },
+      { path: '/admin/messages', label: '消息中心', icon: 'i-lucide-bell' },
+    ],
+  },
+  {
+    title: '系统',
+    items: [
+      { path: '/admin/external-verify', label: '外部二维码核验', icon: 'i-lucide-scan-line', writeOnly: true },
+      { path: '/admin/source-snapshots', label: '外页历史快照', icon: 'i-lucide-history', platformOnly: true },
+      { path: '/admin/settings', label: '系统设置', icon: 'i-lucide-settings' },
+    ],
+  },
 ]
 
-/** 按角色可见菜单：只读账号隐藏纯写流程条目 */
-const visibleMenu = computed(() => MENU_READY.filter(item => (!item.platformOnly || user.value?.role === 'platform_admin') && (canWrite.value || !item.writeOnly)))
+/** 单条菜单可见性：平台专属看角色，纯写流程看写权限 */
+const canSee = (item: MenuItem) => (!item.platformOnly || user.value?.role === 'platform_admin') && (canWrite.value || !item.writeOnly)
+
+/** 按角色过滤后的分组：条目全被过滤掉的组整组隐藏（如只读账号看不到「系统」组里的核验工具） */
+const visibleGroups = computed(() =>
+  MENU_GROUPS
+    .map(g => ({ title: g.title, items: g.items.filter(canSee) }))
+    .filter(g => g.items.length > 0),
+)
+
+// 移动端抽屉式侧栏（2026-10-09）：<lg 时侧栏默认收起，由顶栏汉堡按钮拉开；路由切换自动关闭
+const sidebarOpen = ref(false)
+watch(() => route.path, () => { sidebarOpen.value = false })
 
 const isActive = (path: string) => {
   // 根路径菜单（数据概览）：仅当前路由恰为该路径时高亮
@@ -81,23 +120,34 @@ const onLogout = async () => {
 
 <template>
   <div class="flex min-h-screen bg-[var(--b-fill)]">
-    <!-- 左侧深色导航栏 -->
-    <aside class="fixed inset-y-0 left-0 z-40 flex w-60 flex-col bg-[var(--b-sider-bg)] text-white">
+    <!-- 左侧深色导航栏：<lg 时为抽屉（默认收起），lg 起常驻 -->
+    <aside
+      class="fixed inset-y-0 left-0 z-40 flex w-60 flex-col bg-[var(--b-sider-bg)] text-white transition-transform duration-200 lg:translate-x-0"
+      :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
+    >
       <div class="border-b border-white/10 px-6 py-5">
         <div class="text-base font-bold tracking-wide">农资315</div>
         <div class="mt-0.5 truncate text-xs text-white/60">追溯码管理平台</div>
       </div>
 
-      <nav class="flex-1 space-y-1 overflow-y-auto px-3 py-4">
-        <div v-for="item in visibleMenu" :key="item.path" class="mb-1">
-          <NuxtLink
-            :to="item.path"
-            class="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-colors"
-            :class="isActive(item.path) ? 'bg-[var(--b-sider-active-bg)] font-medium text-[var(--b-sider-active-text)]' : 'text-white/75 hover:bg-white/10 hover:text-white'"
-          >
-            <UIcon :name="item.icon" class="h-4.5 w-4.5 shrink-0" />
-            {{ item.label }}
-          </NuxtLink>
+      <nav class="flex-1 overflow-y-auto px-3 py-4">
+        <div v-for="(group, gi) in visibleGroups" :key="group.title || 'top'" :class="gi > 0 ? 'mt-5' : ''">
+          <!-- 组标题：业务阶段名，无组名的分组（数据概览）不渲染 -->
+          <div v-if="group.title" class="mb-1.5 px-3 text-[11px] font-medium tracking-wider text-white/40">
+            {{ group.title }}
+          </div>
+          <div class="space-y-1">
+            <NuxtLink
+              v-for="item in group.items"
+              :key="item.path"
+              :to="item.path"
+              class="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-colors"
+              :class="isActive(item.path) ? 'bg-[var(--b-sider-active-bg)] font-medium text-[var(--b-sider-active-text)]' : 'text-white/75 hover:bg-white/10 hover:text-white'"
+            >
+              <UIcon :name="item.icon" class="h-4.5 w-4.5 shrink-0" />
+              {{ item.label }}
+            </NuxtLink>
+          </div>
         </div>
 
       </nav>
@@ -123,10 +173,33 @@ const onLogout = async () => {
       </div>
     </aside>
 
-    <!-- 右侧内容区 -->
-    <div class="ml-60 min-w-0 flex-1">
-      <!-- 内容区：放宽容器适配 PC 大屏（企业后台信息密度），批量操作条吸底依赖此处 px-8 -->
-      <main class="mx-auto max-w-[1600px] px-8 py-8">
+    <!-- 抽屉遮罩：仅 <lg 抽屉展开时出现，点击关闭 -->
+    <div
+      v-if="sidebarOpen"
+      class="fixed inset-0 z-30 bg-black/40 lg:hidden"
+      @click="sidebarOpen = false"
+    />
+
+    <!-- 右侧内容区：<lg 不占侧栏宽度 -->
+    <div class="min-w-0 flex-1 lg:ml-60">
+      <!-- 移动端顶栏：汉堡按钮拉开抽屉（lg 起隐藏，桌面端无此栏） -->
+      <div class="sticky top-0 z-30 flex items-center gap-3 border-b border-[var(--b-border)] bg-white px-4 py-3 lg:hidden">
+        <button
+          type="button"
+          class="flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--b-border)] text-[var(--b-text-strong)]"
+          aria-label="打开菜单"
+          @click="sidebarOpen = true"
+        >
+          <UIcon name="i-lucide-menu" class="h-5 w-5" />
+        </button>
+        <div class="min-w-0">
+          <div class="truncate text-sm font-semibold text-[var(--b-text-title)]">农资315 管理平台</div>
+          <div class="truncate text-xs text-[var(--b-text-muted)]">{{ user?.name || user?.username }} · {{ roleLabel }}</div>
+        </div>
+      </div>
+      <!-- 内容区：放宽容器适配 PC 大屏（企业后台信息密度）；
+           左右内边距与 --b-content-px（main.css）保持一致，批量操作条吸底靠该变量全宽出血，改一处即可 -->
+      <main class="mx-auto max-w-[1600px] px-4 py-6 lg:px-8 lg:py-8">
         <!-- 只读账号提示条（2026-09-19）：写入口已按角色全部隐藏，此处统一说明，避免用户以为"功能丢了" -->
         <div v-if="!canWrite" class="mb-4 rounded-lg border border-border bg-warning-soft px-4 py-2.5 text-sm text-default">
           当前为<strong>只读账号</strong>，仅可查看数据，新增/修改/删除等操作入口已隐藏。如需写权限，请联系厂家主账号或平台管理员开通。
