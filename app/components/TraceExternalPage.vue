@@ -1,4 +1,10 @@
 <script setup lang="ts">
+// ⚠️ 2026-10-09 起**已无任何引用**：外码页（TraceExternal.vue）改为纯外链出口，不再内嵌厂家原页
+//    （跨站多被 X-Frame-Options / CSP 拒绝，本组件那套「/api/source-frame 预检 + 8 秒 hint + 收起展开」
+//     绝大多数时候的产出就是一句「请打开厂家原页查看」）。
+//    保留文件与 server 侧 /api/source-frame（含 tests/source-frame.test.mjs）是为了不引入「上线包删除文件」
+//    的清理清单负担；若确定不再回到内嵌方案，可连同 server/api/source-frame.get.ts、server/utils/source-frame.ts
+//    一起删除（删除需在部署时补 rm -f 清单，见 MEMORY「判包过期」条）。
 const props = defineProps<{ sourceUrl?: string; platform?: string }>()
 const result = ref<{ allowed: boolean; url?: string; message: string }>()
 const checking = ref(false)
