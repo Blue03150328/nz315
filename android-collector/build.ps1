@@ -1,4 +1,4 @@
-﻿param([switch]$Release, [switch]$DeviceTests, [int]$VersionCode = 1, [string]$VersionName = '1.0.0')
+﻿param([switch]$Release, [switch]$DeviceTests, [int]$VersionCode = 2, [string]$VersionName = '1.1.0')
 $ErrorActionPreference = 'Stop'
 $projectRoot = $PSScriptRoot
 $workspaceRoot = Split-Path $projectRoot -Parent
@@ -29,10 +29,10 @@ try {
         [IO.File]::WriteAllText((Join-Path $projectRoot 'local.properties'), 'sdk.dir=' + $sdkRoot.Replace('\','/'), [Text.UTF8Encoding]::new($false))
     }
     if (!(Test-Path (Join-Path $projectRoot 'local.properties'))) { throw '请安装Android SDK35并配置ANDROID_HOME或local.properties' }
-    $tasks = @(':core:test', ':app:lintDebug', ':app:assembleDebug')
+    $tasks = @(':core:test', ':app:testDebugUnitTest', ':app:lintDebug', ':app:assembleDebug')
     if ($Release) {
         if (!$env:NZ315_KEYSTORE_PATH -or !$env:NZ315_STORE_PASSWORD -or !$env:NZ315_KEY_PASSWORD) { throw '正式构建需要配置发布签名环境变量，禁止使用调试签名替代' }
-        $tasks = @(':core:test', ':app:lintRelease', ':app:assembleRelease')
+        $tasks = @(':core:test', ':app:testReleaseUnitTest', ':app:lintRelease', ':app:assembleRelease')
     }
     if ($DeviceTests) { $tasks += @(':data:connectedDebugAndroidTest', ':export:connectedDebugAndroidTest', ':scanner:connectedDebugAndroidTest') }
     Push-Location $buildRoot

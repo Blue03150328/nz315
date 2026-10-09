@@ -1,4 +1,6 @@
 <resources>
+    <string name="production_page_status">任务统计以服务器为准 · 第%1$d页</string>
+    <string name="production_scan_receipt">%1$s\n%2$s</string>
     <string name="collection_counts">本箱 %1$d 件 · 总计 %2$d 件 / %3$d 箱</string>
     <string name="group_summary">%1$s\n第%2$d组 · %3$s\n%4$s · 待补资料%5$d项</string>
     <string name="export_qr_option">同时生成产品二维码PNG（大量图片会延长导出）</string>

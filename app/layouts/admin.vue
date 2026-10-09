@@ -65,6 +65,7 @@ const MENU_GROUPS: { title?: string; items: MenuItem[] }[] = [
     items: [
       { path: '/admin/generator', label: '追溯码生成', icon: 'i-lucide-wand-2', writeOnly: true },
       { path: '/admin/collection', label: '追溯码上传', icon: 'i-lucide-factory', writeOnly: true },
+      { path: '/admin/production-tasks', label: '生产任务与审核', icon: 'i-lucide-scan-line' },
       { path: '/admin/codes', label: '码库管理', icon: 'i-lucide-qr-code' },
     ],
   },

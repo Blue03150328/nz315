@@ -112,6 +112,7 @@ class MainActivity : Activity() {
         taskId = null; currentTask = null
         screen("农资315 · 采集", "选择任务继续采集，或新建一个任务。箱码与产品码均使用实体扫码键。")
         button("＋ 新建采集任务") { editInfo(null) }
+        button("联网生产任务与剩余码审核") { startActivity(Intent(this, ProductionActivity::class.java)) }
         button("扫码设备设置") { settings() }
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }; content.addView(list)
         run({ db.summaries() }) { summaries ->

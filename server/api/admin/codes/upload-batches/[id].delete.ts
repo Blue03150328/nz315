@@ -37,6 +37,12 @@ export default defineEventHandler(async (event) => {
   let deletedCodes = 0
   try {
     await conn.beginTransaction()
+    const [seeds] = await conn.query<any[]>('SELECT DISTINCT product_id FROM trace_code WHERE upload_batch_id=? ORDER BY product_id', [ubId])
+    for (const seed of seeds) await conn.query('SELECT id FROM product WHERE id=? FOR UPDATE', [seed.product_id])
+    const [locked] = await conn.query<any[]>('SELECT id,status FROM trace_code WHERE upload_batch_id=? ORDER BY id FOR UPDATE', [ubId])
+    if (locked.some(c => Number(c.status) === 2)) throw createError({ statusCode: 409, statusMessage: '文件含已绑定码，不能删除' })
+    const [history] = await conn.query<any[]>('SELECT d.task_id FROM production_task_code d JOIN trace_code c ON c.id=d.code_id WHERE c.upload_batch_id=? LIMIT 1', [ubId])
+    if (history.length) throw createError({ statusCode: 409, statusMessage: '文件含生产任务历史，不能删除' })
     const [dc] = await conn.query(
       'DELETE FROM trace_code WHERE upload_batch_id = ?' + (fid ? ' AND enterprise_id = ?' : ''),
       fid ? [ubId, fid] : [ubId]) as unknown as [{ affectedRows: number }, unknown]

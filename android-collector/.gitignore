@@ -1,5 +1,7 @@
 .gradle/
+.kotlin/
 **/build/
+core/bin/
 local.properties
 signing.properties
 *.jks
