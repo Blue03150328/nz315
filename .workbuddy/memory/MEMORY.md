@@ -15,6 +15,8 @@
 - 写不了嵌套引用 `a/b` ⇒ 平铺分支名或 node 直写 loose ref；`^`/`~` **也不可靠**（`f820bcd^` 解析成它自己）⇒ 要历史版本**写全 sha**；checkout/merge 后 `git reset --hard HEAD` 收尾。
 - 🔴 **push/fetch 后 `refs/remotes/origin/<名>` 也可能不落盘**（判据：`git rev-list origin/ycdb...HEAD` 报 unknown revision）⇒ 同样 node 直写 loose ref。
 - ycdb 上**绝不用 `-A`/`.`**（常驻未跟踪项：`docs/厂家后台使用说明/`、`scripts/generate-user-guide.mjs`）；先断言 staged 恰等于预期再提交。
+- 🔴 **切分支前必查 `.workbuddy/memory/<当天>.md`**：本机改过而目标分支**已跟踪**该文件时，`checkout` 直接中止（"untracked working tree files would be overwritten"）。正确姿势 = 先 `copyFileSync` 备份到 `tmp/` → `unlinkSync` 删盘 → checkout → `reset --hard HEAD` → 把两分支内容**并回**（日志只增不减）→ 在目标分支提交。
+- 🔴 **`node` 里 `execSync` 跑 git 时，`commit -m "中文含空格"` 会被 cmd.exe 拆成 pathspec 报错**（`pathspec '+' did not match…`）⇒ 中文提交信息一律写临时文件用 **`commit -F <file>`**（消息里不含空格的短消息才可直接 `-m`）。
 
 ## 🔴 工程铁律
 - 同一文件多次 Edit **绝不并行**；`node --check` 不查未声明引用；用户报「点了没反应/控件用不了」⇒ **先回退上一版对照复跑**。
