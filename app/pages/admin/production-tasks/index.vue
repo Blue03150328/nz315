@@ -28,7 +28,15 @@ const productItems = computed(() => (products.value?.rows || []).map((r: any) =>
 const selectedProductLabel = computed(() => productCache.get(form.value.productId || ''))
 watch(productSearch, (value, _, onCleanup) => { const timer = setTimeout(() => { productKeyword.value = value.trim() }, 250); onCleanup(() => clearTimeout(timer)) })
 watch(() => form.value.produceDate, date => { if (date && form.value.expireDate && form.value.expireDate < date) form.value.expireDate = '' })
-watch(() => form.value.productId, () => { if (mode.value === 'create') allocation.value = emptyAllocation() })
+watch(() => form.value.productId, () => { if (mode.value === 'create') allocation.value = emptyAllocation() }, { flush: 'sync' })
+function selectAllocationTask(task: any) {
+  if (mode.value !== 'create') return
+  const picked = { ...allocation.value }
+  if (!productCache.has(String(task.product_id))) productCache.set(String(task.product_id), task.product_name)
+  form.value.productId = String(task.product_id)
+  // 自动带入产品保留来源选择；操作员手动换产品时仍清除原来源。
+  allocation.value = picked
+}
 // 超时重试保持提交标识，改变资料后使用新的标识。
 watch(() => JSON.stringify([form.value, allocation.value, appendCodes.value, destination.value, destinationId.value]), () => { if (!busy.value) requestId.value = crypto.randomUUID() })
 const selected = ref<number | null>(null), detail = ref<any>(null), state = ref(''), detailPage = ref(1), detailBusy = ref(false)
@@ -147,7 +155,7 @@ async function loadHistory(c: any) {
           <div class="space-y-1"><span>生产日期</span><ProductionDatePicker v-model="form.produceDate" label="生产日期" :disabled="busy || !productionEditable" /></div><div class="space-y-1"><span>有效期至</span><ProductionDatePicker v-model="form.expireDate" label="有效期至" :min="form.produceDate" :disabled="busy || !productionEditable" /></div><label class="space-y-1"><span>质检结果</span><select v-model="form.qcResult" :disabled="!productionEditable" required class="w-full rounded border p-2"><option value="">请选择</option><option value="1">合格</option></select></label>
         </div>
         <label v-if="mode === 'edit' && editingTask?.status === 'active'" class="flex items-center gap-2"><input v-model="appendCodes" type="checkbox" />同时追加领用</label>
-        <ProductionAllocationPicker v-if="mode !== 'edit' || appendCodes" v-model="allocation" :sources="sources" :fixed-source="sourceTask" :loading="sourceLoading" :disabled="busy" /><p v-if="sourceError && (mode !== 'edit' || appendCodes)" class="text-error">码来源加载失败，请关闭弹窗后重试。</p>
+        <ProductionAllocationPicker v-if="mode !== 'edit' || appendCodes" v-model="allocation" :sources="sources" :fixed-source="sourceTask" :loading="sourceLoading" :disabled="busy" :product-selected="!!form.productId" @select-task="selectAllocationTask" /><p v-if="sourceError && (mode !== 'edit' || appendCodes)" class="text-error">码来源加载失败，请关闭弹窗后重试。</p>
       </fieldset></form></template>
       <template #footer><UButton type="submit" form="production-task-form" :loading="busy">{{ mode === 'edit' ? '保存任务' : '确认领用' }}</UButton><UButton variant="outline" :disabled="busy" @click="showForm = false">取消</UButton></template>
     </UModal>

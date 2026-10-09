@@ -248,17 +248,31 @@ export async function productionTaskDetail(user: AuthUser, id: number, state: st
   return { task: { ...task, ...usage.get(id) }, counts, rows, reviews, changes, page, filteredTotal: Number(filtered.n) }
 }
 export async function productionSources(user: AuthUser, productId: number) {
-  if (!Number.isSafeInteger(productId) || productId <= 0) return { tasks: [], uploads: [], activeTasks: [] }
-  const [product] = await query<any[]>('SELECT id,enterprise_id FROM product WHERE id=?', [productId])
-  if (!product) fail('产品不存在', 404)
-  inScope(user, product)
-  const tasks = await query<any[]>("SELECT t.id,t.name,t.line_name,b.batch_no FROM production_task t JOIN batch b ON b.id=t.batch_id WHERE t.product_id=? AND t.status='approved' ORDER BY t.id DESC LIMIT 100", [productId])
+  if (!Number.isSafeInteger(productId) || productId < 0) fail('产品编号无效', 400)
+  let product: any
+  if (productId) {
+    [product] = await query<any[]>('SELECT id,enterprise_id FROM product WHERE id=?', [productId])
+    if (!product) fail('产品不存在', 404)
+    inScope(user, product)
+  }
+  const params: any[] = []
+  let scope = ''
+  if (user.role !== 'platform_admin') { scope += ' AND t.enterprise_id=?'; params.push(user.enterprise_id) }
+  if (productId) { scope += ' AND t.product_id=?'; params.push(productId) }
+  // 未选产品时也可先选余码任务；先排除无可领码的任务，避免分页遮住较早的余码。
+  const tasks = await query<any[]>(`SELECT t.id,t.name,t.line_name,t.product_id,t.enterprise_id,p.name AS product_name,e.name AS enterprise_name,b.batch_no
+    FROM production_task t JOIN product p ON p.id=t.product_id JOIN enterprise e ON e.id=t.enterprise_id JOIN batch b ON b.id=t.batch_id
+    WHERE t.status='approved' AND p.status=1${scope} AND EXISTS (
+      SELECT 1 FROM production_task_code d JOIN trace_code c ON c.id=d.code_id LEFT JOIN production_task_code a ON a.active_code_id=c.id
+      WHERE d.task_id=t.id AND d.state='released' AND ${freeProductionCode}) ORDER BY t.id DESC LIMIT 100`, params)
   const usage = await productionUsage(getPool(), tasks.map(t => Number(t.id)))
+  const availableTasks = tasks.map(t => ({ ...t, ...usage.get(Number(t.id)) })).filter(t => t.available_count > 0)
+  if (!productId) return { tasks: availableTasks, uploads: [], activeTasks: [] }
   const uploads = await query<any[]>(`SELECT u.id,u.file_name,COUNT(*) AS available_count FROM upload_batch u JOIN trace_code c ON c.upload_batch_id=u.id
     LEFT JOIN production_task_code a ON a.active_code_id=c.id WHERE u.product_id=? AND u.enterprise_id=? AND ${freeProductionCode}
     GROUP BY u.id,u.file_name ORDER BY u.id DESC LIMIT 100`, [productId, product.enterprise_id])
   const activeTasks = await query<any[]>("SELECT id,name,line_name,created_by FROM production_task WHERE product_id=? AND status='active'" + (productionReviewer(user) ? '' : ' AND created_by=?') + ' ORDER BY id DESC LIMIT 100', productionReviewer(user) ? [productId] : [productId, user.id])
-  return { tasks: tasks.map(t => ({ ...t, ...usage.get(Number(t.id)) })).filter(t => t.available_count > 0), uploads, activeTasks }
+  return { tasks: availableTasks, uploads, activeTasks }
 }
 export async function productionCodeHistory(user: AuthUser, id: number, codeId: number) {
   if (!Number.isSafeInteger(id) || id <= 0 || !Number.isSafeInteger(codeId) || codeId <= 0) fail('任务或追溯码编号无效', 400)
