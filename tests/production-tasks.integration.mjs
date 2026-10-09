@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import { parseEnv } from 'node:util'
-import { randomBytes, randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID, createHash } from 'node:crypto'
 import mysql from 'mysql2/promise'
 import bcrypt from 'bcryptjs'
 if (process.env.NZ315_PRODUCTION_LIVE !== '1') { console.log('跳过：设置NZ315_PRODUCTION_LIVE=1运行本机生产任务验收'); process.exit(0) }
@@ -44,8 +44,8 @@ try {
     const chunk = codes.slice(i, i + 500)
     await db.query('INSERT INTO trace_code(enterprise_id,product_id,upload_batch_id,code,status,abnormal_flag) VALUES ' + chunk.map(() => '(?,?,?,?,1,0)').join(','), chunk.flatMap(c => [a.id, prod, upload.insertId, c]))
   }
-  let task
-  const first = body(codes.slice(0, 2000))
+  let task, olderTask
+  const first = { ...body(codes.slice(0, 2000)), lineName: '一号线' }
   await check('权限及具体清单校验', async () => {
     assert.equal((await request('/api/admin/production-tasks', '', first)).status, 401)
     assert.equal((await request('/api/admin/production-tasks', viewer, first)).status, 403)
@@ -68,6 +68,21 @@ try {
     assert.equal((await request('/api/admin/codes/upload-batches/' + upload.insertId, owner, undefined, 'DELETE')).status, 409)
     const [[t]] = await db.query('SELECT batch_id FROM production_task WHERE id=?', [task])
     assert.equal((await request('/api/admin/batches/' + t.batch_id, owner, { produceDate: '2026-10-09' }, 'PATCH')).status, 409)
+  })
+  await check('未开工资料可编辑，共用批次不可误改；编辑权限与追加整体回滚', async () => {
+    const patch = { requestId: randomUUID(), name: tag + '改名', lineName: '一号线', qualityCertNo: '测试合格证' }
+    assert.equal((await request('/api/admin/production-tasks/' + task, viewer, patch, 'PATCH')).status, 403)
+    assert.equal((await request('/api/admin/production-tasks/' + task, other, patch, 'PATCH')).status, 404)
+    assert.equal((await request('/api/admin/production-tasks/' + task, worker, patch, 'PATCH')).status, 200)
+    assert.equal((await request('/api/admin/production-tasks/' + task, worker, patch, 'PATCH')).data.duplicate, true)
+    assert.equal((await request('/api/admin/production-tasks/' + task, worker, { ...patch, name: '不同修改' }, 'PATCH')).status, 409)
+    const r = await request('/api/admin/production-tasks', worker, { ...body([codes[2001]]), lineName: '三号线' }); assert.equal(r.status, 200); olderTask = r.data.id
+    assert.equal((await request('/api/admin/production-tasks/' + olderTask, worker, { requestId: randomUUID(), produceDate: '2026-10-09' }, 'PATCH')).status, 409)
+    assert.equal((await request('/api/admin/production-tasks/' + olderTask, worker, { requestId: randomUUID(), batchNo: tag + '_C', produceDate: '2026-10-09' }, 'PATCH')).status, 200)
+    const failed = await request('/api/admin/production-tasks/' + olderTask, worker, { requestId: randomUUID(), name: '不能保存的改名', allocation: { sourceUploadBatchId: upload.insertId, quantity: 9999 } }, 'PATCH'); assert.equal(failed.status, 409)
+    assert.equal((await request('/api/admin/production-tasks/' + olderTask, owner)).data.task.name, tag)
+    const alienWorker = await account('code_admin', a.id)
+    assert.equal((await request('/api/admin/production-tasks/' + olderTask, alienWorker, { requestId: randomUUID(), name: '无权修改' }, 'PATCH')).status, 403)
   })
   await check('故障时码绑定和使用记录整体回滚', async () => {
     const [[tc]] = await db.query('SELECT id FROM trace_code WHERE code=?', [codes[1]])
@@ -120,12 +135,70 @@ try {
     assert.equal(concurrent.filter(r => r.status === 200).length, 1); assert.equal(concurrent.filter(r => r.status === 409).length, 1)
     const [used] = await db.query('SELECT * FROM trace_code WHERE product_id=? AND status=2 ORDER BY id', [prod]); assert.equal(JSON.stringify(used), usedBefore)
   })
-  await check('下一批领用500、扫码绑定新日期，历史仍可查询', async () => {
-    const r = await request('/api/admin/production-tasks', worker, { ...body(codes.slice(1500, 2000), tag + '_B'), produceDate: '2026-10-09' }); assert.equal(r.status, 200, JSON.stringify(r.data))
+  await check('自动领用剩余码，无需复制；当前数量与生产线去向同步', async () => {
+    const sources = await request('/api/admin/production-tasks/sources?productId=' + prod, worker)
+    assert.equal(sources.status, 200); assert.equal(sources.data.tasks.find(t => t.id === task).available_count, 500)
+    assert.equal((await request('/api/admin/production-tasks/sources?productId=' + prod, other)).status, 404)
+    const secondBody = { ...body([], tag + '_B'), codes: undefined, sourceTaskId: task, quantity: 498, produceDate: '2026-10-09', lineName: '二号线' }
+    const r = await request('/api/admin/production-tasks', worker, secondBody); assert.equal(r.status, 200, JSON.stringify(r.data))
+    assert.equal((await request('/api/admin/production-tasks', worker, secondBody)).data.id, r.data.id)
+    const alloc = { requestId: randomUUID(), sourceTaskId: task, quantity: 2 }
+    const allocB = { ...alloc, requestId: randomUUID() }
+    const competing = await Promise.all([request('/api/admin/production-tasks/' + olderTask + '/append', worker, alloc), request('/api/admin/production-tasks/' + r.data.id + '/append', worker, allocB)])
+    assert.equal(competing.filter(x => x.status === 200).length, 1)
+    const winner = competing[0].status === 200 ? olderTask : r.data.id
+    const retry = await request('/api/admin/production-tasks/' + winner + '/append', worker, winner === olderTask ? alloc : allocB)
+    assert.equal(retry.data.duplicate, true)
     assert.equal((await request('/api/admin/production-tasks/' + r.data.id + '/scan', worker, { code: codes[1500], device: '第二批设备' })).status, 200)
     const out = await request('/api/trace?code=' + codes[1500]); assert.equal(out.data.batch.produceDate, '2026-10-09')
     assert.equal((await request('/api/admin/production-tasks', worker, body([codes[0]], tag + '_used'))).status, 400)
-    const detail = await request('/api/admin/production-tasks/' + task, owner); assert.equal(detail.data.reviews.length, 2)
+    const detail = await request('/api/admin/production-tasks/' + task + '?state=transferred', owner); assert.equal(detail.data.reviews.length, 2)
+    assert.equal(detail.data.task.available_count, 0); assert.equal(detail.data.task.transferred_count, 500); assert.equal(detail.data.task.used_count, 1500); assert.equal(detail.data.filteredTotal, 500)
+    const code = detail.data.rows.find(c => c.code === codes[1500]); assert.equal(code.current_task_id, r.data.id); assert.equal(code.actual_line_name, '二号线'); assert.equal(code.current_state, 'used')
+    assert.equal((await request('/api/admin/production-tasks/' + r.data.id, worker, { requestId: randomUUID(), produceDate: '2026-10-10' }, 'PATCH')).status, 409)
+    assert.equal((await request('/api/admin/production-tasks/' + r.data.id, worker, { requestId: randomUUID(), name: '二批改名', lineName: '二号线更名' }, 'PATCH')).status, 200)
+    const history = await request('/api/admin/production-tasks/' + task + '/code-history?codeId=' + code.code_id, viewer)
+    assert.equal(history.status, 200); assert.equal(history.data.rows[0].task_id, r.data.id); assert.equal(history.data.rows[0].used_line, '二号线')
+    assert.equal((await request('/api/admin/production-tasks/' + task + '/code-history?codeId=' + code.code_id, other)).status, 404)
+    await request('/api/admin/production-tasks/' + r.data.id + '/end', worker, {})
+    await request('/api/admin/production-tasks/' + r.data.id + '/review', owner, { decision: 'approve', reason: '剩余再次放行' })
+    const add = { requestId: randomUUID(), sourceTaskId: r.data.id, quantity: 3 }
+    assert.equal((await request('/api/admin/production-tasks/' + olderTask + '/append', worker, add)).status, 200)
+    assert.equal((await request('/api/admin/production-tasks/' + olderTask + '/append', worker, add)).data.duplicate, true)
+    const [[tc]] = await db.query('SELECT id FROM trace_code WHERE code=?', [codes[1501]])
+    const hop = await request('/api/admin/production-tasks/' + task + '/code-history?codeId=' + tc.id, viewer)
+    assert.equal(hop.data.rows[0].task_id, olderTask); assert.equal(hop.data.rows[1].task_id, r.data.id); assert.equal(hop.data.rows[0].source_task_id, r.data.id)
+    const original = await request('/api/admin/production-tasks/' + task + '?state=available', owner); assert.equal(original.data.task.available_count, winner === olderTask ? 494 : 496); assert.equal(original.data.filteredTotal, original.data.task.available_count)
+    const before = await db.query('SELECT * FROM trace_code WHERE product_id=? AND code IN (' + codes.slice(0, 1500).map(() => '?').join(',') + ') ORDER BY id', [prod, ...codes.slice(0, 1500)])
+    assert.equal(JSON.stringify(before[0]), usedBefore)
+    const editAppend = { requestId: randomUUID(), lineName: '三号线更新', allocation: { sourceTaskId: r.data.id, quantity: 1 } }
+    assert.equal((await request('/api/admin/production-tasks/' + olderTask, worker, editAppend, 'PATCH')).data.added, 1)
+    assert.equal((await request('/api/admin/production-tasks/' + olderTask, worker, editAppend, 'PATCH')).data.duplicate, true)
+    assert.equal((await request('/api/admin/production-tasks/' + task + '/append', worker, add)).status, 409)
+  })
+  await check('按文件自动领码，修改生产线只影响后续生产扫码', async () => {
+    const input = { ...body([], tag + '_upload'), codes: undefined, sourceUploadBatchId: upload.insertId, quantity: 2, lineName: '文件自动线' }
+    const r = await request('/api/admin/production-tasks', worker, input); assert.equal(r.status, 200, JSON.stringify(r.data))
+    const before = (await request('/api/admin/production-tasks/' + r.data.id, worker)).data.rows
+    assert.equal(before.length, 2)
+    assert.equal((await request('/api/admin/production-tasks/' + r.data.id + '/scan', worker, { code: before[0].code, device: '原生产线设备' })).status, 200)
+    const patch = { requestId: randomUUID(), lineName: '更新后的生产线' }
+    assert.equal((await request('/api/admin/production-tasks/' + r.data.id, worker, patch, 'PATCH')).status, 200)
+    assert.equal((await request('/api/admin/production-tasks/' + r.data.id + '/scan', worker, { code: before[1].code, device: '新生产线设备' })).status, 200)
+    const after = (await request('/api/admin/production-tasks/' + r.data.id, worker)).data
+    assert.equal(after.rows[0].used_line, '文件自动线'); assert.equal(after.rows[1].used_line, '更新后的生产线'); assert.equal(after.task.used_count, 2)
+    assert.equal(typeof after.changes[0].detail, 'object'); assert.equal(after.changes[0].detail.before.lineName, '文件自动线')
+    await request('/api/admin/production-tasks/' + r.data.id + '/end', worker, {})
+    assert.equal((await request('/api/admin/production-tasks/' + r.data.id, worker, patch, 'PATCH')).data.duplicate, true)
+  })
+  await check('升级后兼容旧版安卓创建任务的超时重试', async () => {
+    const input = body([codes[2003]], tag + '_legacy')
+    const r = await request('/api/admin/production-tasks', worker, input); assert.equal(r.status, 200)
+    const { productId, name, batchNo, qualityCertNo, produceDate, expireDate, qcResult, requestId, codes: legacyCodes } = input
+    const hash = createHash('sha256').update(JSON.stringify({ productId, name, batchNo, qualityCertNo, produceDate, expireDate, qcResult, requestId, codes: legacyCodes })).digest('hex')
+    await db.query("UPDATE production_task SET request_hash=?,line_name='' WHERE id=?", [hash, r.data.id])
+    assert.equal((await request('/api/admin/production-tasks', worker, input)).data.id, r.data.id)
+    assert.equal((await request('/api/admin/production-tasks', worker, { ...input, name: '改变内容' })).status, 409)
   })
   await check('结束与扫码并发不漏码，多设备领用同一码仅一任务成功', async () => {
     const b = body([codes[2000]], tag + '_race'); const races = await Promise.all([request('/api/admin/production-tasks', worker, b), request('/api/admin/production-tasks', owner, { ...b, requestId: randomUUID() })]); assert.equal(races.filter(r => r.status === 200).length, 1)
@@ -139,6 +212,7 @@ try {
   if (products.length) {
     const marks = products.map(() => '?').join(',')
     await db.query('DELETE r FROM production_task_review r JOIN production_task t ON t.id=r.task_id WHERE t.product_id IN (' + marks + ')', products)
+    await db.query('DELETE r FROM production_task_change r JOIN production_task t ON t.id=r.task_id WHERE t.product_id IN (' + marks + ')', products)
     await db.query('DELETE d FROM production_task_code d JOIN production_task t ON t.id=d.task_id WHERE t.product_id IN (' + marks + ')', products)
     await db.query('DELETE FROM production_task WHERE product_id IN (' + marks + ')', products)
     for (const table of ['scan_log','risk_alert','trace_code','upload_batch','batch','product_original']) await db.query('DELETE FROM ' + table + ' WHERE product_id IN (' + marks + ')', products)

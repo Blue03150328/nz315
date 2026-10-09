@@ -16,7 +16,7 @@ import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { productionDDL } from './production-schema.mjs';
+import { productionDDL, migrateProductionSchema } from './production-schema.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 读取 .env（简易解析，无 dotenv 依赖）
@@ -596,6 +596,7 @@ async function main() {
   for (const ddl of [...DDL, ...productionDDL]) {
     await conn.query(ddl);
   }
+  await migrateProductionSchema(conn);
   console.log('[db] ' + (DDL.length + productionDDL.length) + ' 张表创建完成');
 
   // 3) 增量迁移（历史库补列/补索引）
