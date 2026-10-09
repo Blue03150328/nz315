@@ -112,6 +112,8 @@
 
 ### ✅ 项目进度（截至 2026-09-23）
 
+**2026-10-09 生产任务已提交GitHub草稿PR**：当前Git账号xiaobailiuxingbo不能直推Blue仓库（403），已将整理分支推送到`xiaobailiuxingbo/nz315:codex/production-tasks`，并创建`https://github.com/Blue03150328/nz315/pull/6`，目标master。远端ycdb已合并删除，master/SMXT均为2c73741；提交分支已兼容最新分组侧栏，本机dev没有切换主线。对master仅48个相关文件，配置/SQL/APK/截图/编译缓存及无关本机恢复/服务器核对记录均排除。独立提交工作区65单测/4跳过、类型和生产构建通过；本机此前13组接口及安卓验收边界保留。PR草稿、未合并或部署，Android12实机仍未验。
+
 **2026-10-09 GitHub最新主线兼容**：实测远端ycdb已合并删除，master与SMXT均为2c73741；发布分支合入最新master，将生产任务入口保留在“追溯码”菜单分组，尊重远端分组及移动端侧栏。代码已推送到当前Git账号xiaobailiuxingbo的同名仓库分支；Blue仓库直接推送403，改通过草稿PR审核，发布结果见后续记录。本机dev服务未切换。
 
 **2026-10-09 GitHub提交范围整理**：按用户要求以upstream/ycdb重新整理`codex/production-tasks`独立分支，仅包含生产任务网站/接口/迁移、安卓联网源码及对应验收记录；不携带本机数据库恢复、服务器只读核对和分支同步提交。安卓core/bin编译缓存新增忽略，.env/SQL/APK/截图/临时文件均不纳入。本机dev及运行环境保留，GitHub推送状态以后续记录为准。

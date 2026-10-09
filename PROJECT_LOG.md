@@ -1,5 +1,9 @@
 ## 变更记录
 
+### 2026-10-09 | docs：记录GitHub生产任务草稿PR与范围核对
+- 已推送xiaobailiuxingbo/nz315的codex/production-tasks并创建Blue03150328/nz315草稿PR #6：https://github.com/Blue03150328/nz315/pull/6，目标master。Blue直推403；远端ycdb已合并删除，master与SMXT同为2c73741，提交分支兼容最新菜单，本机dev与服务保持原工作版本。
+- 对master48个相关文件，禁止文件0；剔除本机恢复/服务器核对记录及本机合并历史，.env/SQL/APK/截图/core/bin等不上传。功能源码逐文件与已验本机相同（侧栏适配主线除外）。独立工作区65单测通过/4跳过、tsc及生产构建通过；构建用临时随机会话密钥，不复制本机配置。PR仍为草稿、未合并或部署，Android12/扫码头未验。
+
 ### 2026-10-09 | chore：兼容GitHub最新master的菜单与提交目标
 - 远端ycdb已合并删除，master/SMXT同为2c73741。提交分支合入最新master，在其菜单分组中接入生产任务，保留主线其他改动；只通过master差异审核本次生产任务代码。xiaobailiuxingbo账号无Blue仓库直接写权限（403），已推送自己的同名仓库，准备创建指向Blue/master的草稿PR。原本机dev及开发服务不切换。
 
