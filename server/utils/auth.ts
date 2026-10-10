@@ -15,6 +15,10 @@ export interface AuthUser {
   phone: string | null
   role: PlatformRole
   status: number
+  device_id?: number
+  device_line?: string
+  device_hash?: string
+  enterprise_name?: string
 }
 
 /** 校验密码（bcrypt.compare，恒定时间） */
