@@ -203,6 +203,53 @@ const submitDelete = async () => {
   }
 }
 
+// ============ 导出留档批次（2026-10-10） ============
+// 背景：生成页（generator）生成的码不入库，若未及时下载文件且页面已刷新/关闭，码将无法找回；
+// 此前点过「入库留档」的批次可在此重新导出。范围与服务端一致：仅 file_name 以「生成入库」开头的留档批次。
+const STOCK_IN_PREFIX = '生成入库'
+const isStockedBatch = (row: any) => String(row?.file_name || '').startsWith(STOCK_IN_PREFIX)
+const showExportModal = ref(false)
+const exportTarget = ref<any>(null)
+const exporting = ref(false)
+const openExport = (row: any) => {
+  exportTarget.value = row
+  showExportModal.value = true
+}
+// 从 Content-Disposition 的 filename*=UTF-8'' 取原始中文文件名（服务端已按 RFC 5987 编码）
+const fileNameFromResponse = (res: Response): string => {
+  const cd = res.headers.get('content-disposition') || ''
+  const m = cd.match(/filename\*=UTF-8''([^;]+)/i)
+  if (m && m[1]) { try { return decodeURIComponent(m[1]) } catch { return '' } }
+  return ''
+}
+// SPA 下直链会被客户端路由拦截（同生成页「下载离线工具」的踩坑）⇒ fetch → Blob → 临时 a 标签
+const doExport = async (format: 'txt' | 'urls' | 'csv') => {
+  if (!exportTarget.value || exporting.value) return
+  exporting.value = true
+  try {
+    const res = await fetch('/api/admin/codes/upload-batches/' + exportTarget.value.id + '/export?format=' + format, { credentials: 'include' })
+    if (!res.ok) {
+      let msg = '导出失败'
+      try { msg = (await res.json())?.statusMessage || msg } catch { /* 非 JSON 错误体 */ }
+      throw new Error(msg)
+    }
+    const blob = await res.blob()
+    const name = fileNameFromResponse(res) || 'codes.' + (format === 'csv' ? 'csv' : 'txt')
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = name
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.add({ title: '已导出 ' + (exportTarget.value.codeTotal || 0) + ' 条追溯码', color: 'success' })
+    showExportModal.value = false
+  } catch (e: any) {
+    toast.add({ title: e?.message || '导出失败', color: 'error' })
+  } finally {
+    exporting.value = false
+  }
+}
+
 // ============ 批次明细弹窗（查看 + 单行冻结/作废/恢复，无批量操作） ============
 const showDetailModal = ref(false)
 const detailRow = ref<any>(null)
@@ -492,6 +539,20 @@ const flagBadge = (f: number) => {
               <td>
                 <div class="b-actions justify-end">
                   <UButton variant="link" color="neutral" size="xs" icon="i-lucide-eye" @click="openDetail(row)">详细</UButton>
+                  <!-- 导出（2026-10-10）：仅「生成入库」留档批次——生成页未及时下载文件时的回捞出口 -->
+                  <template v-if="isStockedBatch(row)">
+                    <span class="b-sep" />
+                    <!-- 用图标按钮而非文字：操作列原有 5 个文字按钮，再加文字会把「新建批次并绑定」挤成竖排（实测） -->
+                    <UButton
+                      variant="link"
+                      color="neutral"
+                      size="xs"
+                      icon="i-lucide-download"
+                      title="导出本批次追溯码（仅「生成入库」留档批次）"
+                      aria-label="导出留档追溯码"
+                      @click="openExport(row)"
+                    />
+                  </template>
                   <span class="b-sep" />
                   <UButton v-if="canWrite"
                     variant="link"
@@ -754,6 +815,40 @@ const flagBadge = (f: number) => {
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showDeleteModal = false">取消</UButton>
             <UButton v-if="canWrite" color="error" variant="solid" :loading="deleting" @click="submitDelete">确认删除</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
+
+    <!-- 导出留档批次（2026-10-10）：生成页未及时下载文件时的回捞出口，仅「生成入库」批次可见 -->
+    <UModal v-model:open="showExportModal">
+      <template #content>
+        <div class="b-modal">
+          <div class="b-modal-head">
+            <div class="b-modal-icon">
+              <UIcon name="i-lucide-download" class="h-4 w-4 text-[var(--b-text-regular)]" />
+            </div>
+            <div>
+              <h3 class="b-modal-title">导出留档追溯码</h3>
+              <p class="b-modal-sub max-w-xl truncate" :title="exportTarget?.file_name">{{ exportTarget?.file_name }}</p>
+            </div>
+          </div>
+          <div class="b-modal-body space-y-3">
+            <p class="b-help">本批次共 {{ exportTarget?.codeTotal || 0 }} 条，命名规则与「追溯码生成」页导出一致。选择格式后立即下载。</p>
+            <div class="flex flex-col gap-2">
+              <UButton color="neutral" variant="outline" icon="i-lucide-file-text" :loading="exporting" @click="doExport('txt')">
+                码文件 TXT（每行一个 32 位追溯码）
+              </UButton>
+              <UButton color="neutral" variant="outline" icon="i-lucide-link" :loading="exporting" @click="doExport('urls')">
+                扫码地址 urls.txt（离线生图工具输入）
+              </UButton>
+              <UButton color="neutral" variant="outline" icon="i-lucide-table" :loading="exporting" @click="doExport('csv')">
+                sn 清单 CSV（含分段与绑定状态）
+              </UButton>
+            </div>
+          </div>
+          <div class="b-modal-foot">
+            <UButton variant="outline" color="neutral" @click="showExportModal = false">关闭</UButton>
           </div>
         </div>
       </template>

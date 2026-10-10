@@ -45,6 +45,17 @@ const result = ref<any>(null)
 // 生产时在码库管理按该上传批次【修正】绑定生产批次；stocked 防止同一批结果重复入库
 const stocking = ref(false)
 const stocked = ref(false)
+// 防丢失（2026-10-10）：本批码不入库、只存在于本页内存，刷新或关闭页面即永久丢失（重新生成得到的是另一批新码）。
+// 故「既未导出也未入库留档」时拦截刷新/关闭；Keep-Alive 下切菜单属 SPA 内路由、不触发该事件，正好只拦真正会丢的动作。
+const downloaded = ref(false)
+const hasUnsavedResult = computed(() => !!result.value?.allCodes?.length && !downloaded.value && !stocked.value)
+const onBeforeUnload = (e: BeforeUnloadEvent) => {
+  if (!hasUnsavedResult.value) return
+  e.preventDefault()
+  e.returnValue = ''
+}
+onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
+onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload))
 
 const selectedProduct = computed(() => (productData.value?.rows || []).find((p: any) => Number(p.id) === Number(form.productId)))
 
@@ -68,6 +79,8 @@ const resetPage = () => {
   Object.assign(form, { productId: null, quantity: 100 })
   showBigConfirm.value = false
   result.value = null
+  downloaded.value = false
+  stocked.value = false
   toast.add({ title: '已重置，页面恢复初始状态', color: 'primary' })
 }
 
@@ -108,6 +121,7 @@ const runGenerate = async () => {
   try {
     result.value = await $fetch('/api/admin/codes/generate', { method: 'POST', body: { ...form } })
     stocked.value = false // 新一批码，重置入库留档状态
+    downloaded.value = false // 同理重置「已导出」标记，避免新一批沿用上一批的已保存状态
     toast.add({ title: '生成成功：' + result.value.quantity + ' 条' + (result.value.duplicates ? '（跳过重码 ' + result.value.duplicates + ' 条）' : ''), color: 'success' })
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || '生成失败', color: 'error' })
@@ -144,6 +158,7 @@ const download = (blob: Blob, name: string) => {
   a.download = name
   a.click()
   URL.revokeObjectURL(url)
+  downloaded.value = true // 导出即视为已保存，解除防丢失拦截（导出 TXT / urls / CSV 三处共用本函数）
 }
 
 // 导出 TXT：每行一个 32 位码（PRD 5.5.1 文件命名规范）
@@ -369,6 +384,14 @@ const downloadOfflineTool = async () => {
       <div class="b-card-head">
         <span class="b-card-title">生成结果</span>
         <span class="b-card-extra">{{ result.product.name }} · 共 {{ result.quantity }} 条</span>
+      </div>
+
+      <!-- 防丢失提醒（2026-10-10）：码只存在于本页内存，刷新/关闭即永久丢失 -->
+      <div v-if="hasUnsavedResult" class="b-note mx-4 mt-3">
+        <UIcon name="i-lucide-triangle-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
+        <p class="b-note-text">
+          本批码<strong>尚未导出、也未入库留档</strong>：码只存在于当前页面，刷新或关闭页面后<strong>无法恢复</strong>（重新生成得到的是另一批新码）。请先点下方【导出】任一格式或【入库留档】，再离开本页。
+        </p>
       </div>
 
       <!-- 生成统计（对齐离线工具：总数/唯一/重码/耗时） -->
