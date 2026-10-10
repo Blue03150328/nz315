@@ -22,6 +22,8 @@
 - 同一文件多次 Edit **绝不并行**；`node --check` 不查未声明引用；用户报「点了没反应/控件用不了」⇒ **先回退上一版对照复跑**。
 - **合成 HTML 单测全绿 ≠ 真实页面没被读坏**（`f820bcd` 单测 10/10 却读坏 2 站 ⇒ revert）；改解析口径必须真实页面**逐字段**对照。
 - **「已修」≠「已上线」**；失败命令的 fallback 输出绝不当证据；判等价必须**全表穷举集合比较**。
+- 🔴 **「校验 + 写入」必须同事务**：只加一条 `SELECT COUNT` 前置检查是**假防护** —— 单请求下它常不可达（能操作该账号的人本身就是启用中的平台账号，「除目标外」恒 ≥ 1），真漏洞是**并发**（TOCTOU：两名管理员同时禁用对方 → 一个不剩、后台永久锁死）。并发安全的防自锁一律 `SELECT … FOR UPDATE` + 判定 + 写入放**同一事务**（实例 `server/api/admin/users/[id].patch.ts`）。
+- 🔴 **并发用例必须先断言前置条件**（如「启用中的总部管理员恰为 N 个」），否则场景根本不成立，却会被误读成代码有问题。
 - 🔴 **`UInput type="number"` 的 `v-model` 是 number 不是 string**（Nuxt UI v4 `Input.vue` 对 `type==='number'` 走 `looseToNumber`）⇒ 对它调 `.trim()` 会在按钮事件里静默抛 TypeError：请求不发出、无任何提示，**表现为「点了没反应」**。实例：记账保存自 `20caee5`(09-29) 起坏了 7 天，「新建记账」全量不可用。凡此类字段一律先 `String(v ?? '')` 归一。
 - 🔴 **两个口径别混**：①「两文件测试合计数」≠「单文件数」；②「git blob 字节(LF)」≠「包内字节(CRLF)」（本机 `core.autocrlf=true`，`git archive` 产物是 CRLF）⇒ 核执行单字节判据**必须用包内口径**。
 
@@ -37,7 +39,7 @@
 - `/api/trace` 未命中→`external-reg` 兜底→`not-found`；**只读**（不写 `scan_log`、不触发预警）。写接口 `requireWritableUser`+`v-if="canWrite"`；演示数据**数值不可信**。
 
 ## 本机环境
-- 托管 Node 22.22.2-3；dev 3100（**只能用 `http://localhost:3100`**）。**`npm run build` 跑不了** ⇒ `node node_modules/nuxt/bin/nuxt.mjs build`。`curl` 走代理 ⇒ 连本机加 `--noproxy '*'`；Git Bash coreutils 全瘫 ⇒ 用 node 脚本。
+- 托管 Node 22.22.2-3；dev 必须显式 `node node_modules/nuxt/bin/nuxt.mjs dev --port 3100`（**nuxt.config 未配 devServer，裸 `nuxt dev` 默认落 3000**；全项目集成测试硬编码 `http://localhost:3100`）。**`npm run build` 跑不了** ⇒ `node node_modules/nuxt/bin/nuxt.mjs build`。`curl` 走代理 ⇒ 连本机加 `--noproxy '*'`；Git Bash coreutils 全瘫 ⇒ 用 node 脚本。
 - 🔴 改 CRLF 文档别用 Edit ⇒ 补丁表+驱动脚本、**函数式替换**（见 `ARCHIVE`）。
 - 公众端真浏览器端到端回归：`playwright-core`（托管 workspace）+ 系统 Chrome + `context.addCookies` 注入自造 `nz315_consumer`（**httpOnly 只禁 JS 读、服务端不查该标志**，故可注入）⇒ 见 skill `nz315-consumer-e2e`。旧法 jsdom 只验结构不验视觉。
 
@@ -47,3 +49,5 @@
 3. 微信授权域名保存状态未确认；公安备案 ~2026-10-15；HTTPS 证书 2026-12-16 到期不续期。
 4. 其余遗留（未登记标签 / 线 B 缺口 / C7·E4）见 `AGENTS.md` 待办段。
 5. 🔴 记账保存修复（`app/components/BillFormModal.vue` 的 `toText` 归一，本机已改**未提交未上线**）⇒ 上线需按 54 号流程重打包；线上当前版本该功能不可用。
+6. 🔴 **新增总部管理员并入「新增用户」**（`server/api/admin/users.post.ts` 提权闸 + `[id].patch.ts` 同事务 `FOR UPDATE` 防并发互禁 + `settings/index.vue` 角色下拉）与 **码库批次导出 + 生成页防丢失提醒**（新 `upload-batches/[id]/export.get.ts`，仅「生成入库」留档批次可导；`generator/index.vue` 未导出/未入库时 `beforeunload` 拦截 + 提醒条）：**本机已改、测试全绿、未提交未上线**。见 `.workbuddy/memory/2026-10-10.md`。
+7. 🔴 导出/生成页/账号三处的真浏览器回归方法已写入 skill `nz315-func-regression`（含「弹窗判据不能用 body.innerHTML.includes」「操作列第 6 个文字按钮会被挤到点不中 ⇒ 改图标按钮」「USelect items 来自 useFetch ⇒ 必须 networkidle + 轮询」「合成点击失效先查水合，勿误判 UI 缺陷」）。
