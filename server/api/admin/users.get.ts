@@ -6,10 +6,10 @@
 import { query } from '../../utils/db'
 import { requireBackendUser } from '../../utils/auth'
 
-const ROLE_LABEL: Record<string, string> = { platform_admin: '总部管理员', enterprise_admin: '厂家主账号', code_admin: '码管理员', viewer: '只读账号' }
+const ROLE_LABEL: Record<string, string> = { platform_admin: '总部管理员', enterprise_admin: '厂家主账号', code_admin: '码管理员', production_operator: '生产操作员', viewer: '只读账号' }
 
 // 厂家业务数据引用表（删除厂家前置检查：任一命中即不可删，防数据孤儿）
-const ENT_REF_TABLES = ['product', 'product_spec', 'batch', 'upload_batch', 'trace_code']
+const ENT_REF_TABLES = ['product', 'product_spec', 'batch', 'upload_batch', 'trace_code', 'production_device', 'worker_run', 'worker_pool']
 
 export default defineEventHandler(async (event) => {
   const user = await requireBackendUser(event)

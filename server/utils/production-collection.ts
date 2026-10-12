@@ -34,6 +34,7 @@ export async function startCollection(user: AuthUser, taskId: number, body: Reco
   return transaction(async conn => {
     const task = await lockedTask(conn, user, taskId)
     const [[prior]] = await conn.query<any[]>('SELECT * FROM production_collection_session WHERE id=? FOR UPDATE', [id!])
+    if(!prior&&task.workflow==='worker-line')fail('此任务由新版工人扫码应用采集，请升级APK并登录个人工号')
     if (user.device_id && !prior && task.line_name !== user.device_line) fail('任务不属于本设备生产线',403)
     if (prior) owner(user,prior)
     if (prior && (Number(prior.task_id) !== taskId || Number(prior.user_id) !== Number(user.id) || (!user.device_id && prior.device !== device))) fail('会话标识已被其他资料使用')
