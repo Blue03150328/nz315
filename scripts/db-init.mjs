@@ -16,6 +16,9 @@ import bcrypt from 'bcryptjs';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { productionDDL, migrateProductionSchema } from './production-schema.mjs';
+import { collectionDDL } from './collection-schema.mjs';
+import { deviceDDL, migrateDeviceSchema } from './device-schema.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 读取 .env（简易解析，无 dotenv 依赖）
@@ -599,10 +602,12 @@ async function main() {
 
   // 2) 建表
   const conn = await mysql.createConnection({ host: DB.host, port: DB.port, user: DB.user, password: DB.password, database: DB.database });
-  for (const ddl of DDL) {
+  for (const ddl of [...DDL, ...productionDDL, ...collectionDDL]) {
     await conn.query(ddl);
   }
-  console.log('[db] ' + DDL.length + ' 张表创建完成');
+  await migrateProductionSchema(conn);
+  await migrateDeviceSchema(conn);
+  console.log('[db] ' + (DDL.length + productionDDL.length + collectionDDL.length + deviceDDL.length) + ' 张表创建完成');
 
   // 3) 增量迁移（历史库补列/补索引）
   await migrate(conn);

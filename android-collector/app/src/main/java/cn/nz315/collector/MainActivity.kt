@@ -159,6 +159,7 @@ class MainActivity : Activity() {
         currentTask = null
         screen("生产采集任务", "在这里设置产品、批次和采集方式，再进入记录页扫码。")
         button("＋ 新建采集任务") { editInfo(null) }
+        button("联网生产任务与剩余码审核") { startActivity(Intent(this, ProductionActivity::class.java)) }
         button("扫码设备设置") { settings() }
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }; content.addView(list)
         run({ db.summaries() }) { summaries ->

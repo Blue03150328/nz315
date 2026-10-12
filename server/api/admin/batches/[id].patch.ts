@@ -22,6 +22,8 @@ export default defineEventHandler(async (event) => {
   try {
     await conn.beginTransaction()
     await conn.query('SELECT id FROM product WHERE id = ? FOR UPDATE', [seed.product_id])
+    const [tasks] = await conn.query<any[]>('SELECT id FROM production_task WHERE batch_id = ? LIMIT 1', [id])
+    if (tasks.length) throw createError({ statusCode: 409, statusMessage: '该批次已有生产任务，生产资料已锁定，不能整体更改' })
     const [[batch]] = await conn.query<any[]>('SELECT * FROM batch WHERE id = ?' + scope + ' FOR UPDATE', [id, ...(fid ? [fid] : [])])
     if (!batch || Number(batch.product_id) !== Number(seed.product_id)) throw createError({ statusCode: 409, statusMessage: '批次归属已变化，请刷新后重试' })
     const [codes] = await conn.query<any[]>('SELECT id, upload_batch_id, abnormal_flag FROM trace_code WHERE batch_id = ? ORDER BY id FOR UPDATE', [id])

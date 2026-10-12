@@ -11,6 +11,8 @@ export default defineEventHandler(async (event) => {
   const [batch] = await query<any[]>(
     'SELECT id FROM batch WHERE id = ?' + (fid ? ' AND enterprise_id = ?' : ''), fid ? [id, fid] : [id])
   if (!batch) throw createError({ statusCode: 404, statusMessage: '批次不存在' })
+  const [task] = await query<any[]>('SELECT id FROM production_task WHERE batch_id=? LIMIT 1', [id])
+  if (task) throw createError({ statusCode: 409, statusMessage: '批次存在生产任务，不能删除' })
 
   const [cntRow] = await query<any[]>('SELECT COUNT(*) AS c FROM trace_code WHERE batch_id = ?', [id])
   if (Number(cntRow?.c || 0) > 0) {

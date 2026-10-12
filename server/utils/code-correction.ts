@@ -3,6 +3,7 @@ import { productionPatch } from './production-patch'
 import { assertBindingAllowed, assertCodesCorrectable } from './binding-guard'
 import { effectiveProduction } from '../../shared/utils/production-info'
 import { refreshUploadSnapshots } from './upload-snapshot'
+import { assertNoProductionReservation } from './production-reservation'
 
 type Selection = { ids?: number[]; uploadBatchId?: number; single?: boolean }
 
@@ -47,6 +48,7 @@ export async function correctCodes(user: { role: string; enterprise_id: number |
     const [codes] = await conn.query<any[]>('SELECT * FROM trace_code WHERE ' + where + scope + ' ORDER BY id FOR UPDATE', params)
     if (codes.length !== seed.length || codes.some(c => !products.some(p => Number(p.id) === Number(c.product_id) && Number(p.enterprise_id) === Number(c.enterprise_id)))) throw createError({ statusCode: 409, statusMessage: '追溯码归属已变化，请刷新后重试' })
     assertCodesCorrectable(codes)
+    await assertNoProductionReservation(conn, codes.map(c => Number(c.id)))
     if (selection.uploadBatchId) {
       const [uploads] = await conn.query<any[]>('SELECT * FROM upload_batch WHERE id = ?' + scope + ' FOR UPDATE', [selection.uploadBatchId, ...(fid ? [fid] : [])])
       if (!uploads[0] || codes.some(c => Number(c.product_id) !== Number(uploads[0].product_id) || Number(c.enterprise_id) !== Number(uploads[0].enterprise_id))) throw createError({ statusCode: 409, statusMessage: '上传文件归属已变化，请刷新后重试' })
