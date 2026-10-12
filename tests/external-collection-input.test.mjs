@@ -26,6 +26,8 @@ test('采集UUID、工号和序号边界明确', () => {
 test('事件采集时间无效不确认，原文业务错误可产生拒绝收据', () => {
   const event = { eventId: id, sequence: 1, rawCode: 'a\nb', capturedAt: '2026-10-12T01:02:03.000Z' }
   assert.equal(externalEventInput(event).rawCode, event.rawCode)
+  assert.equal(externalEventInput({ ...event, rawCode: 'a'.repeat(8193) }).rawCode.length, 8193)
+  assert.throws(() => externalEventInput({ ...event, rawCode: 'a'.repeat(65537) }), /超过65536/)
   assert.throws(() => externalEventInput({ ...event, capturedAt: '2026-02-30T01:02:03Z' }))
   assert.throws(() => externalEventInput({ ...event, capturedAt: '2026-10-12' }))
 })

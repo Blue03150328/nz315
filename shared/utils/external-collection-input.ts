@@ -1,6 +1,7 @@
 import type { ExternalCollectionEvent } from '../types/external-collection'
 
 export const EXTERNAL_CODE_MAX_BYTES = 8192
+export const EXTERNAL_EVENT_MAX_BYTES = 65536
 export const EXTERNAL_EVENT_LIMIT = 20
 export const EXTERNAL_SEQUENCE_MAX = 10000000
 
@@ -39,6 +40,7 @@ export function externalEventInput(value: Record<string, unknown>): ExternalColl
   if (typeof capturedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(capturedAt) || !Number.isFinite(Date.parse(capturedAt)) || new Date(capturedAt).toISOString().slice(0, 19) !== capturedAt.slice(0, 19)) throw new Error('采集时间必须为有效UTC时间')
   // 非法码仍须留下拒绝收据，原文字段的类型和大小在签名前校验。
   if (typeof value.rawCode !== 'string' || !value.rawCode.isWellFormed()) throw new Error('溯源码字段无效')
+  if (new TextEncoder().encode(value.rawCode).byteLength > EXTERNAL_EVENT_MAX_BYTES) throw new Error('单条采集记录超过65536字节，请保留原记录并联系管理员核查')
   return { eventId, sequence, rawCode: value.rawCode, capturedAt }
 }
 
