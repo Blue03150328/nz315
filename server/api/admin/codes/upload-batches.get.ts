@@ -56,6 +56,8 @@ export default defineEventHandler(async (event) => {
 
   // 老库尚未安装生产模块时仍可查看码库，不能把未知占用数当成零。
   const productionRecordsAvailable = await checkCodeBatchUsageSchema()
+  // 未迁移的旧库仍可查看汇总，不能用产品当前规格冒充生成时包装资料。
+  const [specColumn] = await query<any[]>('SELECT 1 AS present FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=\'upload_batch\' AND COLUMN_NAME=\'spec_name_snapshot\' LIMIT 1')
   const usedSql = productionRecordsAvailable
     // 已用码保持唯一active_code_id占用，只有未用余码经审核才能释放。
     ? "(t.status = 2 OR COALESCE(a.state='used', 0))"
@@ -79,6 +81,7 @@ export default defineEventHandler(async (event) => {
   const selectedIds = selectedBatches.map(row => Number(row.id))
   const rows = selectedIds.length ? await query<any[]>(
     `SELECT ub.id, ub.file_name, ub.product_id, ub.batch_no, ub.created_at, ub.created_by,
+       ${specColumn ? 'ub.spec_name_snapshot' : 'NULL'} AS spec_name_snapshot,
        p.name AS product_name,
        COUNT(t.id) AS code_total,
        COALESCE(SUM(t.abnormal_flag = 1), 0) AS frozen_count,
@@ -91,7 +94,7 @@ export default defineEventHandler(async (event) => {
      LEFT JOIN trace_code t ON t.upload_batch_id = ub.id
      ${productionRecordsAvailable ? 'LEFT JOIN production_task_code a ON a.active_code_id=t.id' : ''}
      WHERE ub.id IN (${selectedIds.map(() => '?').join(',')})
-     GROUP BY ub.id, ub.file_name, ub.product_id, ub.batch_no, ub.created_at, ub.created_by, p.name
+     GROUP BY ub.id, ub.file_name, ub.product_id, ub.batch_no, ub.created_at, ub.created_by, p.name${specColumn ? ', ub.spec_name_snapshot' : ''}
      ORDER BY ub.id DESC`, selectedIds) : []
 
   return {
@@ -106,6 +109,7 @@ export default defineEventHandler(async (event) => {
       const usedCount = Number(r.used_count || 0)
       return {
         ...r,
+        specName: r.spec_name_snapshot || null,
         codeTotal,
         frozenCount,
         voidedCount,

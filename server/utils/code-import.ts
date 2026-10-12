@@ -110,8 +110,10 @@ export async function importCodes(user: AuthUser, body: Record<string, any>): Pr
 
       // 2) 上传文件批次建档（码库管理聚合维度：一份上传文件 = 一行 upload_batch，与插码同事务，
       //    失败整体回滚不留孤儿批次行）
+      const [[specColumn]] = await conn.query<any[]>('SELECT 1 AS present FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=\'upload_batch\' AND COLUMN_NAME=\'spec_name_snapshot\' LIMIT 1')
       const [ubRes] = await conn.execute(
-        'INSERT INTO upload_batch (enterprise_id, file_name, product_id, batch_id, batch_no, produce_date, quality_cert_no, created_by) VALUES (?,?,?,?,?,?,?,?)',
+        // 普通码文件没有可信的生成时包装资料，不能把产品当前规格当成历史快照。
+        `INSERT INTO upload_batch (enterprise_id, file_name, product_id, batch_id, batch_no, produce_date, quality_cert_no, created_by${specColumn ? ', spec_name_snapshot' : ''}) VALUES (?,?,?,?,?,?,?,?${specColumn ? ',NULL' : ''})`,
         [enterpriseId, fileName, productId, batchId, batchNo, produceDate, qualityCertNo, user.id]) as unknown as [{ insertId: number }, unknown]
       uploadBatchId = Number(ubRes.insertId)
 

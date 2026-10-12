@@ -5,6 +5,7 @@ import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
 import { loadImportContext } from '../../../utils/import-context'
 import { validateImportRows } from '../../../utils/import-validation'
+import { verifyCodeSpecSnapshot } from '../../../utils/code-spec-snapshot'
 
 export default defineEventHandler(async (event) => {
   const user = await requireWritableUser(event)
@@ -14,6 +15,8 @@ export default defineEventHandler(async (event) => {
   if (!codes.length) throw createError({ statusCode: 400, statusMessage: '没有可入库的码' })
   if (codes.length > MAX_CODES_PER_WRITE) throw createError({ statusCode: 400, statusMessage: WRITE_QUANTITY_ERROR })
   if (!Number.isInteger(productId) || productId <= 0) throw createError({ statusCode: 400, statusMessage: '请选择关联产品' })
+  const specSnapshot = body.specSnapshotToken === undefined ? null : verifyCodeSpecSnapshot(body.specSnapshotToken, productId, codes, String(useRuntimeConfig().sessionSecret || ''))
+  if (body.specSnapshotToken !== undefined && !specSnapshot) throw createError({ statusCode: 400, statusMessage: '生成规格资料验证失败，请使用原生成结果重新入库' })
   const fid = user.role === 'platform_admin' ? null : user.enterprise_id
   if (user.role !== 'platform_admin' && !fid) throw createError({ statusCode: 403, statusMessage: '账号未关联企业' })
   const now = new Date()
@@ -26,10 +29,12 @@ export default defineEventHandler(async (event) => {
     if (!prod) throw createError({ statusCode: 400, statusMessage: '产品不存在或不属于本企业' })
     const { context } = await loadImportContext(codes, Number(prod.enterprise_id), conn)
     const validation = validateImportRows(codes, context, productId)
+    const [[specColumn]] = await conn.query<any[]>('SELECT 1 AS present FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=\'upload_batch\' AND COLUMN_NAME=\'spec_name_snapshot\' LIMIT 1')
+    if (specSnapshot && !specColumn) throw createError({ statusCode: 503, statusMessage: '包装规格留档结构尚未安装，请完成本机数据库迁移后重新入库；生成结果仍保留在本页' })
     let uploadBatchId: number | null = null
     let inserted = 0
     if (validation.accepted.length) {
-      const [ub]: any = await conn.execute('INSERT INTO upload_batch (enterprise_id, file_name, product_id, batch_id, batch_no, produce_date, quality_cert_no, created_by) VALUES (?,?,?,NULL,NULL,NULL,NULL,?)', [prod.enterprise_id, fileName, productId, user.id])
+      const [ub]: any = await conn.execute(`INSERT INTO upload_batch (enterprise_id, file_name, product_id, batch_id, batch_no, produce_date, quality_cert_no, created_by${specColumn ? ', spec_name_snapshot' : ''}) VALUES (?,?,?,NULL,NULL,NULL,NULL,?${specColumn ? ',?' : ''})`, [prod.enterprise_id, fileName, productId, user.id, ...(specColumn ? [specSnapshot?.specName || null] : [])])
       uploadBatchId = Number(ub.insertId)
       for (let i = 0; i < validation.accepted.length; i += 5000) {
         const chunk = validation.accepted.slice(i, i + 5000)

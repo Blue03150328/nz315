@@ -215,7 +215,7 @@ const doStockIn = async () => {
   try {
     const res = await $fetch('/api/admin/codes/stock-in', {
       method: 'POST',
-      body: { codes: result.value.allCodes, productId: result.value.product.id },
+      body: { codes: result.value.allCodes, productId: result.value.product.id, specSnapshotToken: result.value.specSnapshotToken },
     })
     const skip = Number(res.skippedInvalid || 0) + Number(res.skippedDup || 0)
     toast.add({

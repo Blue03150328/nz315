@@ -6,6 +6,7 @@ import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
 import { generateBatch, segments, type GenerateConfig } from '../../../utils/code-generator'
 import { productCodeHead } from '../../../utils/code-head'
+import { issueCodeSpecSnapshot } from '../../../utils/code-spec-snapshot'
 
 // 自定义段固定配置（PRD 3.2）：时间戳段=毫秒级、随机数字段=6位随机+2位校验、校验位段=MD5取后2位
 // 平台标准锁定：生成接口不接受客户端传入配置，防止客户乱配置导致追溯码结构错乱（引擎逻辑不变）
@@ -75,5 +76,6 @@ export default defineEventHandler(async (event) => {
     cfg,
     preview: result.codes.slice(0, 10).map(code => ({ code, segments: segments(code) })),
     allCodes: result.codes, // 导出用（数量上限 50 万条，全量回传 JSON 约 16.7MB；弱网下注意 nginx proxy_read_timeout）
+    specSnapshotToken: issueCodeSpecSnapshot(productId, result.codes, prod.spec_name, String(useRuntimeConfig().sessionSecret || '')),
   }
 })
