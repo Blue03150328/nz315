@@ -58,6 +58,10 @@ onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
 onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload))
 
 const selectedProduct = computed(() => (productData.value?.rows || []).find((p: any) => Number(p.id) === Number(form.productId)))
+const productOptions = computed(() => (productData.value?.rows || []).map((p: any) => ({
+  value: Number(p.id),
+  label: p.name + ' · ' + (p.spec_name || '规格未填写') + '（' + p.registration_no + '）',
+})))
 
 // 码第 1-11 位实时预览（1049 强制结构）
 const headPreview = computed(() => {
@@ -293,12 +297,15 @@ const downloadOfflineTool = async () => {
             <label class="b-label">产品（码第 1-11 位来源）<span class="b-required">*</span></label>
             <USelect
               v-model="form.productId"
-              :items="(productData?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name + '（' + p.registration_no + '）' }))"
+              :items="productOptions"
               placeholder="选择产品"
               class="w-full"
               :content="{ class: 'min-w-72' }"
-              :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
+              :ui="{ value: 'whitespace-normal break-words text-left', itemLabel: 'whitespace-normal break-words' }"
             />
+            <p v-if="selectedProduct" class="b-help">
+              规格：{{ selectedProduct.spec_name || '规格未填写' }} · 规格码：{{ selectedProduct.spec_code || '未配置' }}
+            </p>
             <div v-if="headPreview" class="mt-2 flex flex-wrap items-center gap-1 rounded bg-[var(--b-fill)] px-3 py-2 font-code text-xs">
               <span class="b-tag b-tag-danger">{{ headPreview.cat }}</span>
               <span class="text-[var(--b-text-muted)]">+</span>
@@ -383,7 +390,7 @@ const downloadOfflineTool = async () => {
     <div v-if="result" class="b-card b-card-clip">
       <div class="b-card-head">
         <span class="b-card-title">生成结果</span>
-        <span class="b-card-extra">{{ result.product.name }} · 共 {{ result.quantity }} 条</span>
+        <span class="b-card-extra">{{ result.product.name }} · {{ result.product.specName || '规格未填写' }} · 共 {{ result.quantity }} 条</span>
       </div>
 
       <!-- 防丢失提醒（2026-10-10）：码只存在于本页内存，刷新/关闭即永久丢失 -->
