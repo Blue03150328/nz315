@@ -202,6 +202,10 @@ public class MainActivity extends Activity {
         @JavascriptInterface public String finishCollection(boolean endTask) {
             capturing=false;try{queue.close(endTask);return queue();}catch(Exception error){return failure(error);}
         }
+        @JavascriptInterface public String finishUpload(){
+            try{JSONObject finished=queue.finishUpload();if(finished!=null)sync.uploadNow();return new JSONObject(queue()).put("finishRequested",finished!=null).toString();}
+            catch(Exception error){return failure(error);}
+        }
         @JavascriptInterface public void resumeUpload(){if(sync!=null)sync.authenticated(true);}
         @JavascriptInterface public String uploadNow(){
             try{if(sync==null)throw new Exception("本机数据库不可用");return new JSONObject().put("ok",sync.uploadNow()).put("loginRequired",sync.loginRequired()).put("message",sync.message()).toString();}

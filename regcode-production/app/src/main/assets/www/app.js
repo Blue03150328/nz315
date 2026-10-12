@@ -206,6 +206,19 @@
     if(!session){if(state.user)tasks();else login();return;}
     const c=session.context, open=session.phase==='open';
     selectPage('scan','<div class="heading"><div><div class="eyebrow">'+escape(c.lineName || '本机采集')+'</div><h1>'+escape(c.name || '准备领用清单')+'</h1></div><button id="scanBack" class="iconbutton">返回</button></div><div class="card"><h3>'+escape(c.productName || '')+'</h3><p class="muted">生产批号 '+escape(c.batchNo || '正在联网确认…')+'</p><div class="stats"><div><strong id="localCount">0</strong><small>本机有效采集</small></div><div><strong id="cloudCount">0</strong><small>云端已绑定</small></div><div><strong id="waitingCount">0</strong><small>待同步记录</small></div></div><div id="syncStatus" class="tips"></div><div class="actions sync-actions"><button id="uploadCloud" class="primary">上传云端</button><button id="backupRecords" class="secondary">导出备份</button></div><p class="devicehint">上传时可继续扫码；上传成功也保留本机记录。</p><details><summary>本批生产资料</summary>'+[['生产日期',date(c.produceDate)],['有效期至',date(c.expireDate)],['质量合格证号',c.qualityCertNo],['质检结果',c.qcResult===1?'合格':'-']].map(r=>'<div class="detail-line"><span>'+r[0]+'</span><strong>'+escape(r[1] || '-')+'</strong></div>').join('')+'</details></div>'+(open?'<div class="card scan-panel"><div class="scan-art" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><h2 id="scanHeading">扫码已暂停</h2><p class="muted">提示已保存后可继续扫描，无需等待云端。重复码和异常码自动剔除并留痕。</p><div class="scan-entry"><input id="scanInput" autocomplete="off" placeholder="实体扫描，或输入追溯码" aria-label="追溯码"><button id="submitScan" class="secondary">采集</button></div><button id="toggleScan" class="primary wide">开始连续采集</button></div>':'<div class="card"><h2>'+ (session.phase==='starting'?'正在缓存领用清单':'已停止扫码，正在同步并结束')+'</h2><p class="muted">'+(session.phase==='starting'?'云端确认后才允许扫码；请保持联网或重新登录。':'全部记录收到云端收据后才完成结束，未确认记录仍保留在设备。')+'</p></div>')+'<div class="card"><div class="split"><h3>采集与异常记录</h3><span id="anomalyCount"></span></div><div id="recentRows"></div></div><button id="loginAgain" class="secondary wide" hidden>登录已失效，重新登录</button>'+(open?'<button id="closeCollection" class="danger wide">结束本机采集及本批生产</button><p class="devicehint">其他设备仍在采集时，只结束本机；任务需等所有设备完成同步。</p>':''));
+    const uploadStatus=document.createElement('p');uploadStatus.id='uploadBoundaryStatus';uploadStatus.className='devicehint';$('syncStatus').after(uploadStatus);
+    $('uploadCloud').textContent='立即同步';
+    $('uploadCloud').parentElement.nextElementSibling.textContent='扫码持续自动上传。点击“完成本次上传”划分子批次，之后扫描的码归入下一批；可以继续扫码。';
+    if(open){
+      const finish=document.createElement('button');finish.id='finishUpload';finish.className='primary wide';finish.textContent='完成本次上传';$('uploadCloud').parentElement.before(finish);
+      click('finishUpload',()=>{
+        try{
+          const result=JSON.parse(Native.finishUpload());if(!result.ok)throw new Error(result.error || '本次上传边界未能保存，请重试');
+          toast(result.finishRequested?'本次上传边界已保存，等待云端确认；可以继续扫码':'没有新的采集记录，无需完成本次上传');updateQueue();
+          if(state.scanning && settings.mode!=='broadcast' && $('scanInput'))$('scanInput').focus();
+        }catch(error){toast(error.message,true);}
+      });
+    }
     const records=$('recentRows'),card=records.parentElement;
     const more=document.createElement('details'),summary=document.createElement('summary');summary.textContent='查看最近30条采集原文及原因';more.appendChild(summary);more.appendChild(records);card.appendChild(more);
     if($('closeCollection'))card.before($('closeCollection'));
@@ -236,6 +249,10 @@
     const counts=q.counts || {};
     for(const [id,key] of [['localCount','collected'],['cloudCount','accepted'],['waitingCount','waiting']])if($(id))$(id).textContent=number(counts[key]);
     if($('syncStatus'))$('syncStatus').textContent=q.syncMessage || '自动同步中';
+    if($('uploadBoundaryStatus')){
+      const current=q.currentUpload && q.currentUpload.counts || {}, batches=q.uploadCounts || {};
+      $('uploadBoundaryStatus').textContent='本次有效采集 '+number(current.collected)+' · 本次云端成功 '+number(current.accepted)+' · 已完成 '+number(batches.completed)+' 批'+(number(batches.pending)>0?' · '+number(batches.pending)+' 批等待云端确认':'');
+    }
     if($('loginAgain')){$('loginAgain').hidden=!q.loginRequired;$('loginAgain').textContent=state.deviceMode?'重新验证设备':'登录已失效，重新登录';}if(q.deviceBlocked){state.scanning=false;updateScanLabel();}
     if($('anomalyCount'))$('anomalyCount').textContent='重复 '+number(counts.duplicates)+' · 异常 '+number(counts.rejected);
     const latest=(q.recent || []).find(row=>row.event.eventId===state.lastEventId);

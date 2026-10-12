@@ -106,7 +106,7 @@ public class ProductionClientTest {
     @Test public void deviceQueuesUseRestrictedCollectionRoutes() throws Exception {
         client.deviceCredential("b".repeat(64));
         String sid="3beff054-1b7d-4c72-8c25-e8937024b523",basePath="/api/admin/production-tasks/1/collection-sessions";
-        for(String path:new String[]{basePath,basePath+"/"+sid+"/events",basePath+"/"+sid+"/complete"}){
+        for(String path:new String[]{basePath,basePath+"/"+sid+"/events",basePath+"/"+sid+"/complete",basePath+"/"+sid+"/uploads",basePath+"/"+sid+"/uploads/"+sid+"/complete"}){
             assertEquals(200,client.request("POST",path,"{}").getInt("status"));assertTrue(requestPath.get().startsWith("/api/device/"));
         }
         client.request("POST","/api/device/activate","{}");assertNull(authorization.get());
@@ -129,6 +129,6 @@ public class ProductionClientTest {
         }
         client.configure(base);
         String path="/api/admin/production-tasks/1/collection-sessions",id="3beff054-1b7d-4c72-8c25-e8937024b523";
-        for(String target:new String[]{path,path+"/"+id+"/events",path+"/"+id+"/complete"})assertEquals(200,client.request("POST",target,"{\"events\":[]}").getInt("status"));
+        for(String target:new String[]{path,path+"/"+id+"/events",path+"/"+id+"/complete",path+"/"+id+"/uploads",path+"/"+id+"/uploads/"+id+"/complete"})assertEquals(200,client.request("POST",target,"{\"events\":[]}").getInt("status"));
     }
 }
