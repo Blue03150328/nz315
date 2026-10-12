@@ -1,0 +1,11 @@
+暂存=[".gitattributes"]
+提交=9584fde69fb22b9e3b079d996e1c5680f0d00c05
+名称状态:
+9584fde chore: 上线包剔除历史交付件与临时件
+
+文件清单:
+9584fde chore: 上线包剔除历史交付件与临时件
+M	.gitattributes
+push 输出=
+远端真值=9584fde69fb22b9e3b079d996e1c5680f0d00c05	refs/heads/SMXT
+本地 HEAD=9584fde69fb22b9e3b079d996e1c5680f0d00c05

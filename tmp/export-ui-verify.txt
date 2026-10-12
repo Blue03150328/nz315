@@ -1,0 +1,14 @@
+=== export-ui-verify log ===
+登录状态=200
+留档批次行【导出】按钮数=1；非留档批次行【导出】按钮数=0
+按钮遮挡探针={"rect":[1100,452,24,24],"hitSelf":true,"topHtml":"<span class=\"iconify i-lucide:download shrink-0 size-4\" aria-hidden=\"true\" style=\"\" data-slot=\"leadingIcon\"></"}
+（playwright 合成点击未生效，已用原生 el.click() 触发）
+格式选择弹窗已打开=true
+下载文件名=356___uix_1791624050017产品___uix_1791624050017规格_20261010.txt
+下载后弹窗仍打开=false
+产品下拉选项数=1 前几个=["__uix_1791624050017产品（PD24050017）"]
+生成后防丢失提醒可见=是
+生成页导出捕获=356___uix_1791624050017产品___uix_1791624050017规格_20261010.txt
+导出后防丢失提醒可见数=0
+页面 JS 错误=无
+界面校验通过

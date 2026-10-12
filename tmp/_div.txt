@@ -1,0 +1,20 @@
+--- 远程对象在本地? ---
+commit
+--- merge-base ---
+059fd68190c4cfc36200b8b2fb38ed94fb4febe9
+--- 远程有、本地没有 ---
+2c73741 Merge pull request #5 from Blue03150328/ycdb
+b043e79 Merge pull request #4 from Blue03150328/ycdb
+6a57873 Merge pull request #3 from Blue03150328/ycdb
+--- 本地有、远程没有 ---
+9637c0e docs: 补记外码页瘦身的真浏览器验证结论与当日日志
+e32dc81 fix: 外部二维码查询页改为内部资料与外链
+92ff767 docs: 项目记忆补记切分支与提交信息的两个本机 git 坑
+f2129cd docs: 合并当日工作日志（SMXT版IA优化 + master版外码诊断与瘦身咨询）
+1ceff88 更新安卓采集器任务与记录界面
+--- 远程 HEAD 概览 ---
+2c73741 Merge pull request #5 from Blue03150328/ycdb
+059fd68 feat: 后台菜单分组与结果页行动层级优化
+d6855cb chore: 打包总部新增企业版本并更新宝塔上线流程
+b043e79 Merge pull request #4 from Blue03150328/ycdb
+3d16746 feat: 接入阿尔法采集价格并配置每15天本机同步

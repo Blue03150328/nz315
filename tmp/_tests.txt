@@ -1,0 +1,420 @@
+TAP version 13
+# Subtest: 按采集日期选择最新阿尔法文件，不把其它平台或临时文件混入
+ok 1 - 按采集日期选择最新阿尔法文件，不把其它平台或临时文件混入
+  ---
+  duration_ms: 10.403
+  type: 'test'
+  ...
+# Subtest: 非法日期和最新候选损坏命名不能默默回退旧文件
+ok 2 - 非法日期和最新候选损坏命名不能默默回退旧文件
+  ---
+  duration_ms: 0.3935
+  type: 'test'
+  ...
+# Subtest: 按北京时间判断新鲜度，拒绝未来与过旧采集
+ok 3 - 按北京时间判断新鲜度，拒绝未来与过旧采集
+  ---
+  duration_ms: 8.6608
+  type: 'test'
+  ...
+# Subtest: 15天边界、首次同步和失败未推进的周期
+ok 4 - 15天边界、首次同步和失败未推进的周期
+  ---
+  duration_ms: 0.261
+  type: 'test'
+  ...
+# Subtest: 空价格保存为空，零价格保存为零，保留全部30个来源字段
+ok 5 - 空价格保存为空，零价格保存为零，保留全部30个来源字段
+  ---
+  duration_ms: 0.8419
+  type: 'test'
+  ...
+# Subtest: 重复SKU、空SKU、非数字标识必须整份拒绝
+ok 6 - 重复SKU、空SKU、非数字标识必须整份拒绝
+  ---
+  duration_ms: 0.2907
+  type: 'test'
+  ...
+# Subtest: 非法金额与超过数据库精度的金额不能悄悄转成零或四舍五入
+ok 7 - 非法金额与超过数据库精度的金额不能悄悄转成零或四舍五入
+  ---
+  duration_ms: 0.3032
+  type: 'test'
+  ...
+# Subtest: 任意表为空、重复店铺商品关系、过长名称拒绝写库
+ok 8 - 任意表为空、重复店铺商品关系、过长名称拒绝写库
+  ---
+  duration_ms: 0.9647
+  type: 'test'
+  ...
+# Subtest: 按表头名称映射，表头重排不误读，缺列和重复列拒绝
+ok 9 - 按表头名称映射，表头重排不误读，缺列和重复列拒绝
+  ---
+  duration_ms: 1.5189
+  type: 'test'
+  ...
+# Subtest: 产品名称空值拒绝，合法名称去空格后保持必填契约
+ok 10 - 产品名称空值拒绝，合法名称去空格后保持必填契约
+  ---
+  duration_ms: 2.2726
+  type: 'test'
+  ...
+# Subtest: 最新上线脚本保留17表212列及两列迁移边界
+ok 11 - 最新上线脚本保留17表212列及两列迁移边界
+  ---
+  duration_ms: 2.508
+  type: 'test'
+  ...
+# Subtest: 源码标记必须存在且与现役公网构建一致，未知或过时版本不能发布
+ok 12 - 源码标记必须存在且与现役公网构建一致，未知或过时版本不能发布
+  ---
+  duration_ms: 0.3823
+  type: 'test'
+  ...
+# Subtest: 现有源码全部17表和212列被发布检查覆盖
+ok 13 - 现有源码全部17表和212列被发布检查覆盖
+  ---
+  duration_ms: 0.2725
+  type: 'test'
+  ...
+# Subtest: 仅允许补充记账剂型与门店两列
+ok 14 - 仅允许补充记账剂型与门店两列
+  ---
+  duration_ms: 0.1434
+  type: 'test'
+  ...
+# Subtest: 其他缺列和旧结构拒绝自动迁移
+ok 15 - 其他缺列和旧结构拒绝自动迁移
+  ---
+  duration_ms: 0.8914
+  type: 'test'
+  ...
+# Subtest: 缺表与解析不完整拒绝发布
+ok 16 - 缺表与解析不完整拒绝发布
+  ---
+  duration_ms: 9.5694
+  type: 'test'
+  ...
+# Subtest: 新企业资料去空白、信用代码转大写，服务到期当天有效
+ok 17 - 新企业资料去空白、信用代码转大写，服务到期当天有效
+  ---
+  duration_ms: 1.9083
+  type: 'test'
+  ...
+# Subtest: 拒绝缺失字段、溢出日期、过期服务、错误类型及超长文本
+ok 18 - 拒绝缺失字段、溢出日期、过期服务、错误类型及超长文本
+  ---
+  duration_ms: 0.4611
+  type: 'test'
+  ...
+# (node:30060) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 资料不足及无登记参考的批次、生产企业不计异常
+ok 19 - 资料不足及无登记参考的批次、生产企业不计异常
+  ---
+  duration_ms: 1.0276
+  type: 'test'
+  ...
+# Subtest: 明确过期、字段差异、成分待核实均不能显示绿色
+ok 20 - 明确过期、字段差异、成分待核实均不能显示绿色
+  ---
+  duration_ms: 1.8509
+  type: 'test'
+  ...
+# Subtest: 非日期、无效日期及到期当天不误报产品过期
+ok 21 - 非日期、无效日期及到期当天不误报产品过期
+  ---
+  duration_ms: 0.303
+  type: 'test'
+  ...
+# Subtest: 抓取失败、无登记匹配、无有效比对保持中性
+ok 22 - 抓取失败、无登记匹配、无有效比对保持中性
+  ---
+  duration_ms: 0.8745
+  type: 'test'
+  ...
+# Subtest: 多个登记候选只采用来源完整证号匹配的记录
+ok 23 - 多个登记候选只采用来源完整证号匹配的记录
+  ---
+  duration_ms: 0.1415
+  type: 'test'
+  ...
+# Subtest: 核心资料缺失、来源对应不明及图片识别不能自动通过
+ok 24 - 核心资料缺失、来源对应不明及图片识别不能自动通过
+  ---
+  duration_ms: 0.1868
+  type: 'test'
+  ...
+# Subtest: 核心项一致但资料缺失时提示未发现明显异常，缺失项分组列出
+ok 25 - 核心项一致但资料缺失时提示未发现明显异常，缺失项分组列出
+  ---
+  duration_ms: 0.2635
+  type: 'test'
+  ...
+# Subtest: 关键项全部一致仍是信息比对通过
+ok 26 - 关键项全部一致仍是信息比对通过
+  ---
+  duration_ms: 0.0909
+  type: 'test'
+  ...
+# Subtest: 来源码不一致与来源明确查无此码优先显示异常
+ok 27 - 来源码不一致与来源明确查无此码优先显示异常
+  ---
+  duration_ms: 0.2845
+  type: 'test'
+  ...
+# Subtest: 登记证到期当天仍有效，次日提示结合生产日期核实
+ok 28 - 登记证到期当天仍有效，次日提示结合生产日期核实
+  ---
+  duration_ms: 0.2877
+  type: 'test'
+  ...
+# Subtest: 空行和表头忽略，预览保留原始行号
+ok 29 - 空行和表头忽略，预览保留原始行号
+  ---
+  duration_ms: 1.6432
+  type: 'test'
+  ...
+# Subtest: 文件内重复和库内重复不会被算作可入库码
+ok 30 - 文件内重复和库内重复不会被算作可入库码
+  ---
+  duration_ms: 0.1623
+  type: 'test'
+  ...
+# Subtest: 库内已有的码在文件中再次出现，两类重复分别计数
+ok 31 - 库内已有的码在文件中再次出现，两类重复分别计数
+  ---
+  duration_ms: 0.2307
+  type: 'test'
+  ...
+# Subtest: 其他产品码拒绝，统计数量守恒
+ok 32 - 其他产品码拒绝，统计数量守恒
+  ---
+  duration_ms: 0.1295
+  type: 'test'
+  ...
+# Subtest: 预览限制20条，失败总数仍包含全部输入
+ok 33 - 预览限制20条，失败总数仍包含全部输入
+  ---
+  duration_ms: 0.1091
+  type: 'test'
+  ...
+# Subtest: 登记类别、生产类型和规格严格匹配产品，自定义尾部不受生成器限制
+ok 34 - 登记类别、生产类型和规格严格匹配产品，自定义尾部不受生成器限制
+  ---
+  duration_ms: 1.0339
+  type: 'test'
+  ...
+# Subtest: 后六位相同的不同登记类别能准确归属，完整头歧义拒绝
+ok 35 - 后六位相同的不同登记类别能准确归属，完整头歧义拒绝
+  ---
+  duration_ms: 0.3415
+  type: 'test'
+  ...
+# Subtest: 展示与判定使用单码覆盖，有效期未覆盖时回退批次
+ok 36 - 展示与判定使用单码覆盖，有效期未覆盖时回退批次
+  ---
+  duration_ms: 1.5784
+  type: 'test'
+  ...
+# Subtest: 北京时间跨日、到期当天、空日期与非法日期
+ok 37 - 北京时间跨日、到期当天、空日期与非法日期
+  ---
+  duration_ms: 0.2675
+  type: 'test'
+  ...
+# Subtest: 只修正明确填写字段，生产日期不隐式改有效期
+ok 38 - 只修正明确填写字段，生产日期不隐式改有效期
+  ---
+  duration_ms: 2.1144
+  type: 'test'
+  ...
+# Subtest: 冻结/作废拒绝修正，质检和三要素不能绕过，登记证到期不阻断
+ok 39 - 冻结/作废拒绝修正，质检和三要素不能绕过，登记证到期不阻断
+  ---
+  duration_ms: 0.5715
+  type: 'test'
+  ...
+# Subtest: shiaj：真接口响应映射为来源声明（产品与证书字段分开）
+ok 40 - shiaj：真接口响应映射为来源声明（产品与证书字段分开）
+  ---
+  duration_ms: 2.5345
+  type: 'test'
+  ...
+# Subtest: shiaj：门店编号、码格式或来源平台不匹配时不发请求
+ok 41 - shiaj：门店编号、码格式或来源平台不匹配时不发请求
+  ---
+  duration_ms: 0.3743
+  type: 'test'
+  ...
+# Subtest: hyny168：真接口原文映射到来源声明（字段与站方 label 一一对应）
+ok 42 - hyny168：真接口原文映射到来源声明（字段与站方 label 一一对应）
+  ---
+  duration_ms: 0.4442
+  type: 'test'
+  ...
+# Subtest: hyny168：门槛照抄站方自己（exists / status），失败一律返回 null 交给兜底
+ok 43 - hyny168：门槛照抄站方自己（exists / status），失败一律返回 null 交给兜底
+  ---
+  duration_ms: 0.1829
+  type: 'test'
+  ...
+# Subtest: hyny168：码不合法时直接放弃（不猜、不截），不发任何请求
+ok 44 - hyny168：码不合法时直接放弃（不猜、不截），不发任何请求
+  ---
+  duration_ms: 0.1651
+  type: 'test'
+  ...
+# Subtest: sdakzw：按该站模板绑定映射（字段路径抄自其前端源码，非猜测）
+ok 45 - sdakzw：按该站模板绑定映射（字段路径抄自其前端源码，非猜测）
+  ---
+  duration_ms: 0.4874
+  type: 'test'
+  ...
+# Subtest: sdakzw：码不合法时直接放弃（不猜、不截），不发任何请求
+ok 46 - sdakzw：码不合法时直接放弃（不猜、不截），不发任何请求
+  ---
+  duration_ms: 0.1663
+  type: 'test'
+  ...
+# Subtest: 两站是纯前端空壳：通用解析抓下来的 HTML 里一个业务字段都取不到（适配器存在的理由）
+ok 47 - 两站是纯前端空壳：通用解析抓下来的 HTML 里一个业务字段都取不到（适配器存在的理由）
+  ---
+  duration_ms: 3.3225
+  type: 'test'
+  ...
+# Subtest: 真接口：hyny168 端到端（需 NZ315_LIVE_ADAPTERS=1）
+ok 48 - 真接口：hyny168 端到端（需 NZ315_LIVE_ADAPTERS=1） # SKIP
+  ---
+  duration_ms: 0.1693
+  type: 'test'
+  ...
+# Subtest: 真接口：shiaj 端到端（需 NZ315_LIVE_ADAPTERS=1）
+ok 49 - 真接口：shiaj 端到端（需 NZ315_LIVE_ADAPTERS=1） # SKIP
+  ---
+  duration_ms: 0.2402
+  type: 'test'
+  ...
+# Subtest: 真接口：hyny168 查无此码 ⇒ notFound 第三态（需 NZ315_LIVE_ADAPTERS=1）
+ok 50 - 真接口：hyny168 查无此码 ⇒ notFound 第三态（需 NZ315_LIVE_ADAPTERS=1） # SKIP
+  ---
+  duration_ms: 0.0553
+  type: 'test'
+  ...
+# Subtest: 真接口：sdakzw 查无此码 ⇒ notFound 第三态（需 NZ315_LIVE_ADAPTERS=1）
+ok 51 - 真接口：sdakzw 查无此码 ⇒ notFound 第三态（需 NZ315_LIVE_ADAPTERS=1） # SKIP
+  ---
+  duration_ms: 0.0372
+  type: 'test'
+  ...
+# (node:37844) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: HTTPS原页仅在策略允许时展示，多个策略全部生效
+ok 52 - HTTPS原页仅在策略允许时展示，多个策略全部生效
+  ---
+  duration_ms: 1.0132
+  type: 'test'
+  ...
+# Subtest: HEAD探测仍通过逐跳公网守卫，拒绝本机和明文连接
+ok 53 - HEAD探测仍通过逐跳公网守卫，拒绝本机和明文连接
+  ---
+  duration_ms: 1.1131
+  type: 'test'
+  ...
+# (node:31168) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 策略常量：原文上限 64KB；失败缓存 TTL 必须显著短于成功（否则瞬时故障会卡住十分钟）
+ok 54 - 策略常量：原文上限 64KB；失败缓存 TTL 必须显著短于成功（否则瞬时故障会卡住十分钟）
+  ---
+  duration_ms: 0.6247
+  type: 'test'
+  ...
+# Subtest: 没超上限时原样返回；空值统一给空串（调用方据此落 NULL）
+ok 55 - 没超上限时原样返回；空值统一给空串（调用方据此落 NULL）
+  ---
+  duration_ms: 0.1365
+  type: 'test'
+  ...
+# Subtest: 正好等于上限时不得截断（边界不许差一个字节）
+ok 56 - 正好等于上限时不得截断（边界不许差一个字节）
+  ---
+  duration_ms: 0.1998
+  type: 'test'
+  ...
+# Subtest: 超限时按字节截断，结果不超过上限
+ok 57 - 超限时按字节截断，结果不超过上限
+  ---
+  duration_ms: 0.7604
+  type: 'test'
+  ...
+# Subtest: 🔴 不得把多字节字符切成半个：中文（3 字节）与 emoji（4 字节）都要落在字符边界上
+ok 58 - 🔴 不得把多字节字符切成半个：中文（3 字节）与 emoji（4 字节）都要落在字符边界上
+  ---
+  duration_ms: 0.142
+  type: 'test'
+  ...
+# Subtest: 真实形态：截断后仍是合法 UTF-8，且能原样再编码回去（落库不会变乱码）
+ok 59 - 真实形态：截断后仍是合法 UTF-8，且能原样再编码回去（落库不会变乱码）
+  ---
+  duration_ms: 1.6062
+  type: 'test'
+  ...
+# (node:28564) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: 真实页面：两组原药准确配对、日期说明与保质期分开、全部成分保留
+ok 60 - 真实页面：两组原药准确配对、日期说明与保质期分开、全部成分保留
+  ---
+  duration_ms: 1.0591
+  type: 'test'
+  ...
+# Subtest: 原药缺企业时不拿下一组企业补位
+ok 61 - 原药缺企业时不拿下一组企业补位
+  ---
+  duration_ms: 0.751
+  type: 'test'
+  ...
+# Subtest: 生产日期只来自该字段且校验日历，不以保质期/到期日/核准日补齐
+ok 62 - 生产日期只来自该字段且校验日历，不以保质期/到期日/核准日补齐
+  ---
+  duration_ms: 1.2164
+  type: 'test'
+  ...
+# Subtest: 含量变化不能被名称归一掩盖，完整原药证号未收录应为资料不足
+ok 63 - 含量变化不能被名称归一掩盖，完整原药证号未收录应为资料不足
+  ---
+  duration_ms: 0.7384
+  type: 'test'
+  ...
+# Subtest: 普通公网可用，内网/回环/元数据/映射IPv6/基准测试地址拒绝
+ok 64 - 普通公网可用，内网/回环/元数据/映射IPv6/基准测试地址拒绝
+  ---
+  duration_ms: 4.5427
+  type: 'test'
+  ...
+# Subtest: 别名与脚本键兜底：精确标签优先，页面看不到的脚本数据也能取到
+ok 65 - 别名与脚本键兜底：精确标签优先，页面看不到的脚本数据也能取到
+  ---
+  duration_ms: 0.9503
+  type: 'test'
+  ...
+# Subtest: 手工粘贴的纯文本必须按行解析：换行不得被压平
+ok 66 - 手工粘贴的纯文本必须按行解析：换行不得被压平
+  ---
+  duration_ms: 0.3928
+  type: 'test'
+  ...
+# Subtest: 标签与值分行：纯文本与含标签 HTML 两侧一致支持（2026-09-27 裁定并落地）
+ok 67 - 标签与值分行：纯文本与含标签 HTML 两侧一致支持（2026-09-27 裁定并落地）
+  ---
+  duration_ms: 0.7261
+  type: 'test'
+  ...
+1..67
+# tests 67
+# suites 0
+# pass 63
+# fail 0
+# cancelled 0
+# skipped 4
+# todo 0
+# duration_ms 691.9176

@@ -1,0 +1,20 @@
+包路径=E:\二维码管理\文件存放处\上线-2026-10-10-9584fde\nz315-9584fde-source.tar.gz
+字节=904887
+SHA256=d0b28bbd32a628afbd69e2ff26b8c913e815f95eba180c3496a61fb2d93e3c1a
+包内文件条目=271；tar 总条目=336
+git 跟踪=434；期望（剔除 export-ignore）=271；剔除=163
+只在包里=0
+只在期望里=0
+禁止项=0
+逐字节与 git blob 不一致=0
+--- 关键文件 ---
+✅ server/api/admin/codes/upload-batches/[id]/export.get.ts 字节=6605
+✅ app/pages/admin/codes/index.vue 字节=56465
+✅ app/pages/admin/generator/index.vue 字节=28960
+✅ app/pages/admin/settings/index.vue 字节=63478
+✅ server/api/admin/users.post.ts 字节=3483
+✅ server/api/admin/users/[id].patch.ts 字节=4052
+✅ tests/admin-account.integration.mjs 字节=10206
+✅ tests/code-batch-export.integration.mjs 字节=11289
+✅ .gitattributes 字节=1922
+差异合计=0（期望 0）

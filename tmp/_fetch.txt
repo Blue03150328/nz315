@@ -1,0 +1,9 @@
+--- fetch ---
+FETCH_EXIT=0
+--- ls-remote again ---
+2c73741d9c7d332c56ef88814de288e7696f9a0c	refs/heads/SMXT
+--- refs/remotes ---
+fatal: ambiguous argument 'origin/SMXT': unknown revision or path not in the working tree.
+Use '--' to separate paths from revisions, like this:
+'git <command> [<revision>...] -- [<file>...]'
+origin/SMXT

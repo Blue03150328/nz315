@@ -1,0 +1,77 @@
+=== 1) 三次提交的真实文件清单 ===
+668881a docs: 补记总部管理员入口与码库导出的实施与验证记录
+M	.workbuddy/memory/2026-10-10.md
+M	.workbuddy/memory/MEMORY.md
+1ca802c feat: 码库增加批次导出并补齐生成页防丢失提醒
+M	app/pages/admin/codes/index.vue
+M	app/pages/admin/generator/index.vue
+A	server/api/admin/codes/upload-batches/[id]/export.get.ts
+A	tests/code-batch-export.integration.mjs
+bfea544 feat: 新增用户支持创建总部管理员账号
+M	app/pages/admin/settings/index.vue
+M	server/api/admin/users.post.ts
+M	server/api/admin/users/[id].patch.ts
+A	tests/admin-account.integration.mjs
+
+=== 2) 合并前状态 ===
+HEAD=668881a14cba4ee983f08867dcdcc43e7dc3e7ff  tree=6ba2d41559cafe101b8c133ad42049f4a25334cf
+=== 3) 合并远程 2c73741 ===
+Merge made by the 'ort' strategy.
+
+MERGE 退出码=0
+=== 4) 收尾 reset --hard（本机 checkout/merge 后文件可能不落盘的常规动作）===
+=== 5) 合并后状态 ===
+HEAD=c97d319b7a03afcc8de0ff47bbfed606bb7afba4  tree=6ba2d41559cafe101b8c133ad42049f4a25334cf
+✅ 树哈希一致 ⇒ 合并内容零变化
+=== 6) 工作区是否干净 ===
+?? tmp/_browser-report.json
+?? tmp/_commit.mjs
+?? tmp/_commit.stdout
+?? tmp/_commit.txt
+?? tmp/_div.txt
+?? tmp/_div2.txt
+?? tmp/_fetch.txt
+?? tmp/_fp.txt
+?? tmp/_git.txt
+?? tmp/_git2.txt
+?? tmp/_merge.mjs
+?? tmp/_merge.stdout
+?? tmp/_msg.txt
+?? tmp/_occlusion.json
+?? tmp/_pre.txt
+?? tmp/_tail.json
+?? tmp/_trace-online.json
+?? tmp/admin-ui-01-landing.png
+?? tmp/admin-ui-02-users-tab.png
+?? tmp/admin-ui-03-modal.png
+?? tmp/admin-ui-04-dropdown.png
+?? tmp/admin-ui-05-platform-selected.png
+?? tmp/admin-ui-verify.mjs
+?? tmp/admin-ui-verify.txt
+?? tmp/check-occlusion.mjs
+?? tmp/check-tail.mjs
+?? tmp/export-ui-01-modal.png
+?? tmp/export-ui-02-codes.png
+?? tmp/export-ui-03-warning.png
+?? tmp/export-ui-verify.mjs
+?? tmp/export-ui-verify.txt
+?? tmp/external-A-expanded.png
+?? tmp/external-A-tail.png
+?? tmp/external-A.png
+?? tmp/external-B.png
+?? tmp/external-C.png
+?? tmp/final-evidence.txt
+?? tmp/verify-external.mjs
+?? "\344\272\214\347\273\264\347\240\201\345\255\230\346\224\276/PD20160035_\350\215\211\351\223\265\350\206\246_1_202610091.png"
+?? "\346\226\207\344\273\266\345\255\230\346\224\276\345\244\204/\344\270\212\347\272\277-2026-10-09-059fd68/"
+
+=== 7) 远程是否为本地祖先（决定能否 push）===
+is-ancestor(remote, HEAD) = yes
+c97d319 Merge remote-tracking branch (origin/SMXT) - 仅接续远程合并历史，文件内容零变化
+668881a docs: 补记总部管理员入口与码库导出的实施与验证记录
+1ca802c feat: 码库增加批次导出并补齐生成页防丢失提醒
+bfea544 feat: 新增用户支持创建总部管理员账号
+9637c0e docs: 补记外码页瘦身的真浏览器验证结论与当日日志
+e32dc81 fix: 外部二维码查询页改为内部资料与外链
+92ff767 docs: 项目记忆补记切分支与提交信息的两个本机 git 坑
+f2129cd docs: 合并当日工作日志（SMXT版IA优化 + master版外码诊断与瘦身咨询）

@@ -1,0 +1,8 @@
+=== push ===
+To https://github.com/Blue03150328/nz315.git
+   2c73741..c97d319  SMXT -> SMXT
+PUSH_EXIT=0
+=== ls-remote 远端真值 ===
+c97d319b7a03afcc8de0ff47bbfed606bb7afba4	refs/heads/SMXT
+=== 本地 HEAD ===
+c97d319b7a03afcc8de0ff47bbfed606bb7afba4

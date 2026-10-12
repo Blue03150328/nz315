@@ -1,0 +1,106 @@
+{
+  "A": {
+    "fixedLayers": [
+      {
+        "tag": "NAV",
+        "cls": "fixed bottom-0 left-1/2 z-50 w-full max-w-[480px] -translate",
+        "top": 827,
+        "bottom": 896,
+        "h": 69,
+        "text": "首页 扫码查询 账本 我的"
+      }
+    ],
+    "atTop": {
+      "scrollY": 0,
+      "maxScroll": 291,
+      "bill": {
+        "top": 853,
+        "bottom": 881
+      },
+      "report": {
+        "top": 853,
+        "bottom": 881
+      },
+      "rescan": {
+        "top": 801,
+        "bottom": 837
+      },
+      "disclaimer": {
+        "top": 156,
+        "bottom": 172
+      }
+    },
+    "atBottom": {
+      "scrollY": 291,
+      "maxScroll": 291,
+      "bill": {
+        "top": 562,
+        "bottom": 590
+      },
+      "report": {
+        "top": 562,
+        "bottom": 590
+      },
+      "rescan": {
+        "top": 510,
+        "bottom": 546
+      },
+      "disclaimer": {
+        "top": -135,
+        "bottom": -119
+      }
+    }
+  },
+  "C": {
+    "fixedLayers": [
+      {
+        "tag": "NAV",
+        "cls": "fixed bottom-0 left-1/2 z-50 w-full max-w-[480px] -translate",
+        "top": 827,
+        "bottom": 896,
+        "h": 69,
+        "text": "首页 扫码查询 账本 我的"
+      }
+    ],
+    "atTop": {
+      "scrollY": 0,
+      "maxScroll": 296,
+      "bill": {
+        "top": 858,
+        "bottom": 886
+      },
+      "report": {
+        "top": 806,
+        "bottom": 842
+      },
+      "rescan": {
+        "top": 858,
+        "bottom": 886
+      },
+      "disclaimer": {
+        "top": 156,
+        "bottom": 172
+      }
+    },
+    "atBottom": {
+      "scrollY": 296,
+      "maxScroll": 296,
+      "bill": {
+        "top": 562,
+        "bottom": 590
+      },
+      "report": {
+        "top": 510,
+        "bottom": 546
+      },
+      "rescan": {
+        "top": 562,
+        "bottom": 590
+      },
+      "disclaimer": {
+        "top": -140,
+        "bottom": -124
+      }
+    }
+  }
+}

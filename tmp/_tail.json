@@ -1,0 +1,70 @@
+{
+  "A": {
+    "atTop": {
+      "scrollY": 0,
+      "navTop": 827,
+      "disclaimer": {
+        "top": 897,
+        "bottom": 955
+      },
+      "codeDetails": {
+        "top": 731,
+        "bottom": 785
+      },
+      "actionRow": {
+        "top": 853,
+        "bottom": 881
+      }
+    },
+    "atBottom": {
+      "scrollY": 291,
+      "navTop": 827,
+      "disclaimer": {
+        "top": 606,
+        "bottom": 664
+      },
+      "codeDetails": {
+        "top": 440,
+        "bottom": 494
+      },
+      "actionRow": {
+        "top": 562,
+        "bottom": 590
+      }
+    }
+  },
+  "C": {
+    "atTop": {
+      "scrollY": 0,
+      "navTop": 827,
+      "disclaimer": {
+        "top": 902,
+        "bottom": 960
+      },
+      "codeDetails": {
+        "top": 736,
+        "bottom": 790
+      },
+      "actionRow": {
+        "top": 858,
+        "bottom": 886
+      }
+    },
+    "atBottom": {
+      "scrollY": 296,
+      "navTop": 827,
+      "disclaimer": {
+        "top": 606,
+        "bottom": 664
+      },
+      "codeDetails": {
+        "top": 440,
+        "bottom": 494
+      },
+      "actionRow": {
+        "top": 562,
+        "bottom": 590
+      }
+    }
+  }
+}

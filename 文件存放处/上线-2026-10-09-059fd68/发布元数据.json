@@ -1,0 +1,10 @@
+{
+  "sourceCommit": "059fd68190c4cfc36200b8b2fb38ed94fb4febe9",
+  "sourceSHA256": "d6843ce1bd5cf6ff25b5a6eeadaf3dbb72c2c37a40c8d19b9e4838bee5748d1f",
+  "generatedAt": "2026-10-09T14:41:39.0075165+08:00",
+  "sourceBranch": "origin/ycdb",
+  "releaseScript": "bt-release-20261009.mjs",
+  "releaseScriptSHA256": "9dbe1c2e5e2c89ebbaab45d90776c0235a0f74585094088a27ccd72522980fc0",
+  "sourceShort": "059fd68",
+  "sourceArchive": "nz315-059fd68-source.tar.gz"
+}

@@ -1,0 +1,19 @@
+--- branch -vv ---
+* SMXT       9637c0e docs: 补记外码页瘦身的真浏览器验证结论与当日日志
+  codex-ycdb ea7dc78 docs: 更正线上部署状态（09-19 已上线，基线 02f4d5c）+ 记录打包与执行单
+  ewm        92a68ff [origin/feature/ewm: ahead 1] docs: 补提交 10 号交接文档与 PROJECT_LOG 条目（上一轮已产出但未落成提交）
+  master     fd5aff7 [origin/master: ahead 1, behind 177] docs:记忆补充公众端扫码结果分支口径（外码兜底仅在ycdb与SMXT分支）
+  ycdb       059fd68 [origin/ycdb] feat: 后台菜单分组与结果页行动层级优化
+--- config SMXT ---
+--- ls-remote heads ---
+51e678fcd05d6cc2a595df9dbac16201c476944a	HEAD
+2c73741d9c7d332c56ef88814de288e7696f9a0c	refs/heads/SMXT
+51e678fcd05d6cc2a595df9dbac16201c476944a	refs/heads/master
+c0acd321a9b6d115ce0c8c46c3bc439212209c49	refs/pull/1/head
+18c85da7e05e568c8a041df7fa6440363890c151	refs/pull/2/head
+ed0f0b42dc64f663c92b67a9ba4921a27a48898c	refs/pull/3/head
+3d167467fde3531d2fe5197e0c90a297e77abafc	refs/pull/4/head
+059fd68190c4cfc36200b8b2fb38ed94fb4febe9	refs/pull/5/head
+fa62e63a1ade7220b83a95d2e381c2293bc0d338	refs/pull/6/head
+--- upstream of HEAD ---
+fatal: no upstream configured for branch 'SMXT'

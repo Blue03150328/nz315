@@ -1,0 +1,5 @@
+chore: 上线包剔除历史交付件与临时件
+
+- .gitattributes 追加 export-ignore：文件存放处/、tmp/、根目录 *.tar.gz / *.zip
+- 只影响 git archive 产物（仓库照旧跟踪这些文件），与 60 号「旧包不入包」口径对齐
+- 实测：加前包体 8.2MB / 319 文件，加后约 1MB

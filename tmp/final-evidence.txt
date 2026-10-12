@@ -1,0 +1,28 @@
+=== TSC ===
+TSC_EXIT=0
+=== ADMIN ACCOUNT TEST ===
+PASS 匿名401；厂家主账号/码管理员/只读账号创建总部管理员一律403且不落库
+PASS 总部管理员可创建总部管理员，落库 enterprise_id 为 NULL
+PASS 新建总部管理员可登录，且在用户列表显示为总部管理员
+PASS 厂家主账号不得重置密码或禁用总部管理员账号
+PASS 总部管理员可重置其他总部账号密码，旧会话随即失效
+并发响应 r1=200 {"ok":true} | r2=400 {"error":true,"url":"http://localhost:3100/api/admin/users/86","statusCode":400,"statusMessage":"系统需保留至少一个启用的总部管理员账号，不能禁用最后一个","message":"系统需保留至少一个启用的总部管理员账号，不能禁用最后一个","stack":["系统需保留至少一个启用的总部管理员账号，不能禁用最后一个","at createError (E:/二维码管理/node_modules/h3/dist/index.mjs:71:15)","at Object.handler (E:\\二维码管理\\server\\api\\admin\\users\\[id].patch.ts:49:0)","at process.processTicksAndRejections (node:internal/process/task_queues:103:5)","at async file:///E:/%E4%BA%8C%E7%BB%B4%E7%A0%81%E7%AE%A1%E7%90%86/node_modules/h3/dist/index.mjs:2017:19)","at async Object.callAsync (E:/二维码管理/node_modules/unctx/dist/index.mjs:71:12)","at async Server.toNodeHandle (E:/二维码管理/node_modules/h3/dist/index.mjs:2316:7)"]}
+并发后账号状态：[{"id":86,"username":"__uadm_1791624117733_hq1","role":"platform_admin","status":1},{"id":87,"username":"__uadm_1791624117733_hq2","role":"platform_admin","status":0}]
+并发后启用中的总部管理员数量：1
+PASS 两名总部管理员并发互禁：恰一次成功，且始终保留一个可登录的总部管理员
+清理完成；本机启用中的总部管理员剩余 1 个
+通过：6 项
+ADMIN_EXIT=0
+=== BATCH EXPORT TEST ===
+PASS 匿名访问导出接口 401
+PASS 非「生成入库」批次拒绝导出（403）
+PASS 跨企业批次不可导出（404，企业隔离）
+PASS 非法格式 400；空留档批次 400
+PASS txt：条数与码值顺序正确、带 UTF-8 BOM
+PASS urls：每行为「扫码前缀 + 码」，前缀一致
+PASS csv：表头正确、含分段与绑定状态、含中文生产类型
+PASS Content-Disposition 提供 RFC5987 中文文件名
+PASS 导出写入审计日志（模块=码库管理 / 动作=导出留档码）
+本轮临时企业与账号已清理
+通过：9 项
+EXPORT_EXIT=0
