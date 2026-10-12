@@ -568,7 +568,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                   :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
                 />
                 <p v-if="selectedSpec" class="b-help">
-                  净含量：{{ selectedSpec.net_content ?? '-' }} {{ selectedSpec.content_unit }} / {{ selectedSpec.pack_unit }}（自动带出）
+                  规格：{{ selectedSpec.net_content ?? '-' }} {{ selectedSpec.content_unit }} / {{ selectedSpec.pack_unit }}<template v-if="Number(selectedSpec.pack_quantity ?? 1) > 1"> × {{ selectedSpec.pack_quantity }}</template>（自动带出）
                 </p>
               </div>
             </div>

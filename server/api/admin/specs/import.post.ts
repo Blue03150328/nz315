@@ -1,15 +1,13 @@
 // POST /api/admin/specs/import —— 规格批量导入（Excel，2026-09-07）
 // 模板（public/templates/spec-import-template.xlsx，与用户标准模板同构）：仅一列「规格」，
-// 每行 = 净含量数值 + 中文含量单位（毫升/升/克/千克）+ 斜杠 + 包装单位（瓶/袋/桶/盒/罐/支/箱），
-// 如「200毫升/瓶」。无法解析或名称重复（文件内/库内）的行计入失败明细，其余行入库（规格码自动分配）。
+// 支持单件「200毫升/瓶」和成组「500ml/瓶✖10」；单位及乘号规范化后查重。
 import XLSX from 'xlsx'
 import { getPool, query } from '../../../utils/db'
 import { requireWritableUser } from '../../../utils/auth'
-import { maxSpecCodeNum } from '../../../utils/spec-code'
+import { lockSpecEnterprise, readAvailableSpecCodes } from '../../../utils/spec-code'
+import { parseSpecification } from '#shared/utils/specification'
 import { logOperation } from '../../../utils/audit'
 
-// 与模板口径一致的解析规则：净含量(可小数) + 中文含量单位 + '/' + 包装单位
-const SPEC_RE = /^(\d+(?:\.\d+)?)(毫升|升|克|千克)\/(瓶|袋|桶|盒|罐|支|箱)$/
 const HEADER_RE = /^(规格|规格名称|名称)$/
 const MAX_ROWS = 5000 // 单次导入上限（PRD 5.3：单次上限 5000 条）
 
@@ -30,7 +28,7 @@ export default defineEventHandler(async (event) => {
   let file: { data: Buffer; filename?: string } | undefined
   for (const p of parts as any[]) {
     if (p?.filename !== undefined && p?.data?.length) { file = p as { data: Buffer; filename?: string }; continue }
-    if (p?.name === 'enterpriseId' && p?.data) {
+    if (user.role === 'platform_admin' && p?.name === 'enterpriseId' && p?.data) {
       const eid = Number(String(p.data).trim())
       if (Number.isInteger(eid) && eid > 0) fid = eid
     }
@@ -56,7 +54,7 @@ export default defineEventHandler(async (event) => {
   if (!rows.length) throw createError({ statusCode: 400, statusMessage: 'Excel 中没有数据' })
 
   const errors: { row: number; value: string; reason: string }[] = []
-  const okRows: { name: string; net: number; unit: string; pack: string }[] = []
+  const okRows: { name: string; net: number; unit: string; pack: string; quantity: number; row: number; raw: string }[] = []
   const seen = new Set<string>() // 文件内名称去重
 
   for (let i = 0; i < rows.length; i++) {
@@ -64,17 +62,17 @@ export default defineEventHandler(async (event) => {
     const raw = String(rows[i]?.[0] ?? '').trim()
     if (!raw) continue // 空行跳过
     if (excelRow === 1 && HEADER_RE.test(raw)) continue // 表头行（首行「规格」等）
-    const m = raw.match(SPEC_RE)
-    if (!m) {
-      errors.push({ row: excelRow, value: raw, reason: '格式无法识别：应为「净含量数值+中文含量单位/包装单位」，如 200毫升/瓶' })
+    const parsed = parseSpecification(raw)
+    if (!parsed) {
+      errors.push({ row: excelRow, value: raw, reason: '格式无法识别：如500毫升/瓶×10或500ml/瓶✖10，数量须为1～999999整数；单件可省略数量' })
       continue
     }
-    if (seen.has(raw)) {
+    if (seen.has(parsed.name)) {
       errors.push({ row: excelRow, value: raw, reason: '与文件中第 ' + (i + 1) + ' 行之前的同名规格重复（文件内名称须唯一）' })
       continue
     }
-    seen.add(raw)
-    okRows.push({ name: raw, net: Number(m[1] ?? 0), unit: m[2] ?? '', pack: m[3] ?? '' })
+    seen.add(parsed.name)
+    okRows.push({ ...parsed, row: excelRow, raw })
   }
   if (okRows.length > MAX_ROWS) {
     throw createError({ statusCode: 400, statusMessage: '有效数据超过单次上限（' + MAX_ROWS + ' 条），请拆分后分批导入' })
@@ -97,10 +95,9 @@ export default defineEventHandler(async (event) => {
     await checkDups(okRows.slice(offset, offset + 500).map(r => r.name))
   }
   const finalOk: typeof okRows = []
-  const rowIndexOf = (name: string) => rows.findIndex(r => String(r[0] || '').trim() === name) + 1
   for (const r of okRows) {
     if (dupMap.has(r.name)) {
-      errors.push({ row: rowIndexOf(r.name), value: r.name, reason: '该规格名称已存在' })
+      errors.push({ row: r.row, value: r.raw, reason: '该规格名称已存在' })
     } else {
       finalOk.push(r)
     }
@@ -109,22 +106,28 @@ export default defineEventHandler(async (event) => {
     return { ok: true, success: 0, failed: errors.length, errors }
   }
 
-  // 事务内入库：基线最大规格码 + 内存递增（事务快照读看不到自插行，勿在事务内逐行查 MAX）
+  // 与手动新增共用企业锁，锁后重新查重并一次读取全部空闲码，允许使用编号空洞。
   const pool = getPool()
   const conn = await pool.getConnection()
-  let base = await maxSpecCodeNum(fid as number)
-  if (base + finalOk.length > 999) {
-    conn.release()
-    throw createError({ statusCode: 400, statusMessage: '本次导入将超出企业规格码上限（999），请清理后分批导入' })
-  }
   try {
     await conn.beginTransaction()
+    await lockSpecEnterprise(conn, fid as number)
+    const [currentRows] = await conn.query<any[]>('SELECT spec_name FROM product_spec WHERE enterprise_id = ?', [fid])
+    const currentNames = new Set(currentRows.map(row => String(row.spec_name)))
+    const insertedRows = finalOk.filter(row => {
+      if (!currentNames.has(row.name)) return true
+      errors.push({ row: row.row, value: row.raw, reason: '该规格名称已存在' })
+      return false
+    })
+    finalOk.splice(0, finalOk.length, ...insertedRows)
+    const available = await readAvailableSpecCodes(conn, fid as number)
+    if (finalOk.length > available.length) throw createError({ statusCode: 400, statusMessage: '空闲规格码不足，本次导入未写入，请减少导入数量' })
     for (let i = 0; i < finalOk.length; i++) {
       const r = finalOk[i]!
-      const specCode = String(base + 1 + i).padStart(3, '0')
+      const specCode = available[i]!
       await conn.execute(
-        'INSERT INTO product_spec (enterprise_id, spec_name, net_content, content_unit, pack_unit, spec_code, status) VALUES (?,?,?,?,?,?,1)',
-        [fid, r.name, r.net, r.unit, r.pack, specCode])
+        'INSERT INTO product_spec (enterprise_id, spec_name, net_content, content_unit, pack_unit, pack_quantity, spec_code, status) VALUES (?,?,?,?,?,?,?,1)',
+        [fid, r.name, r.net, r.unit, r.pack, r.quantity, specCode])
     }
     await conn.commit()
   } catch (e: any) {

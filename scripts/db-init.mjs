@@ -82,7 +82,8 @@ const DDL = [
     net_content DECIMAL(12,3) NULL COMMENT '净含量数值',
     content_unit VARCHAR(10) NULL COMMENT '含量单位：毫升/升/克/千克/片/包/粒（2026-09-03 起存中文，存量英文由用户自行迁移）',
     pack_unit VARCHAR(10) NULL COMMENT '瓶/袋/桶/盒/罐/支/箱',
-    spec_code CHAR(3) NOT NULL COMMENT '企业规格码（码第9-11位，系统自动分配）',
+    pack_quantity INT UNSIGNED NOT NULL DEFAULT 1 COMMENT '包装数量：每组的包装件数，单件为1',
+    spec_code CHAR(3) NOT NULL COMMENT '企业规格码（001至999选号，企业内唯一，码第9-11位）',
     status TINYINT NOT NULL DEFAULT 1 COMMENT '0停用 1启用',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uq_enterprise_spec_name (enterprise_id, spec_name),
@@ -365,6 +366,12 @@ async function migrate(conn) {
   if (!(await hasColumn('risk_alert', 'external_verification_id'))) {
     await conn.query("ALTER TABLE risk_alert ADD COLUMN external_verification_id BIGINT NULL COMMENT '外部二维码核验记录ID' AFTER product_id");
     console.log('[db] 迁移：risk_alert 补充列 external_verification_id');
+  }
+
+  // 旧规格按单件兼容，保留原规格名称、规格码及所有产品/追溯码关联。
+  if (!(await hasColumn('product_spec', 'pack_quantity'))) {
+    await conn.query("ALTER TABLE product_spec ADD COLUMN pack_quantity INT UNSIGNED NOT NULL DEFAULT 1 COMMENT '包装数量：每组的包装件数，单件为1' AFTER pack_unit");
+    console.log('[db] 迁移：product_spec 补充列 pack_quantity（旧规格默认为1）');
   }
   if (!(await hasIndex('risk_alert', 'idx_external_verification'))) {
     await conn.query('ALTER TABLE risk_alert ADD KEY idx_external_verification (external_verification_id)');
