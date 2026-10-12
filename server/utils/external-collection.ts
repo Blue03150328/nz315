@@ -77,7 +77,7 @@ export async function startExternalCollection(user: AuthUser, body: Record<strin
     if (input.lineName !== undefined && input.lineName !== user.device_line) externalFail('生产线与已激活设备不一致，请刷新设备信息', 409)
     const [[active]] = await conn.query<any[]>("SELECT id FROM external_collection_batch WHERE device_id=? AND state='active' LIMIT 1 FOR UPDATE", [user.device_id])
     if (active) externalFail('请先上传并完成设备上一批外部采集，再开始新批次')
-    await conn.execute('INSERT INTO external_collection_batch(id,enterprise_id,device_id,device_name_snapshot,line_name_snapshot,worker_no) VALUES (?,?,?,?,?,?)', [input.batchId, user.enterprise_id, user.device_id, user.name, user.device_line || '', input.workerNo])
+    await conn.execute('INSERT INTO external_collection_batch(id,enterprise_id,device_id,device_name_snapshot,line_name_snapshot,worker_no) VALUES (?,?,?,?,?,?)', [input.batchId, user.enterprise_id, Number(user.device_id), user.name, user.device_line || '', input.workerNo])
     const [[row]] = await conn.query<any[]>('SELECT * FROM external_collection_batch WHERE id=?', [input.batchId])
     return startResult(row)
   })
