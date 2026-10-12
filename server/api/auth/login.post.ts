@@ -68,6 +68,7 @@ export default defineEventHandler(async (event) => {
     throw createError({ statusCode: 401, statusMessage: '用户名或密码错误' })
   }
 
+  if(u.role === 'production_operator') throw createError({statusCode:403,statusMessage:'生产操作员请在扫描仪登录，不使用后台管理登录'})
   clearFailures(key)
   // 企业启停校验（2026-09-09）：厂家账号登录时校验所属企业——被禁用或续费到期（renew_expire 早于今天/NULL）一律拦截
   if (u.enterprise_id) {

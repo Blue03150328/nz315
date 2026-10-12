@@ -19,6 +19,7 @@ import { fileURLToPath } from 'url';
 import { productionDDL, migrateProductionSchema } from './production-schema.mjs';
 import { collectionDDL } from './collection-schema.mjs';
 import { deviceDDL, migrateDeviceSchema } from './device-schema.mjs';
+import { migrateWorkerSchema } from './worker-schema.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 读取 .env（简易解析，无 dotenv 依赖）
@@ -34,7 +35,7 @@ function loadEnv() {
   return env;
 }
 
-const env = loadEnv();
+const env = { ...loadEnv(), ...process.env };
 const DB = {
   host: env.DB_HOST || '127.0.0.1',
   port: Number(env.DB_PORT || 3306),
@@ -607,6 +608,7 @@ async function main() {
   }
   await migrateProductionSchema(conn);
   await migrateDeviceSchema(conn);
+  await migrateWorkerSchema(conn);
   console.log('[db] ' + (DDL.length + productionDDL.length + collectionDDL.length + deviceDDL.length) + ' 张表创建完成');
 
   // 3) 增量迁移（历史库补列/补索引）

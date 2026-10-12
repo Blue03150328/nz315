@@ -113,6 +113,7 @@ const resetPage = () => {
       <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetPage">重置</UButton>
     </div>
 
+    <OfflineProductionImport v-if="canWrite" />
     <CodeImportInput v-model="pasteText" :file-name="fileName" :parsing="parsing" :can-write="canWrite" @file="handleFile" @parse="doParse" />
     <template v-if="parseResult">
       <CodeImportPreview :result="parseResult" />

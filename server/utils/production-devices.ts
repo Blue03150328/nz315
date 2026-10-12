@@ -14,7 +14,7 @@ export function activationServer(event: any) {
 export function deviceManager(user: AuthUser) { if (!['enterprise_admin','platform_admin'].includes(user.role) || user.device_id) fail('仅厂家管理员和总部管理员可管理设备',403) }
 function scope(user: AuthUser, row: any) { if (!row || (user.role !== 'platform_admin' && Number(row.enterprise_id) !== Number(user.enterprise_id))) fail('设备不存在或不属于本企业',404) }
 const text = (value: any, label: string) => { if (typeof value !== 'string' || !value.trim() || value.trim().length > 100) fail(label+'请填写1至100字',400); return value.trim() }
-async function activeCount(conn: any, id: number) { const [[r]] = await conn.query("SELECT COUNT(*) AS n FROM production_collection_session WHERE device_id=? AND state='active'",[id]);return Number(r.n) }
+async function activeCount(conn: any, id: number) { const [[r]] = await conn.query("SELECT COUNT(*) AS n FROM production_collection_session WHERE device_id=? AND state='active'",[id]);const [[w]]=await conn.query("SELECT COUNT(*) AS n FROM worker_pool WHERE device_id=? AND state IN ('ready','active','review')",[id]);const [[runs]]=await conn.query("SELECT COUNT(*) AS n FROM worker_run WHERE device_id=? AND state='active'",[id]);return Number(r.n)+Number(w.n)+Number(runs.n) }
 async function audit(conn: any, id: number, actor: number | null, action: string, detail: any) { await conn.execute('INSERT INTO production_device_change(device_id,actor_id,action,detail) VALUES (?,?,?,?)',[id,actor,action,JSON.stringify(detail)]) }
 export async function deviceOptions(user: AuthUser) {
   deviceManager(user)
@@ -115,5 +115,5 @@ export async function deviceHistory(user: AuthUser,id: number) {
 export async function deviceContext(user: AuthUser,body?: any) {
   if(body){const n=Number(body.pending);if(Number.isSafeInteger(n)&&n>=0&&n<=10000000)await query('UPDATE production_device SET reported_pending=? WHERE id=?',[n,user.device_id])}
   const [device]=await query<any[]>(`SELECT ${publicColumns},e.name AS enterprise_name FROM production_device d JOIN enterprise e ON e.id=d.enterprise_id WHERE d.id=?`,[user.device_id])
-  return {ok:true,device,user:{id:0,role:'code_admin',enterprise_id:user.enterprise_id,name:device.enterprise_name+' / '+device.line_name,device_id:user.device_id}}
+  return {ok:true,serverTime:Date.now(),device,user:{id:0,role:'code_admin',enterprise_id:user.enterprise_id,name:device.enterprise_name+' / '+device.line_name,device_id:user.device_id}}
 }

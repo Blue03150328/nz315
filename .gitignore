@@ -74,3 +74,12 @@ public/tools/app-data/
 /.ppt-build-*/
 ppt-output/
 .slidep/
+
+# 本机容器配置及交付产物
+docker.env
+docker.env.*
+*.apk
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.tools/

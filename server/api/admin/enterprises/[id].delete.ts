@@ -7,7 +7,7 @@ import { requirePlatformAdmin } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
 
 // 业务数据引用表（与 users.get.ts ENT_REF_TABLES 同口径）
-const ENT_REF_TABLES = ['product', 'product_spec', 'batch', 'upload_batch', 'trace_code']
+const ENT_REF_TABLES = ['product', 'product_spec', 'batch', 'upload_batch', 'trace_code', 'production_device', 'worker_run', 'worker_pool']
 
 export default defineEventHandler(async (event) => {
   await requirePlatformAdmin(event)

@@ -7,8 +7,8 @@ android {
         applicationId 'cn.nz315.production.pda'
         minSdk 26
         targetSdk 35
-        versionCode 6
-        versionName '2.2.0'
+        versionCode 9
+        versionName '3.1.0'
         testInstrumentationRunner 'com.regcode.app.QueueStoreInstrumentation'
         buildConfigField 'String', 'DEFAULT_SERVER', '"https://www.nz315.cn"'
         buildConfigField 'boolean', 'ALLOW_LOCAL_HTTP', 'false'
@@ -23,7 +23,7 @@ android {
         release { minifyEnabled false }
         deviceTest {
             initWith debug
-            applicationIdSuffix '.devicetest'
+            applicationIdSuffix '.workertest'
             matchingFallbacks = ['debug']
         }
         online {

@@ -232,7 +232,7 @@
   function updateQueue(){
     const q=readQueue(),session=q.session;
     if(state.page!=='scan')return;
-    if(!session){state.scanning=false;Native.capturing(false);toast(q.syncMessage || '全部记录已同步，本机采集已结束');if(state.user)tasks();else login();return;}
+    if(!session){Native.openWorkerApp();return;}if(!session){state.scanning=false;Native.capturing(false);toast(q.syncMessage || '全部记录已同步，本机采集已结束');if(state.user)tasks();else login();return;}
     const counts=q.counts || {};
     for(const [id,key] of [['localCount','collected'],['cloudCount','accepted'],['waitingCount','waiting']])if($(id))$(id).textContent=number(counts[key]);
     if($('syncStatus'))$('syncStatus').textContent=q.syncMessage || '自动同步中';

@@ -218,6 +218,7 @@ const userRoleOptions = computed(() => {
   const items: { value: string; label: string }[] = [
     { value: 'enterprise_admin', label: '厂家主账号' },
     { value: 'code_admin', label: '码管理员' },
+  { value: 'production_operator', label: '生产操作员' },
     { value: 'viewer', label: '只读账号' },
   ]
   if (isPlatformAdmin.value) items.unshift({ value: 'platform_admin', label: '总部管理员' })
@@ -714,7 +715,7 @@ const deleteBackup = async (b: any) => {
           </div>
           <div>
             <label class="b-label">角色</label>
-            <USelect v-model="ufilters.role" :items="[{ value: 'enterprise_admin', label: '厂家主账号' }, { value: 'code_admin', label: '码管理员' }, { value: 'viewer', label: '只读账号' }]" placeholder="全部角色" class="w-full" />
+            <USelect v-model="ufilters.role" :items="[{ value: 'enterprise_admin', label: '厂家主账号' }, { value: 'code_admin', label: '码管理员' }, { value: 'production_operator', label: '生产操作员' }, { value: 'viewer', label: '只读账号' }]" placeholder="全部角色" class="w-full" />
           </div>
           <div>
             <label class="b-label">状态</label>

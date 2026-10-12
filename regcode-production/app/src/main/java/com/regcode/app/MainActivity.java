@@ -20,6 +20,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 import org.json.JSONObject;
+import org.json.JSONArray;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -29,7 +30,7 @@ import com.regcode.collection.QueueStore;
 
 /** 基于来件的WebView和PDA广播接入，页面收口为联网生产扫码。 */
 public class MainActivity extends Activity {
-    private static final String PAGE = "file:///android_asset/www/index.html";
+    private String page = "file:///android_asset/worker/index.html";
     private WebView webView;
     private SharedPreferences preferences;
     private ProductionClient client;
@@ -43,6 +44,11 @@ public class MainActivity extends Activity {
     private ToneGenerator tone;
     private static final int BACKUP_DOCUMENT=315;
     private boolean choosingBackup;
+    private WorkerEngine workerEngine;
+    private long workerBackupUser;
+    private boolean workerBackup;
+    private String pendingExport;
+    private static final int WORKER_TEXT=316;
 
     private final BroadcastReceiver scanReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -84,10 +90,13 @@ public class MainActivity extends Activity {
         restoreDeviceCredential();
         try { queue=new QueueStore(new QueueDatabase(this));sync=new CollectionSync(queue,client); }
         catch(Exception error){android.util.Log.e("NZ315PDA","本机扫码数据库初始化失败",error);notifyText("本机扫码数据库无法打开，请检查存储；禁止继续采集");}
+        try{workerEngine=WorkerEngine.get(this);if(queue!=null&&queue.current()!=null)page="file:///android_asset/www/index.html";}catch(Exception error){android.util.Log.e("NZ315PDA","工人采集队列初始化失败",error);}
         try { tone = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 65); }
         catch (RuntimeException ignored) { tone = null; }
         webView = new WebView(this);
         WebSettings settings = webView.getSettings();
+        WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
+        settings.setTextZoom(Math.round(100*getResources().getConfiguration().fontScale));
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setAllowFileAccess(false);
@@ -95,20 +104,22 @@ public class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
         webView.setWebViewClient(new WebViewClient() {
-            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return !PAGE.equals(request.getUrl().toString()); }
+            @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) { return !page.equals(request.getUrl().toString()); }
             @Override public void onPageFinished(WebView view, String url) { evaluate("window.App&&window.App.lifecycle(" + foreground + ")"); }
         });
         webView.addJavascriptInterface(new ProductionBridge(), "Native");
+        webView.addJavascriptInterface(new WorkerBridge(), "WorkerNative");
         setContentView(webView);
-        webView.loadUrl(PAGE);
+        webView.loadUrl(page);
     }
 
     @Override protected void onResume() { super.onResume(); foreground = true; registerScanner(); evaluate("window.App&&window.App.lifecycle(true)"); }
-    @Override protected void onPause() { foreground = false; capturing=false; unregisterScanner(); evaluate("window.App&&window.App.lifecycle(false)"); super.onPause(); }
+    @Override protected void onPause() { foreground = false; capturing=false;if(workerEngine!=null)workerEngine.captureEnabled(false); unregisterScanner(); evaluate("window.App&&window.App.lifecycle(false)"); super.onPause(); }
     @Override protected void onDestroy() { unregisterScanner(); if(sync!=null)sync.stop(); executor.shutdownNow(); if (tone != null) tone.release(); if (webView != null) { webView.removeJavascriptInterface("Native"); webView.destroy(); webView = null; } super.onDestroy(); }
     @Override @SuppressWarnings("deprecation") public void onBackPressed() { evaluate("window.App&&window.App.back()"); }
     @Override @SuppressWarnings("deprecation") protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode==WORKER_TEXT){choosingBackup=false;if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null){android.net.Uri destination=data.getData();String text=pendingExport;executor.execute(()->{try(OutputStream out=getContentResolver().openOutputStream(destination,"wt")){if(out==null||text==null)throw new Exception("文件不可用");out.write(text.getBytes(StandardCharsets.UTF_8));out.flush();notifyText("TXT已保存");}catch(Exception error){notifyText("TXT保存失败，云端记录保留");}});}pendingExport=null;return;}
         if(requestCode!=BACKUP_DOCUMENT)return;
         choosingBackup=false;
         if(resultCode!=RESULT_OK || data==null || data.getData()==null){notifyText("已取消导出，本机记录仍保留");return;}
@@ -116,7 +127,7 @@ public class MainActivity extends Activity {
         executor.execute(()->{
             try(OutputStream output=getContentResolver().openOutputStream(destination,"wt")){
                 if(output==null)throw new IllegalStateException("无法打开备份文件");
-                queue.writeBackup(output);output.flush();
+                if(workerBackup)workerEngine.backup(output,workerBackupUser);else queue.writeBackup(output);output.flush();
                 notifyText("备份已导出，包含完整采集记录和上传收据；本机记录保留");
             }catch(Exception error){notifyText("备份导出失败，请重新选择保存位置；本机记录保留");}
         });
@@ -156,6 +167,7 @@ public class MainActivity extends Activity {
     }
 
     public final class ProductionBridge {
+        @JavascriptInterface public void openWorkerApp(){runOnUiThread(()->{page="file:///android_asset/worker/index.html";webView.loadUrl(page);});}
         @JavascriptInterface public String settings() {
             try { return new JSONObject().put("server", preferences.getString("server", BuildConfig.DEFAULT_SERVER)).put("mode", preferences.getString("mode", "auto"))
                     .put("action", preferences.getString("action", "")).put("extra", preferences.getString("extra", "scannerdata"))
@@ -208,6 +220,7 @@ public class MainActivity extends Activity {
             catch(Exception error){return failure(error);}
         }
         @JavascriptInterface @SuppressWarnings("deprecation") public void exportBackup(){
+            workerBackup=false;
             runOnUiThread(()->{
                 if(queue==null){notifyText("本机数据库不可用，无法导出");return;}
                 if(choosingBackup)return;
@@ -249,4 +262,30 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void clearSession() { if(sync!=null)sync.authenticated(false); executor.execute(client::clear); }
         @JavascriptInterface public void exit() { runOnUiThread(MainActivity.this::finish); }
     }
+    public final class WorkerBridge {
+        @JavascriptInterface public String snapshot(){try{return workerEngine.snapshot().toString();}catch(Exception e){return new ProductionBridge().failure(e);}}
+        @JavascriptInterface public void scanning(boolean value){capturing=value&&foreground;if(workerEngine!=null)workerEngine.captureEnabled(capturing);}
+        @JavascriptInterface public String collect(String raw){try{if(!foreground||!capturing)throw new Exception("扫码已暂停");return new JSONObject().put("ok",true).put("event",workerEngine.capture(raw)).toString();}catch(Exception e){capturing=false;return new ProductionBridge().failure(e);}}
+        @JavascriptInterface public void upload(){workerEngine.requestSync();}
+        @JavascriptInterface public void call(String id,String action,String input){workerEngine.async(()->{
+            JSONObject result;
+            try{JSONObject body=new JSONObject(input);
+                switch(action){
+                    case "login": result=workerEngine.login(body.getString("username"),body.getString("password"));break;
+                    case "start": result=new JSONObject().put("ok",true).put("run",workerEngine.start(body));break;
+                    case "resume": workerEngine.resume(body.getString("runId"));result=workerEngine.snapshot();break;
+                    case "logout":
+                    case "handover": workerEngine.logout();result=workerEngine.snapshot();break;
+                    case "finishInfo": result=workerEngine.finishInfo();break;
+                    case "finish": workerEngine.finish();result=workerEngine.snapshot();break;
+                    case "activate": result=activateDevice(body);if(result.optInt("status")!=200)throw new Exception(result.optString("error","激活未确认"));workerEngine.credentials();result=workerEngine.snapshot();break;
+                    default: throw new Exception("不支持此操作");
+                }
+            }catch(Exception e){try{result=new JSONObject(new ProductionBridge().failure(e));}catch(Exception ignored){return;}}
+            evaluate("window.WorkerApi&&window.WorkerApi.receive("+JSONObject.quote(id)+","+result+")");
+        });}
+        @JavascriptInterface public void backup(){try{workerBackupUser=workerEngine.userId();workerBackup=true;runOnUiThread(()->openDocument(BACKUP_DOCUMENT,"application/json","nz315-worker-backup-"+System.currentTimeMillis()+".json"));}catch(Exception e){notifyText(e.getMessage());}}
+        @JavascriptInterface public void txt(String runId){workerEngine.async(()->{try{JSONObject current=workerEngine.snapshot();boolean production=false;JSONArray history=current.getJSONArray("history");for(int i=0;i<history.length();i++){JSONObject row=history.getJSONObject(i);if(runId.equals(row.getString("id"))&&"production".equals(row.getString("mode")))production=true;}pendingExport=production?workerEngine.exportProduction(runId):workerEngine.download(runId);runOnUiThread(()->openDocument(WORKER_TEXT,"text/plain","nz315-records-"+runId+".txt"));}catch(Exception e){notifyText(e.getMessage());}});}
+    }
+    @SuppressWarnings("deprecation") private void openDocument(int request,String type,String name){if(choosingBackup)return;try{choosingBackup=true;startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(type).putExtra(Intent.EXTRA_TITLE,name),request);}catch(RuntimeException e){choosingBackup=false;notifyText("文件保存界面不可用，本机记录保留");}}
 }

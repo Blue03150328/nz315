@@ -1,3 +1,4 @@
+import { workerTracePreview } from '../utils/worker-production'
 // 扫码查询接口（H5）：/trace?code=xxx —— 真实查询链路（PRD 5.9）
 // 流程：格式校验 → 查 trace_code → 写扫码日志(scan_log) → 异常判定（作废/冻结优先）→ 联查产品/批次 → 返回展示数据
 import { query, execute } from '../utils/db'
@@ -188,7 +189,7 @@ export default defineEventHandler(async (event) => {
 
   // 批次信息展示：单码字段修正只写 trace_code 覆盖列（produce_date/quality_cert_no/expire_date/qc_result），
   // 扫码展示 COALESCE 优先码级值（批次码明细单行修改功能，2026-09-04），未覆盖时回退批次级数据
-  const batchInfo = batch ? effectiveProduction(tc, batch) : undefined
+  const batchInfo = batch ? effectiveProduction(tc, batch) : await workerTracePreview(Number(tc.id))
 
   const status: 'bound' | 'generated' = Number(tc.status) === 2 ? 'bound' : 'generated'
 
@@ -239,7 +240,7 @@ export default defineEventHandler(async (event) => {
   // 10) 正常结果（已绑定完整展示 / 已生成提示未绑定）
   const out: TraceOutcome = {
     ...baseOutcome, resultType: 'genuine', status, abnormalFlag: 0,
-    queryCount, firstQuery, product, batch: status === 'bound' ? batchInfo : null, recentScans: scans,
+    queryCount, firstQuery, product, batch: batchInfo || null, recentScans: scans,
     reasons: [], generatedReport: null,
   }
   return out

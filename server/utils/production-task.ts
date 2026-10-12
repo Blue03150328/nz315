@@ -1,4 +1,5 @@
-import { createHash } from 'node:crypto'
+import { createLineTask, editLineTask } from './line-production'
+import { createHash, randomUUID } from 'node:crypto'
 import type { PoolConnection } from 'mysql2/promise'
 import { getPool, query } from './db'
 import type { AuthUser } from './auth'
@@ -59,6 +60,7 @@ export async function appendProductionTask(user: AuthUser, id: number, body: Rec
   return transaction(async conn => {
     const task = await lockedTask(conn, user, id)
     assertTaskEditor(user, task)
+    if(task.workflow==='line-team')fail('新任务按整份入库文件管理，不追加或分领码')
     const prior = await priorTaskChange(conn, id, user, requestId!, hash)
     if (prior) return prior
     if (task.status !== 'active') fail('结束的任务不能追加领用，请新建下一批任务')
@@ -72,6 +74,8 @@ export async function appendProductionTask(user: AuthUser, id: number, body: Rec
   })
 }
 export async function editProductionTask(user: AuthUser, id: number, body: Record<string, any>) {
+  const [seed]=await query<any[]>('SELECT workflow FROM production_task WHERE id=?',[id])
+  if(seed?.workflow==='worker-line')return editLineTask(user,id,body)
   let requestId: string
   let extra: ReturnType<typeof productionAllocationInput> | null = null
   try { requestId = productionRequestId(body); if (body.allocation) extra = productionAllocationInput(body.allocation) } catch (e) { fail((e as Error).message, 400) }
@@ -80,6 +84,7 @@ export async function editProductionTask(user: AuthUser, id: number, body: Recor
   return transaction(async conn => {
     const task = await lockedTask(conn, user, id)
     assertTaskEditor(user, task)
+    if(task.workflow==='line-team')fail('新任务按整份入库文件管理，不追加或分领码')
     const prior = await priorTaskChange(conn, id, user, requestId!, hash)
     if (prior) return prior
     if (body.productId !== undefined && Number(body.productId) !== Number(task.product_id)) fail('任务产品不能更换，其他产品请新建任务', 400)
@@ -122,6 +127,7 @@ export async function editProductionTask(user: AuthUser, id: number, body: Recor
   })
 }
 export async function createProductionTask(user: AuthUser, body: Record<string, any>) {
+  if(body.workflow==='worker-line')return createLineTask(user,body)
   let input: ReturnType<typeof productionTaskInput>
   try { input = productionTaskInput(body) } catch (e) { fail((e as Error).message, 400) }
   const hash = createHash('sha256').update(JSON.stringify(input!)).digest('hex')
@@ -181,16 +187,33 @@ export async function bindProductionInTransaction(conn: PoolConnection, user: Au
     assertCodesCorrectable([tc])
     assertBindingAllowed(batch, Number(task.product_id), Number(task.enterprise_id))
     await conn.execute('UPDATE trace_code SET batch_id=?,batch_no=?,produce_date=?,expire_date=?,qc_result=?,quality_cert_no=?,status=2,bound_at=NOW() WHERE id=?', [batch.id, batch.batch_no, batch.produce_date, batch.expire_date, batch.qc_result, batch.quality_cert_no, tc.id])
-    await conn.execute("UPDATE production_task_code SET state='used',used_by=?,device=?,used_line=?,used_at=NOW() WHERE task_id=? AND code_id=?", [user.device_id ? null : user.id, device, lineSnapshot || task.line_name || task.name, id, tc.id])
+    await conn.execute("UPDATE production_task_code SET state='used',used_by=?,device=?,used_line=?,used_at=NOW() WHERE task_id=? AND code_id=?", [user.id || null, device, lineSnapshot || task.line_name || task.name, id, tc.id])
     await conn.execute('UPDATE batch SET code_count=(SELECT COUNT(*) FROM trace_code WHERE batch_id=?) WHERE id=?', [batch.id, batch.id])
     if (tc.upload_batch_id) await refreshUploadSnapshots(conn, [Number(tc.upload_batch_id)])
     return { ok: true, duplicate: false, code }
 }
-export async function endProductionTask(user: AuthUser, id: number) {
-  return transaction(conn => endProductionInTransaction(conn, user, id))
+export async function endProductionTask(user: AuthUser, id: number, body:Record<string,any>={}) {
+  return transaction(async conn=>{
+    const task=await lockedTask(conn,user,id)
+    if(task.workflow==='line-team')fail('请使用生产线任务的结束操作；新流程没有余码审核')
+    const [[workers]]=await conn.query<any[]>('SELECT COUNT(*) AS n FROM worker_run WHERE task_id=?',[id])
+    if(task.workflow==='worker-line'||Number(workers.n)){
+      if(!productionReviewer(user))fail('仅管理员可确认离线记录完整并结束任务',403)
+      if(body.recordsComplete!==true)fail('请确认全部参与工人和设备的记录已经收齐')
+      const [[pending]]=await conn.query<any[]>("SELECT COUNT(*) AS n FROM worker_run r WHERE r.task_id=? AND (r.state<>'sealed' OR EXISTS(SELECT 1 FROM worker_session s WHERE s.run_id=r.id AND (s.state<>'completed' OR s.final_sequence<>s.last_sequence)))",[id])
+      if(Number(pending.n))fail('已知设备仍在采集或有未完成同步记录，请先补传结束标记')
+      const [[unresolved]]=await conn.query<any[]>("SELECT COUNT(*) AS n FROM worker_event e JOIN worker_session s ON s.id=e.session_id JOIN worker_run r ON r.id=s.run_id JOIN production_task_code d ON d.task_id=r.task_id AND d.code=e.code WHERE r.task_id=? AND e.result_state='exception' AND e.resolution_state IS NULL AND d.state='reserved'",[id])
+      if(Number(unresolved.n))fail('有已领用码的投产情况尚未核对，请在员工详情处理异常后再结束任务')
+      if(task.status==='active'){await conn.execute('UPDATE production_task SET records_confirmed_by=?,records_confirmed_at=NOW() WHERE id=?',[user.id,id]);task.records_confirmed_at=new Date();await conn.execute("INSERT INTO production_task_change(task_id,actor_id,action,request_id,request_hash,detail) VALUES(?,?,'confirm_records',?,?,?)",[id,user.id,randomUUID(),createHash('sha256').update('records-complete').digest('hex'),JSON.stringify({recordsComplete:true})])}
+    }
+    return endProductionInTransaction(conn,user,id,task)
+  })
 }
 export async function endProductionInTransaction(conn: PoolConnection, user: AuthUser, id: number, locked?: any) {
     const task = locked || await lockedTask(conn, user, id)
+    if(task.status!=='active')return {ok:true,status:task.status,duplicate:true}
+    const [[workers]]=await conn.query<any[]>('SELECT COUNT(*) AS n FROM worker_run WHERE task_id=?',[id])
+    if((task.workflow==='worker-line'||Number(workers.n))&&(!productionReviewer(user)||!task.records_confirmed_at))fail('须由管理员确认全部工人设备记录收齐后结束，设备不能直接结算余码',403)
     if (Number(task.created_by) !== user.id && !productionReviewer(user) && !user.device_id) fail('仅任务创建人或管理员可以结束生产', 403)
     const [[deviceCount]] = await conn.query<any[]>("SELECT COUNT(*) AS n FROM production_collection_session WHERE task_id=? AND state='active'", [id])
     if (Number(deviceCount.n)) fail('有设备仍在采集或尚未完成同步，请先停止设备采集并同步全部记录')
@@ -225,31 +248,32 @@ export async function reviewProductionTask(user: AuthUser, id: number, body: Rec
   })
 }
 export async function productionTasks(user: AuthUser, page = 1) {
-  const scope = user.device_id ? ' WHERE t.enterprise_id=? AND BINARY t.line_name=BINARY ?' : user.role === 'platform_admin' ? '' : ' WHERE t.enterprise_id=?'
+  const scope = user.device_id ? " WHERE t.enterprise_id=? AND BINARY t.line_name=BINARY ? AND t.workflow='legacy'" : user.role === 'platform_admin' ? '' : ' WHERE t.enterprise_id=?'
   const params = user.device_id ? [user.enterprise_id, user.device_line] : scope ? [user.enterprise_id] : []
-  const rows = await query<any[]>(`SELECT t.*, p.name AS product_name,b.batch_no,b.produce_date,b.expire_date,b.quality_cert_no,b.qc_result,
+  const rows = await query<any[]>(`SELECT t.*, p.name AS product_name,b.batch_no,b.produce_date,b.expire_date,COALESCE(b.quality_cert_no,t.draft_quality_cert_no) AS quality_cert_no,COALESCE(b.qc_result,t.draft_qc_result) AS qc_result,
     (SELECT COUNT(*) FROM production_collection_session s WHERE s.task_id=t.id AND s.state='active') AS active_collection_count,
     (SELECT COUNT(*) FROM production_task_code d WHERE d.task_id=t.id) AS total,
     (SELECT COUNT(*) FROM production_task_code d WHERE d.task_id=t.id AND d.state='used') AS used_count
-    FROM production_task t JOIN product p ON p.id=t.product_id JOIN batch b ON b.id=t.batch_id` + scope + ' ORDER BY t.id DESC LIMIT 30 OFFSET ?', [...params, (page - 1) * 30])
+    FROM production_task t JOIN product p ON p.id=t.product_id LEFT JOIN batch b ON b.id=t.batch_id` + scope + ' ORDER BY t.id DESC LIMIT 30 OFFSET ?', [...params, (page - 1) * 30])
   const [[count]] = await getPool().query<any[]>('SELECT COUNT(*) AS n FROM production_task t' + scope, params)
   const usage = await productionUsage(getPool(), rows.map(t => Number(t.id)))
   return { rows: rows.map(t => ({ ...t, ...usage.get(Number(t.id)) })), total: Number(count.n), page }
 }
-export async function productionTaskDetail(user: AuthUser, id: number, state: string, page: number) {
+export async function productionTaskDetail(user: AuthUser, id: number, state: string, page: number, keyword='') {
   if (!Number.isSafeInteger(id) || id <= 0) fail('任务编号无效', 400)
-  const [task] = await query<any[]>("SELECT t.*,p.name AS product_name,b.batch_no,b.produce_date,b.expire_date,b.quality_cert_no,b.qc_result,(SELECT COUNT(*) FROM production_collection_session s WHERE s.task_id=t.id AND s.state='active') AS active_collection_count FROM production_task t JOIN product p ON p.id=t.product_id JOIN batch b ON b.id=t.batch_id WHERE t.id=?", [id])
+  const [task] = await query<any[]>("SELECT t.*,p.name AS product_name,b.batch_no,b.produce_date,b.expire_date,COALESCE(b.quality_cert_no,t.draft_quality_cert_no) AS quality_cert_no,COALESCE(b.qc_result,t.draft_qc_result) AS qc_result,(SELECT COUNT(*) FROM production_collection_session s WHERE s.task_id=t.id AND s.state='active') AS active_collection_count FROM production_task t JOIN product p ON p.id=t.product_id LEFT JOIN batch b ON b.id=t.batch_id WHERE t.id=?", [id])
   if (!task) fail('任务不存在', 404)
   inScope(user, task)
   const counts = await query<any[]>('SELECT state,COUNT(*) AS count FROM production_task_code WHERE task_id=? GROUP BY state', [id])
-  const cond = state === 'available' ? ` AND d.state='released' AND (${freeProductionCode})` : state === 'transferred' ? " AND d.state='released' AND a.task_id IS NOT NULL AND a.task_id<>d.task_id" : ['reserved', 'used', 'pending', 'released'].includes(state) ? ' AND d.state=?' : ''
+  let cond = state === 'available' ? ` AND d.state='released' AND (${freeProductionCode})` : state === 'transferred' ? " AND d.state='released' AND ((a.task_id IS NOT NULL AND a.task_id<>d.task_id) OR wc.pool_id IS NOT NULL)" : ['reserved', 'used', 'pending', 'released'].includes(state) ? ' AND d.state=?' : ''
   const args = ['reserved', 'used', 'pending', 'released'].includes(state) ? [id, state] : [id]
-  const joins = ' FROM production_task_code d JOIN trace_code c ON c.id=d.code_id LEFT JOIN production_task_code a ON a.active_code_id=c.id'
-  const rows = await query<any[]>(`SELECT d.*,a.task_id AS current_task_id,a.state AS current_state,ot.name AS current_task_name,ot.line_name AS current_line_name,
-    CASE WHEN a.state='used' THEN COALESCE(NULLIF(a.used_line,''),'历史未记录') ELSE COALESCE(NULLIF(ot.line_name,''),ot.name) END AS actual_line_name,
-    ob.batch_no AS current_batch_no,a.used_at AS current_used_at,a.device AS current_device,
+  if(keyword.trim()){cond+=' AND d.code LIKE ?';args.push('%'+keyword.trim().slice(0,100)+'%')}
+  const joins = ' FROM production_task_code d JOIN trace_code c ON c.id=d.code_id LEFT JOIN user op ON op.id=d.used_by LEFT JOIN production_task_code a ON a.active_code_id=c.id LEFT JOIN worker_pool_code wc ON wc.active_code_id=c.id LEFT JOIN worker_pool wp ON wp.id=wc.pool_id LEFT JOIN worker_run wr ON wr.pool_id=wp.id LEFT JOIN production_device wd ON wd.id=wp.device_id'
+  const rows = await query<any[]>(`SELECT d.*,op.name AS operator_name,a.task_id AS current_task_id,wr.id AS current_worker_run_id,wc.pool_id AS current_worker_pool_id,COALESCE(a.state,wc.state) AS current_state,COALESCE(ot.name,wd.name) AS current_task_name,COALESCE(ot.line_name,JSON_UNQUOTE(JSON_EXTRACT(wr.device_snapshot,'$.lineName')),wd.line_name) AS current_line_name,
+    CASE WHEN a.state='used' THEN COALESCE(NULLIF(a.used_line,''),'历史未记录') ELSE COALESCE(NULLIF(ot.line_name,''),JSON_UNQUOTE(JSON_EXTRACT(wr.device_snapshot,'$.lineName')),wd.line_name,ot.name) END AS actual_line_name,
+    COALESCE(ob.batch_no,JSON_UNQUOTE(JSON_EXTRACT(COALESCE(wr.effective_context,wr.context_json),'$.batchNo'))) AS current_batch_no,COALESCE(a.used_at,we.captured_at) AS current_used_at,COALESCE(a.device,JSON_UNQUOTE(JSON_EXTRACT(wr.device_snapshot,'$.name')),wd.name) AS current_device,
     (d.state='released' AND (${freeProductionCode})) AS available_now` + joins +
-    ' LEFT JOIN production_task ot ON ot.id=a.task_id LEFT JOIN batch ob ON ob.id=ot.batch_id WHERE d.task_id=?' + cond + ' ORDER BY d.code_id LIMIT 100 OFFSET ?', [...args, (page - 1) * 100])
+    ' LEFT JOIN production_task ot ON ot.id=a.task_id LEFT JOIN batch ob ON ob.id=ot.batch_id LEFT JOIN worker_event we ON we.id=wc.event_id WHERE d.task_id=?' + cond + ' ORDER BY d.code_id LIMIT 100 OFFSET ?', [...args, (page - 1) * 100])
   const [filtered] = await query<any[]>('SELECT COUNT(*) AS n' + joins + ' WHERE d.task_id=?' + cond, args)
   const reviews = await query<any[]>('SELECT r.*,u.name AS reviewer_name FROM production_task_review r LEFT JOIN `user` u ON u.id=r.reviewer_id WHERE task_id=? ORDER BY r.id', [id])
   const usage = await productionUsage(getPool(), [id])
@@ -270,13 +294,16 @@ export async function productionSources(user: AuthUser, productId: number) {
   if (productId) { scope += ' AND t.product_id=?'; params.push(productId) }
   // 未选产品时也可先选余码任务；先排除无可领码的任务，避免分页遮住较早的余码。
   const tasks = await query<any[]>(`SELECT t.id,t.name,t.line_name,t.product_id,t.enterprise_id,p.name AS product_name,e.name AS enterprise_name,b.batch_no
-    FROM production_task t JOIN product p ON p.id=t.product_id JOIN enterprise e ON e.id=t.enterprise_id JOIN batch b ON b.id=t.batch_id
+    FROM production_task t JOIN product p ON p.id=t.product_id JOIN enterprise e ON e.id=t.enterprise_id LEFT JOIN batch b ON b.id=t.batch_id
     WHERE t.status='approved' AND p.status=1${scope} AND EXISTS (
       SELECT 1 FROM production_task_code d JOIN trace_code c ON c.id=d.code_id LEFT JOIN production_task_code a ON a.active_code_id=c.id
       WHERE d.task_id=t.id AND d.state='released' AND ${freeProductionCode}) ORDER BY t.id DESC LIMIT 100`, params)
   const usage = await productionUsage(getPool(), tasks.map(t => Number(t.id)))
   const availableTasks = tasks.map(t => ({ ...t, ...usage.get(Number(t.id)) })).filter(t => t.available_count > 0)
-  if (!productId) return { tasks: availableTasks, uploads: [], activeTasks: [] }
+  if (!productId) {
+    const uploads=await query<any[]>(`SELECT u.id,u.file_name,u.product_id,p.name AS product_name,COUNT(*) AS available_count FROM upload_batch u JOIN product p ON p.id=u.product_id JOIN trace_code c ON c.upload_batch_id=u.id LEFT JOIN production_task_code a ON a.active_code_id=c.id WHERE ${freeProductionCode} AND p.status=1${user.role==='platform_admin'?'':' AND u.enterprise_id=?'} GROUP BY u.id,u.file_name,u.product_id,p.name ORDER BY u.id DESC LIMIT 100`,user.role==='platform_admin'?[]:[user.enterprise_id])
+    return {tasks:availableTasks,uploads,activeTasks:[]}
+  }
   const uploads = await query<any[]>(`SELECT u.id,u.file_name,COUNT(*) AS available_count FROM upload_batch u JOIN trace_code c ON c.upload_batch_id=u.id
     LEFT JOIN production_task_code a ON a.active_code_id=c.id WHERE u.product_id=? AND u.enterprise_id=? AND ${freeProductionCode}
     GROUP BY u.id,u.file_name ORDER BY u.id DESC LIMIT 100`, [productId, product.enterprise_id])
@@ -292,7 +319,7 @@ export async function productionCodeHistory(user: AuthUser, id: number, codeId: 
   if (!detail) fail('此码不在任务中', 404)
   const rows = await query<any[]>(`SELECT d.task_id,d.state,d.used_line,d.used_at,d.released_at,d.device,d.source_task_id,t.name,t.line_name,b.batch_no,u.name AS operator_name,
     COALESCE(e.created_at,t.created_at) AS allocated_at FROM production_task_code d JOIN production_task t ON t.id=d.task_id
-    JOIN batch b ON b.id=t.batch_id LEFT JOIN production_task_change e ON e.id=d.allocation_id LEFT JOIN user u ON u.id=d.used_by
+    LEFT JOIN batch b ON b.id=t.batch_id LEFT JOIN production_task_change e ON e.id=d.allocation_id LEFT JOIN user u ON u.id=d.used_by
     WHERE d.code_id=? AND t.enterprise_id=? ORDER BY d.allocation_id DESC,d.task_id DESC LIMIT 100`, [codeId, task.enterprise_id])
   return { code: detail.code, rows }
 }

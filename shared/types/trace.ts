@@ -40,6 +40,7 @@ export interface TraceProduct {
 }
 
 export interface TraceBatch {
+  qualityStatus?: 'pending' | 'failed'
   batchNo: string
   produceDate: string
   expireDate: string
