@@ -5,6 +5,7 @@ import ProductionDeviceManager from '~/components/ProductionDeviceManager.vue'
 definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
 useHead({ title: '生产任务与剩余码审核' })
 const { user, canWrite, canManageUsers } = useUser()
+const route = useRoute()
 const toast = useToast()
 const showDevices = ref(false)
 const { data: productionLines, refresh: refreshLines } = await useFetch<any>('/api/admin/production-tasks/lines')
@@ -16,8 +17,9 @@ const { data: products, pending: productLoading, error: productError } = await u
 const emptyForm = () => ({ name: '', lineName: '', productId: null as string | null, batchNo: '', produceDate: '', expireDate: '', qcResult: '', qualityCertNo: '' })
 const emptyAllocation = () => ({ kind: 'upload', sourceId: '', quantity: 0, content: '' })
 const form = ref(emptyForm()), allocation = ref(emptyAllocation())
+const prefillSourceId = ref(0)
 const sourceProductId = computed(() => Number(form.value.productId || 0))
-const { data: sources, pending: sourceLoading, error: sourceError, refresh: refreshSources } = await useFetch<any>('/api/admin/production-tasks/sources', { query: { productId: sourceProductId } })
+const { data: sources, pending: sourceLoading, error: sourceError, refresh: refreshSources } = await useFetch<any>('/api/admin/production-tasks/sources', { query: { productId: sourceProductId, sourceUploadBatchId: computed(() => prefillSourceId.value || undefined) } })
 const requestId = ref(crypto.randomUUID()), busy = ref(false), showForm = ref(false)
 const mode = ref<'create' | 'edit' | 'transfer'>('create')
 const editingTask = ref<any>(null), sourceTask = ref<any>(null), appendCodes = ref(false)
@@ -27,12 +29,13 @@ const existingDestination = computed(() => mode.value === 'transfer' && destinat
 const canEdit = (t: any) => canWrite.value && (canManageUsers.value || Number(t.created_by) === Number(user.value?.id))
 // 远程搜索保留已选产品的名称。
 const productCache = new Map<string, string>()
-watch(products, result => { for (const row of result?.rows || []) productCache.set(String(row.id), `${row.name} · ${row.registration_no}`) }, { immediate: true })
-const productItems = computed(() => (products.value?.rows || []).map((r: any) => ({ value: String(r.id), label: `${r.name} · ${r.registration_no}` })))
+const productLabel = (p: any) => `${p.name} · ${p.spec_name || '规格未填写'}（${p.registration_no}）`
+watch(products, result => { for (const row of result?.rows || []) productCache.set(String(row.id), productLabel(row)) }, { immediate: true })
+const productItems = computed(() => (products.value?.rows || []).map((r: any) => ({ value: String(r.id), label: productLabel(r) })))
 const selectedProductLabel = computed(() => productCache.get(form.value.productId || ''))
 watch(productSearch, (value, _, onCleanup) => { const timer = setTimeout(() => { productKeyword.value = value.trim() }, 250); onCleanup(() => clearTimeout(timer)) })
 watch(() => form.value.produceDate, date => { if (date && form.value.expireDate && form.value.expireDate < date) form.value.expireDate = '' })
-watch(() => form.value.productId, () => { if (mode.value === 'create') allocation.value = emptyAllocation() }, { flush: 'sync' })
+watch(() => form.value.productId, () => { if (mode.value === 'create') { allocation.value = emptyAllocation(); prefillSourceId.value = 0 } }, { flush: 'sync' })
 function selectAllocationTask(task: any) {
   if (mode.value !== 'create') return
   const picked = { ...allocation.value }
@@ -62,11 +65,43 @@ function refreshVisible() {
 onMounted(() => { refreshTimer = setInterval(refreshVisible, 20000); window.addEventListener('focus', refreshVisible) })
 onBeforeUnmount(() => { clearInterval(refreshTimer); window.removeEventListener('focus', refreshVisible) })
 function resetForm() {
+  prefillSourceId.value = 0
   form.value = emptyForm(); allocation.value = emptyAllocation(); productSearch.value = ''
   editingTask.value = null; sourceTask.value = null; appendCodes.value = false; destination.value = 'new'; destinationId.value = ''
   requestId.value = crypto.randomUUID()
 }
 function openCreate() { mode.value = 'create'; resetForm(); showForm.value = true }
+// 从码库剩余子批次进入时，准确带入产品和原码文件；可领数量仍由服务端实时计算。
+let prefillRequest = 0
+async function applyCodeLibrarySource() {
+  if (route.query.create !== '1' || !canWrite.value) return
+  const productId = Number(route.query.productId), sourceId = Number(route.query.sourceUploadBatchId)
+  if (!Number.isSafeInteger(productId) || productId <= 0 || !Number.isSafeInteger(sourceId) || sourceId <= 0) return
+  const request = ++prefillRequest
+  openCreate()
+  form.value.productId = String(productId)
+  prefillSourceId.value = sourceId
+  try {
+    const [selectedProduct] = await Promise.all([
+      $fetch<any>('/api/admin/products', { query: { productId, status: 1, pageSize: 1 } }),
+      refreshSources(),
+    ])
+    if (request !== prefillRequest || !showForm.value || Number(form.value.productId) !== productId || prefillSourceId.value !== sourceId) return
+    const product = selectedProduct.rows?.find((p: any) => Number(p.id) === productId)
+    if (!product) throw new Error('来源产品已停用或不属于当前企业')
+    productCache.set(String(productId), productLabel(product))
+    const source = sources.value?.uploads?.find((s: any) => Number(s.id) === sourceId)
+    if (!source || Number(source.available_count) <= 0) {
+      toast.add({ title: '该剩余批次当前没有可领用的码，请核对任务占用及审核状态', color: 'warning' })
+      return
+    }
+    allocation.value = { kind: 'upload', sourceId: String(sourceId), quantity: 0, content: '' }
+  } catch (e: any) {
+    if (request === prefillRequest) toast.add({ title: e?.data?.statusMessage || e?.message || '来源批次加载失败，请重试', color: 'error' })
+  }
+}
+onMounted(() => { void applyCodeLibrarySource() })
+watch(() => [route.query.create, route.query.productId, route.query.sourceUploadBatchId], () => { void applyCodeLibrarySource() })
 async function openTaskForm(t: any, kind: 'edit' | 'transfer') {
   mode.value = kind; resetForm(); editingTask.value = t
   productCache.set(String(t.product_id), t.product_name)
