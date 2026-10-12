@@ -124,8 +124,13 @@ function clearRegFields() {
 /** 选中登记产品 → 数据源覆盖刷新登记字段 + 重置并按有效成分初始化原药行（需求2.6） */
 async function onRegSelected(row: any) {
   pickedReg.value = row
+  const productName = String(row.product_name || '').trim()
+  const content = String(row.content || '').trim()
+  const dosage = String(row.dosage || '').trim()
+  // 按“含量＋农药名称＋剂型”回填，数据源名称已有相同前后缀时避免重复。
+  const nameWithContent = content && !productName.startsWith(content) ? content + productName : productName
   Object.assign(form, {
-    name: row.product_name || '',
+    name: productName ? nameWithContent + (dosage && !nameWithContent.endsWith(dosage) ? dosage : '') : '',
     registrationNo: row.registration_no || '',
     registrationExpire: row.expire_date ? String(row.expire_date).slice(0, 10) : '',
     regCategory: Number(row.reg_category ?? 1),
@@ -496,7 +501,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
               <div class="grid grid-cols-2 gap-3">
                 <div>
                   <label class="b-label">农药名称 <span class="b-required">*</span></label>
-                  <UInput v-model="form.name" placeholder="选中产品自动带出，可修改" />
+                  <UInput v-model="form.name" placeholder="自动带出含量、农药名称和剂型，可修改" />
                 </div>
                 <div>
                   <label class="b-label">登记证号 <span class="b-required">*</span></label>
@@ -563,7 +568,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                   :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
                 />
                 <p v-if="selectedSpec" class="b-help">
-                  净含量：{{ selectedSpec.net_content ?? '-' }} {{ selectedSpec.content_unit }} / {{ selectedSpec.pack_unit }}（自动带出）
+                  规格：{{ selectedSpec.net_content ?? '-' }} {{ selectedSpec.content_unit }} / {{ selectedSpec.pack_unit }}<template v-if="Number(selectedSpec.pack_quantity ?? 1) > 1"> × {{ selectedSpec.pack_quantity }}</template>（自动带出）
                 </p>
               </div>
             </div>

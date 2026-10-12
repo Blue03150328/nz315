@@ -62,4 +62,15 @@ class PersistenceTest {
         assertEquals("https://example.org/code/10000", db.recentCodes(task.id, 0).first().value)
         assertEquals(1, db.snapshot(task.id).groups.size)
     }
+    @Test fun currentGroupPreviewIsLimitedAndStableForSameTimestamp() {
+        val task = task()
+        db.transaction {
+            for (i in 1..8) db.saveCode(CollectedCode("产品$i", task.id, task.currentGroupId, "码$i", 100L, "预览测试"))
+        }
+        flow.target(task.id, ScanTarget.BOX); flow.scan(task.id, "箱1", "预览测试")
+        flow.seal(task.id); flow.next(task.id, true)
+        flow.scan(task.id, "箱2", "预览测试"); flow.scan(task.id, "另一箱的码", "预览测试")
+        assertEquals(listOf("码8", "码7", "码6", "码5", "码4"), db.recentCodesInGroup(task.currentGroupId).map { it.value })
+        assertEquals(listOf("另一箱的码"), db.recentCodesInGroup(db.task(task.id).currentGroupId).map { it.value })
+    }
 }

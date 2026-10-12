@@ -1,5 +1,5 @@
 // PATCH /api/admin/users/:id —— 编辑用户 / 禁用启用（PRD 5.12.3）
-import { query, execute } from '../../../utils/db'
+import { query, execute, getPool } from '../../../utils/db'
 import { requireWritableUser } from '../../../utils/auth'
 import { logOperation } from '../../../utils/audit'
 
@@ -17,7 +17,7 @@ export default defineEventHandler(async (event) => {
   if (user.role !== 'platform_admin' && user.role !== 'enterprise_admin') {
     throw createError({ statusCode: 403, statusMessage: '需要厂家主账号权限' })
   }
-  // platform_admin 可管理全部（除其他 platform_admin 外）；enterprise_admin 仅本企业非管理员账号
+  // platform_admin 可管理全部（2026-10-10 起含其他总部管理员，但受下方「须保留至少一个启用总部管理员」约束）；enterprise_admin 仅本企业非管理员账号
   if (user.role === 'enterprise_admin') {
     if (target.enterprise_id !== user.enterprise_id) throw createError({ statusCode: 403, statusMessage: '无权操作其他企业用户' })
     if (target.role === 'enterprise_admin' || target.role === 'platform_admin') throw createError({ statusCode: 403, statusMessage: '无权操作该账号' })
@@ -36,7 +36,29 @@ export default defineEventHandler(async (event) => {
     : (Number(body.status) === 0 ? 0 : 1)
   const action = nextStatus === 0 ? '禁用用户' : Number(target.status) === 0 ? '启用用户' : '编辑用户'
 
-  await execute('UPDATE \`user\` SET name = ?, phone = ?, status = ? WHERE id = ?', [name || null, phone || null, nextStatus, id])
+  // 防自锁（2026-10-10）：总部管理员账号现可由用户列表禁用。
+  // 风险点在并发——若两个管理员同时禁用对方，各自校验时对方仍处于启用，双双放行即一个不剩、后台永久锁死。
+  // 故禁用平台账号时把「判定 + 写入」放进同一事务，先 FOR UPDATE 锁住全部启用的平台账号行再计数。
+  if (nextStatus === 0 && target.role === 'platform_admin') {
+    const conn = await getPool().getConnection()
+    try {
+      await conn.beginTransaction()
+      const [alive] = await conn.query<any[]>(
+        "SELECT id FROM \`user\` WHERE role = 'platform_admin' AND status = 1 FOR UPDATE")
+      if (alive.filter((r: any) => Number(r.id) !== id).length < 1) {
+        throw createError({ statusCode: 400, statusMessage: '系统需保留至少一个启用的总部管理员账号，不能禁用最后一个' })
+      }
+      await conn.execute('UPDATE \`user\` SET name = ?, phone = ?, status = ? WHERE id = ?', [name || null, phone || null, nextStatus, id])
+      await conn.commit()
+    } catch (error) {
+      await conn.rollback()
+      throw error
+    } finally {
+      conn.release()
+    }
+  } else {
+    await execute('UPDATE \`user\` SET name = ?, phone = ?, status = ? WHERE id = ?', [name || null, phone || null, nextStatus, id])
+  }
   await logOperation(event, {
     module: '用户管理',
     action,

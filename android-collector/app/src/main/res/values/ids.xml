@@ -1,0 +1,9 @@
+<resources>
+    <item name="nav_tasks" type="id" />
+    <item name="nav_records" type="id" />
+    <item name="scan_input" type="id" />
+    <item name="scan_result_status" type="id" />
+    <item name="scan_result_value" type="id" />
+    <item name="scan_result_detail" type="id" />
+    <item name="recent_codes" type="id" />
+</resources>

@@ -106,6 +106,10 @@ class CollectorDatabase(context: Context, name: String = "collector.db") : SQLit
     fun recentCodes(taskId: String, offset: Int, limit: Int = 80): List<CollectedCode> = query(
         "SELECT * FROM codes WHERE task_id=? ORDER BY scanned_at DESC, rowid DESC LIMIT ? OFFSET ?",
         arrayOf(taskId, limit.toString(), offset.toString()), ::readCode)
+    /** 现场只读当前箱的最新记录，不因同毫秒扫码而打乱顺序，不加载整份任务。 */
+    fun recentCodesInGroup(groupId: String, limit: Int = 5): List<CollectedCode> = query(
+        "SELECT * FROM codes WHERE group_id=? ORDER BY scanned_at DESC, rowid DESC LIMIT ?",
+        arrayOf(groupId, limit.toString()), ::readCode)
     fun summary(task: CollectionTask): TaskSummary {
         val counts = query("""SELECT COUNT(*) AS n,
             COALESCE(SUM(CASE WHEN g.box_raw IS NULL THEN 1 ELSE 0 END),0) AS pending

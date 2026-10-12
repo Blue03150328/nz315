@@ -21,3 +21,14 @@ deploy/*.cjs  text eol=lf
 docs/handover/ export-ignore
 # Android独立客户端不进入网站服务器源码发布包。
 android-collector/ export-ignore
+
+# 交付件与临时件不入包（2026-10-10 补）
+# ---------------------------------------------------------------
+# 仓库照旧跟踪这些文件（历史交付件要留档），但服务器源码目录不需要它们。
+# 不加这几条时 `git archive` 会把历史源码包/zip 与 tmp 临时脚本一并打进新包
+# （实测：包体 8.2MB / 319 文件 → 加后约 1MB），与「旧包不入包」口径矛盾。
+文件存放处/ export-ignore
+tmp/ export-ignore
+# 只匹配仓库根目录下的压缩包（历史源码包），不影响子目录
+/*.tar.gz export-ignore
+/*.zip export-ignore

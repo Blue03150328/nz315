@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { availableSpecCodes, formatSpecification, MAX_PACK_QUANTITY, SPEC_CODES, SPEC_PACKS, SPEC_UNITS } from '#shared/utils/specification'
 // 产品规格管理（PRD 5.3：主数据，规格码对应 32 位码第 9-11 位）
 // Keep-Alive 页面缓存：左侧菜单切换后返回保留页面状态（表单/筛选/页码/预览）；刷新、退出登录自动清空；页内【重置】恢复初始
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
@@ -10,8 +11,8 @@ const page = ref(1)
 const pageSize = 20
 
 // 含量单位选项：全中文（2026-09-03 用户决策，英改中；新增记录存储即中文，存量英文数据由用户在库中自行修改）
-const UNITS = ['毫升', '升', '克', '千克', '片', '包', '粒']
-const PACKS = ['瓶', '袋', '桶', '盒', '罐', '支', '箱']
+const UNITS = SPEC_UNITS
+const PACKS = SPEC_PACKS
 
 const { data, pending, refresh, error } = await useFetch<any>('/api/admin/specs', {
   key: 'admin-specs',
@@ -25,7 +26,7 @@ const { data, pending, refresh, error } = await useFetch<any>('/api/admin/specs'
 })
 
 // ===== 批量导入（2026-09-07：右上角按钮 + 弹窗；模板 public/templates/spec-import-template.xlsx）=====
-const { isPlatformAdmin, canWrite } = useUser()
+const { user, isPlatformAdmin, canWrite } = useUser()
 const showImportModal = ref(false)
 const importing = ref(false)
 const importFile = ref<File | null>(null)
@@ -34,9 +35,11 @@ const importEid = ref<number | null>(null) // 平台管理员指定导入归属�
 const impResult = ref<null | { success: number; failed: number; errors: { row: number; value: string; reason: string }[] }>(null)
 const importFileName = computed(() => importFile.value?.name || '')
 // 企业下拉（平台管理员场景；企业角色隐藏，走自身 enterprise_id）
+const factoryKeyword = ref('')
+const factoryPage = ref(1)
 const { data: factoryOptions, refresh: refreshFactories } = await useFetch<any>('/api/admin/factories', {
   key: 'admin-factories-specs-import',
-  query: { page: 1, pageSize: 100 },
+  query: computed(() => ({ keyword: factoryKeyword.value || undefined, page: factoryPage.value, pageSize: 100 })),
   immediate: false,
 })
 const openImport = () => {
@@ -103,42 +106,100 @@ const editingId = ref<number | null>(null)
 const saving = ref(false)
 const form = reactive({
   specName: '', netContent: null as number | null, contentUnit: '', packUnit: '',
-  status: 1,
+  packQuantity: 1, specCode: '', status: 1,
 })
-// 规格码由系统自动分配（= 32 位追溯码第 9-11 位）；编辑时仅回显展示，不可修改
+// 规格码新增时选择，创建后仅回显，不能改动已有追溯码的编码含义。
 const displayCode = ref('')
+const createEnterpriseId = ref<number | null>(null)
+const codesBusy = ref(false)
+const codesReady = ref(false)
+const codesError = ref('')
+const usedCodes = ref<string[]>([])
+let codeRequest = 0
+const freeCodes = computed(() => availableSpecCodes(usedCodes.value))
+const codeOptions = computed(() => {
+  const used = new Set(usedCodes.value)
+  return SPEC_CODES.map(value => ({ value, label: used.has(value) ? value + '（已占用）' : value, disabled: used.has(value) }))
+})
+const generatedName = computed(() => formatSpecification(form.netContent, form.contentUnit, form.packUnit, form.packQuantity))
+const autoName = ref(false)
+watch(generatedName, value => { if (autoName.value) form.specName = value })
+const applyGeneratedName = () => { autoName.value = true; form.specName = generatedName.value }
+const knownFactories = new Map<number, string>()
+watch(factoryOptions, value => { for (const row of value?.rows || []) knownFactories.set(Number(row.id), row.name) })
+const factoryItems = computed(() => {
+  const items = (factoryOptions.value?.rows || []).map((row: any) => ({ value: Number(row.id), label: row.name }))
+  for (const id of [createEnterpriseId.value, importEid.value]) {
+    if (id && knownFactories.has(id) && !items.some((item: any) => item.value === id)) items.unshift({ value: id, label: knownFactories.get(id) })
+  }
+  return items
+})
+
+async function loadCodes() {
+  const request = ++codeRequest
+  codesReady.value = false
+  codesError.value = ''
+  usedCodes.value = []
+  const fid = isPlatformAdmin.value ? createEnterpriseId.value : user.value?.enterprise_id
+  if (!fid || editingId.value) { codesBusy.value = false; form.specCode = ''; return }
+  codesBusy.value = true
+  try {
+    const result = await $fetch<{ usedCodes: string[] }>('/api/admin/specs/codes', { query: { enterpriseId: fid } })
+    if (request !== codeRequest) return
+    usedCodes.value = result.usedCodes
+    codesReady.value = true
+    if (!freeCodes.value.includes(form.specCode)) form.specCode = freeCodes.value[0] || ''
+  } catch (error: any) {
+    if (request === codeRequest) codesError.value = error?.data?.statusMessage || '规格码加载失败，请重试'
+  } finally {
+    if (request === codeRequest) codesBusy.value = false
+  }
+}
+watch(createEnterpriseId, () => { form.specCode = ''; if (showModal.value && !editingId.value) loadCodes() })
 
 const openCreate = () => {
   editingId.value = null
-  Object.assign(form, { specName: '', netContent: null, contentUnit: '毫升', packUnit: '瓶', status: 1 })
+  autoName.value = true
+  Object.assign(form, { specName: '', netContent: null, contentUnit: '毫升', packUnit: '瓶', packQuantity: 1, specCode: '', status: 1 })
+  createEnterpriseId.value = null
   displayCode.value = ''
   showModal.value = true
+  if (isPlatformAdmin.value) refreshFactories()
+  loadCodes()
 }
 const openEdit = (row: any) => {
+  autoName.value = false
+  ++codeRequest
+  codesBusy.value = false
   editingId.value = row.id
   Object.assign(form, {
     specName: row.spec_name, netContent: row.net_content === null ? null : Number(row.net_content),
-    contentUnit: row.content_unit, packUnit: row.pack_unit, status: Number(row.status),
+    contentUnit: row.content_unit, packUnit: row.pack_unit, packQuantity: Number(row.pack_quantity ?? 1), specCode: String(row.spec_code || ''), status: Number(row.status),
   })
   displayCode.value = String(row.spec_code || '')
   showModal.value = true
+  nextTick(() => { autoName.value = form.specName === generatedName.value })
 }
 
 const save = async () => {
   if (!form.specName.trim()) { toast.add({ title: '请输入规格名称', color: 'warning' }); return }
+  if (!Number.isFinite(Number(form.netContent)) || Number(form.netContent) <= 0) { toast.add({ title: '请输入大于0的净含量', color: 'warning' }); return }
+  if (!Number.isInteger(Number(form.packQuantity)) || Number(form.packQuantity) < 1 || Number(form.packQuantity) > MAX_PACK_QUANTITY) { toast.add({ title: '数量须为1～999999之间的整数', color: 'warning' }); return }
+  if (!editingId.value && (!codesReady.value || !freeCodes.value.includes(form.specCode))) { toast.add({ title: '请选择未占用的规格码', color: 'warning' }); return }
   saving.value = true
   try {
     if (editingId.value) {
       await $fetch('/api/admin/specs/' + editingId.value, { method: 'PATCH', body: { ...form } })
       toast.add({ title: '规格已更新', color: 'success' })
     } else {
-      await $fetch('/api/admin/specs', { method: 'POST', body: { ...form } })
+      await $fetch('/api/admin/specs', { method: 'POST', body: { ...form, enterpriseId: isPlatformAdmin.value ? createEnterpriseId.value : undefined } })
       toast.add({ title: '规格已创建', color: 'success' })
     }
     showModal.value = false
     refresh()
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || '保存失败', color: 'error' })
+    if (!editingId.value && e?.status === 409) loadCodes()
   } finally {
     saving.value = false
   }
@@ -232,6 +293,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
             <tr>
               <th>规格名称</th>
               <th>净含量</th>
+              <th>数量</th>
               <th>规格码</th>
               <th>被引用</th>
               <th>状态</th>
@@ -242,6 +304,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
             <tr v-for="r in data?.rows || []" :key="r.id">
               <td class="b-strong font-medium">{{ r.spec_name }}</td>
               <td>{{ r.net_content !== null && r.net_content !== undefined ? Number(r.net_content) : '-' }} {{ r.content_unit }} / {{ r.pack_unit }}</td>
+              <td>{{ r.pack_quantity ?? 1 }} {{ r.pack_unit }}</td>
               <td><span class="font-code text-[13px] b-strong">{{ r.spec_code }}</span></td>
               <td>{{ r.ref_count }} 个产品</td>
               <td>
@@ -262,7 +325,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
               </td>
             </tr>
             <tr v-if="!pending && !data?.rows?.length">
-              <td colspan="6" class="b-empty">
+              <td colspan="7" class="b-empty">
                 <div class="b-empty-inner">
                   <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
                   <span class="text-sm">{{ filters.keyword || filters.contentUnit || filters.packUnit || filters.status ? '没有符合筛选条件的规格，请重置筛选。' : canWrite ? '尚未维护规格，请新增或导入规格。' : '企业尚未维护规格，请联系企业管理员建档。' }}，点击右上角「新增规格」创建</span>
@@ -282,7 +345,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
     </div>
 
     <!-- 新增/编辑对话框（Nuxt UI v4：v-model:open 绑定 open 状态，内容放 #content 插槽） -->
-    <UModal v-model:open="showModal">
+    <UModal v-model:open="showModal" :ui="{ content: 'sm:max-w-2xl' }">
       <template #content>
         <div class="b-modal">
           <div class="b-modal-head">
@@ -295,11 +358,23 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
             </div>
           </div>
           <div class="b-modal-body">
+            <div v-if="isPlatformAdmin && !editingId">
+              <label class="b-label-lg">归属企业 <span class="b-required">*</span></label>
+              <div class="mb-2 flex items-center gap-2">
+                <UInput v-model="factoryKeyword" placeholder="输入企业名称搜索" class="w-full" @update:model-value="factoryPage = 1" />
+                <UButton variant="outline" color="neutral" :disabled="factoryPage <= 1" @click="factoryPage--">上一页</UButton>
+                <UButton variant="outline" color="neutral" :disabled="factoryPage * 100 >= (factoryOptions?.total || 0)" @click="factoryPage++">下一页</UButton>
+              </div>
+              <USelect v-model="createEnterpriseId" :items="factoryItems" placeholder="选择规格归属的企业" class="w-full" />
+            </div>
             <div>
               <label class="b-label-lg">规格名称 <span class="b-required">*</span></label>
-              <UInput v-model="form.specName" placeholder="如：200毫升/瓶（企业内唯一）" />
+              <div class="flex items-center gap-2">
+                <UInput v-model="form.specName" placeholder="如：500毫升/瓶×10（企业内唯一）" class="w-full" @input="autoName = false" />
+                <UButton variant="outline" color="neutral" :disabled="!generatedName" @click="applyGeneratedName">按字段生成</UButton>
+              </div>
             </div>
-            <div class="grid grid-cols-3 gap-3">
+            <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <div>
                 <label class="b-label-lg">净含量数值 <span class="b-required">*</span></label>
                 <UInput v-model.number="form.netContent" type="number" placeholder="200" />
@@ -312,12 +387,21 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
                 <label class="b-label-lg">包装单位 <span class="b-required">*</span></label>
                 <USelect v-model="form.packUnit" :items="PACKS.map(p => ({ value: p, label: p }))" class="w-full" />
               </div>
+              <div>
+                <label class="b-label-lg">数量 <span class="b-required">*</span></label>
+                <UInput v-model.number="form.packQuantity" type="number" :min="1" :max="MAX_PACK_QUANTITY" :step="1" placeholder="如：10" />
+              </div>
             </div>
+            <p class="b-help">数量表示一组内的包装件数，如500毫升/瓶×10表示10瓶；单件数量为1。</p>
             <div>
               <label class="b-label-lg">企业规格码</label>
               <div v-if="displayCode" class="w-fit rounded border border-[var(--b-border)] bg-[var(--b-fill)] px-2.5 py-1.5 font-code text-[13px] font-medium text-[var(--b-text-title)]">{{ displayCode }}</div>
-              <p v-else class="b-help">保存后由系统自动分配（001 起，对应 32 位追溯码第 9-11 位），无需填写</p>
-              <p v-if="displayCode" class="b-help">系统自动分配（对应 32 位追溯码第 9-11 位），不可修改</p>
+              <template v-else>
+                <USelectMenu v-model="form.specCode" value-key="value" :items="codeOptions" :search-input="{ placeholder: '输入001～999选号' }" :loading="codesBusy" :disabled="!codesReady || codesBusy || !freeCodes.length" placeholder="请选择规格码" class="w-full" />
+                <p v-if="codesError" class="mt-1 text-sm text-red-600">{{ codesError }} <UButton variant="link" color="neutral" @click="loadCodes">重试</UButton></p>
+                <p v-else class="b-help">001～999任选，同一企业不能重复；已占用的码（含停用规格）不可选。{{ codesReady ? '剩余' + freeCodes.length + '个空闲码。' : isPlatformAdmin && !createEnterpriseId ? '请先选择归属企业。' : '' }}</p>
+              </template>
+              <p v-if="displayCode" class="b-help">对应32位追溯码第9～11位，创建后不可修改</p>
             </div>
             <div class="flex items-center gap-2">
               <USwitch v-model="form.status" />
@@ -378,7 +462,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
             <div class="b-note">
               <UIcon name="i-lucide-circle-help" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
               <p class="b-note-text">
-                模板仅一列「规格」，每行格式：净含量数值 + 中文含量单位（毫升/升/克/千克）+ / + 包装单位（瓶/袋/桶/盒/罐/支/箱），如「200毫升/瓶」。无法识别的行不计入导入，会在结果中列出失败原因。
+                模板仅一列「规格」，支持「500毫升/瓶×10」或「500ml/瓶✖10」，单件可写「200毫升/瓶」。数量须为正整数，英文单位会转为中文；规格码从本企业001～999空闲码中依次分配。无法识别或重复的行会列出失败原因。
               </p>
             </div>
             <!-- ① 模板下载 -->
@@ -391,7 +475,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
               <label class="b-label-lg">归属企业 <span class="b-required">*</span></label>
               <USelect
                 v-model="importEid"
-                :items="(factoryOptions?.rows || []).map((f: any) => ({ value: Number(f.id), label: f.name }))"
+                :items="factoryItems"
                 placeholder="选择导入规格归属的企业"
                 class="w-full"
                 :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"

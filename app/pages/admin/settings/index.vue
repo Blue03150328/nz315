@@ -212,6 +212,17 @@ const searchEnterpriseOptions = () => {
 const showUserModal = ref(false)
 const userSaving = ref(false)
 const uform = reactive({ username: '', password: '', name: '', phone: '', role: 'code_admin', enterpriseId: null as number | null })
+// 角色选项（2026-10-10）：总部管理员仅对总部管理员显示；
+// 厂家主账号即使伪造请求也会被服务端提权闸 403，此处仅避免「看得到选项、点了吃 403」
+const userRoleOptions = computed(() => {
+  const items: { value: string; label: string }[] = [
+    { value: 'enterprise_admin', label: '厂家主账号' },
+    { value: 'code_admin', label: '码管理员' },
+    { value: 'viewer', label: '只读账号' },
+  ]
+  if (isPlatformAdmin.value) items.unshift({ value: 'platform_admin', label: '总部管理员' })
+  return items
+})
 watch(() => uform.enterpriseId, (id) => {
   selectedEnterprise.value = enterpriseOptions.value.find((e: any) => e.value === id) || null
 })
@@ -236,6 +247,10 @@ const saveUser = async () => {
   if (userSaving.value) return
   if (!uform.username.trim()) { toast.add({ title: '请输入登录名', color: 'warning' }); return }
   if ((uform.password || '').length < 6) { toast.add({ title: '密码至少 6 位', color: 'warning' }); return }
+  // 总部管理员不挂企业，无需选择；其余角色在总部视角下必须指定所属企业
+  if (uform.role !== 'platform_admin' && isPlatformAdmin.value && !uform.enterpriseId) {
+    toast.add({ title: '请选择所属企业', color: 'warning' }); return
+  }
   userSaving.value = true
   try {
     await $fetch('/api/admin/users', { method: 'POST', body: { ...uform } })
@@ -807,15 +822,14 @@ const deleteBackup = async (b: any) => {
                             </span>
                           </td>
                           <td>
-                            <div v-if="r.role !== 'platform_admin'" class="b-actions">
+                            <!-- 2026-10-10：总部管理员账号同样可重置密码/禁用；当前登录的自己仅保留重置密码，避免触发「不能修改自己的账号」 -->
+                            <div class="b-actions">
                               <UButton variant="link" color="neutral" size="xs" @click="resetPw(r)">重置密码</UButton>
                               <span class="b-sep" />
-                              <UButton variant="link" color="neutral" size="xs" @click="toggleUserStatus(r)">
+                              <span v-if="Number(r.id) === Number(user?.id)" class="text-xs text-[var(--b-text-muted)]">当前登录账号</span>
+                              <UButton v-else variant="link" color="neutral" size="xs" @click="toggleUserStatus(r)">
                                 {{ Number(r.status) === 1 ? '禁用' : '启用' }}
                               </UButton>
-                            </div>
-                            <div v-else class="b-actions">
-                              <span class="text-xs text-[var(--b-text-muted)]">总部账号</span>
                             </div>
                           </td>
                         </tr>
@@ -953,13 +967,9 @@ const deleteBackup = async (b: any) => {
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="b-label-lg">角色 <span class="b-required">*</span></label>
-                <USelect v-model="uform.role" class="w-full" :items="[
-                  { value: 'enterprise_admin', label: '厂家主账号' },
-                  { value: 'code_admin', label: '码管理员' },
-                  { value: 'viewer', label: '只读账号' },
-                ]" />
+                <USelect v-model="uform.role" class="w-full" :items="userRoleOptions" />
               </div>
-              <div v-if="isPlatformAdmin">
+              <div v-if="isPlatformAdmin && uform.role !== 'platform_admin'">
                 <label class="b-label-lg">所属企业 <span class="b-required">*</span></label>
                 <div class="flex gap-2 mb-2">
                   <UInput v-model="entOptionKeyword" placeholder="搜索企业名称或信用代码" class="min-w-0 flex-1" @keyup.enter="searchEnterpriseOptions" />

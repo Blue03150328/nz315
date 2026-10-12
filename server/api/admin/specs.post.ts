@@ -1,21 +1,15 @@
 // POST /api/admin/specs —— 新增产品规格（PRD 5.3）
-import { query, execute } from '../../utils/db'
+import { getPool } from '../../utils/db'
 import { requireWritableUser } from '../../utils/auth'
-import { nextSpecCode } from '../../utils/spec-code'
+import { lockSpecEnterprise, readAvailableSpecCodes } from '../../utils/spec-code'
+import { parseSpecCode, parseSpecInput } from '../../utils/spec-input'
 
 export default defineEventHandler(async (event) => {
   const user = await requireWritableUser(event)
   const body = await readBody(event).catch(() => ({}))
-  const specName = String(body?.specName || '').trim()
-  const netContent = body?.netContent
-  const contentUnit = String(body?.contentUnit || '').trim()
-  const packUnit = String(body?.packUnit || '').trim()
+  const { specName, netContent, contentUnit, packUnit, packQuantity } = parseSpecInput(body)
+  const requestedCode = parseSpecCode(body?.specCode)
   const status = body?.status === 0 ? 0 : 1
-
-  // 校验
-  if (!specName) throw createError({ statusCode: 400, statusMessage: '请输入规格名称' })
-  if (!contentUnit) throw createError({ statusCode: 400, statusMessage: '请选择含量单位' })
-  if (!packUnit) throw createError({ statusCode: 400, statusMessage: '请选择包装单位' })
 
   // 归属企业：平台管理员从请求体指定，企业角色取自身 enterprise_id
   let fid: number
@@ -28,24 +22,27 @@ export default defineEventHandler(async (event) => {
     if (!Number.isInteger(fid) || fid <= 0) throw createError({ statusCode: 400, statusMessage: '当前账号未绑定企业，无法创建规格' })
   }
 
-  // 规格名称企业内唯一
-  const [dupName] = await query<any[]>(
-    'SELECT id FROM product_spec WHERE enterprise_id = ? AND spec_name = ? LIMIT 1', [fid, specName])
-  if (dupName) throw createError({ statusCode: 400, statusMessage: '该规格名称已存在' })
-
-  // 自动分配规格码；并发撞唯一键（同企业同码）时换下一码重试（最多 5 次）
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const specCode = await nextSpecCode(fid)
-    try {
-      const result = await execute(
-        'INSERT INTO product_spec (enterprise_id, spec_name, net_content, content_unit, pack_unit, spec_code, status) VALUES (?,?,?,?,?,?,?)',
-        [fid, specName, netContent ?? null, contentUnit, packUnit, specCode, status]
-      )
-      return { ok: true, id: result.insertId, specCode }
-    } catch (e: any) {
-      if (e?.code === 'ER_DUP_ENTRY' && String(e?.message || '').includes('uq_enterprise_spec_code')) continue
-      throw e
-    }
+  // 新增与批量导入共用企业行锁；手动选号冲突时返回409，不擅自更换用户选中的号码。
+  const conn = await getPool().getConnection()
+  try {
+    await conn.beginTransaction()
+    await lockSpecEnterprise(conn, fid)
+    const [duplicates] = await conn.query<any[]>('SELECT id FROM product_spec WHERE enterprise_id = ? AND spec_name = ? LIMIT 1', [fid, specName])
+    if (duplicates.length) throw createError({ statusCode: 400, statusMessage: '该规格名称已存在' })
+    const available = await readAvailableSpecCodes(conn, fid)
+    const specCode = requestedCode ?? available[0]
+    if (!specCode) throw createError({ statusCode: 400, statusMessage: '该企业001～999规格码已全部占用' })
+    if (!available.includes(specCode)) throw createError({ statusCode: 409, statusMessage: '该规格码已被占用，请重新选号' })
+    const [result]: any = await conn.execute(
+      'INSERT INTO product_spec (enterprise_id, spec_name, net_content, content_unit, pack_unit, pack_quantity, spec_code, status) VALUES (?,?,?,?,?,?,?,?)',
+      [fid, specName, netContent, contentUnit, packUnit, packQuantity, specCode, status])
+    await conn.commit()
+    return { ok: true, id: result.insertId, specCode }
+  } catch (error: any) {
+    await conn.rollback()
+    if (error?.code === 'ER_DUP_ENTRY') throw createError({ statusCode: 409, statusMessage: '规格名称或规格码已被占用，请刷新后重试' })
+    throw error
+  } finally {
+    conn.release()
   }
-  throw createError({ statusCode: 500, statusMessage: '规格码分配冲突，请重试' })
 })
