@@ -248,8 +248,8 @@ export async function reviewProductionTask(user: AuthUser, id: number, body: Rec
   })
 }
 export async function productionTasks(user: AuthUser, page = 1) {
-  const scope = user.device_id ? " WHERE t.enterprise_id=? AND BINARY t.line_name=BINARY ? AND t.workflow='legacy'" : user.role === 'platform_admin' ? '' : ' WHERE t.enterprise_id=?'
-  const params = user.device_id ? [user.enterprise_id, user.device_line] : scope ? [user.enterprise_id] : []
+  const scope = " WHERE t.status<>'deleted'" + (user.device_id ? " AND t.enterprise_id=? AND BINARY t.line_name=BINARY ? AND t.workflow='legacy'" : user.role === 'platform_admin' ? '' : ' AND t.enterprise_id=?')
+  const params = user.device_id ? [user.enterprise_id, user.device_line] : user.role === 'platform_admin' ? [] : [user.enterprise_id]
   const rows = await query<any[]>(`SELECT t.*, p.name AS product_name,b.batch_no,b.produce_date,b.expire_date,COALESCE(b.quality_cert_no,t.draft_quality_cert_no) AS quality_cert_no,COALESCE(b.qc_result,t.draft_qc_result) AS qc_result,
     (SELECT COUNT(*) FROM production_collection_session s WHERE s.task_id=t.id AND s.state='active') AS active_collection_count,
     (SELECT COUNT(*) FROM production_task_code d WHERE d.task_id=t.id) AS total,
