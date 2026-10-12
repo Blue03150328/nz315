@@ -5,11 +5,9 @@
 // 规模假设：初期用户数千~数万、企业数百，一次性取池内存分组足够；量大改 SQL 分组分页。
 import { query } from '../../utils/db'
 import { requireBackendUser } from '../../utils/auth'
+import { enterpriseBusinessReferenceTables } from '../../utils/enterprise-business-references'
 
 const ROLE_LABEL: Record<string, string> = { platform_admin: '总部管理员', enterprise_admin: '厂家主账号', code_admin: '码管理员', viewer: '只读账号' }
-
-// 厂家业务数据引用表（删除厂家前置检查：任一命中即不可删，防数据孤儿）
-const ENT_REF_TABLES = ['product', 'product_spec', 'batch', 'upload_batch', 'trace_code']
 
 export default defineEventHandler(async (event) => {
   const user = await requireBackendUser(event)
@@ -108,12 +106,13 @@ export default defineEventHandler(async (event) => {
   const total = groupIds.length
   const pageGroupIds = groupIds.slice(offset, offset + pageSize)
 
-  // can_delete：本页厂家逐一查 5 张业务表引用（UNION ALL 一次查询）
+  // 厂家删除保护与删除接口共用引用表，包含已建的外部码库与生产记录。
   const refSet = new Set<number>()
   const realIds = pageGroupIds.filter((g) => g !== PLATFORM_GID)
   if (realIds.length) {
+    const ENT_REF_TABLES = await enterpriseBusinessReferenceTables()
     const unions = ENT_REF_TABLES.map((t) => 'SELECT enterprise_id, COUNT(*) AS c FROM ' + t + ' WHERE enterprise_id IN (?) GROUP BY enterprise_id').join(' UNION ALL ')
-    const refRows = await query<any[]>('SELECT enterprise_id, SUM(c) AS ref FROM (' + unions + ') t GROUP BY enterprise_id', ENT_REF_TABLES.map(() => realIds).flat())
+    const refRows = await query<any[]>('SELECT enterprise_id, SUM(c) AS ref FROM (' + unions + ') t GROUP BY enterprise_id', ENT_REF_TABLES.map(() => realIds))
     for (const r of refRows) {
       const id = Number(r.enterprise_id)
       if (Number(r.ref) > 0) refSet.add(id)
