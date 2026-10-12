@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { isInputDate } from '#shared/utils/input-date'
+import { formatCodeQuantity } from '#shared/utils/code-quantity'
 // 码库管理（2026-09-04 聚合改造）：不再逐条展示追溯码，改为按「上传文件批次」聚合展示——
 // 每行 = 生产采集上传的一份追溯码文件（upload_batch），展示批次汇总信息与整批操作。
 // 行操作：【详细】弹窗查看/单行操作本批次码明细（原单条表格内容，仅查看+单行冻结/作废/恢复）、
@@ -65,6 +66,160 @@ const SUMMARY_BADGE: Record<string, string> = {
   部分作废: 'b-tag-danger',
   全部作废: 'b-tag-danger',
 }
+
+// 使用数量与可领数量分开：任务占用仍属于剩余，已用数量以后台去重统计为准。
+const usedCount = (row: any) => Number(row?.usedCount ?? row?.boundCount ?? 0)
+const remainingCount = (row: any) => Number(row?.remainingCount ?? Math.max(0, Number(row?.codeTotal || 0) - usedCount(row)))
+const exactQuantity = (value: unknown) => `${Number(value || 0).toLocaleString('zh-CN')}张`
+const usageBadge = (row: any) => usedCount(row) === 0
+  ? { label: '未使用', cls: 'b-tag-default' }
+  : remainingCount(row) === 0
+    ? { label: '已用完', cls: 'b-tag-success' }
+    : { label: '部分使用', cls: 'b-tag-warning' }
+
+// ============ 批次使用记录（仅查看，按后台收到日期、任务和上传账号汇总） ============
+interface UsageRecord {
+  taskId: number
+  taskName: string
+  batchNo: string | null
+  lineName: string | null
+  usageDate: string
+  count: number
+  source: 'mobile' | 'online'
+  sourceLabel: string
+  firstReceivedAt: string | null
+  lastReceivedAt: string | null
+  firstCapturedAt: string | null
+  lastCapturedAt: string | null
+  uploaderType: 'user' | 'unknown'
+  uploaderId: number | null
+  uploaderUsername: string | null
+  uploaderName: string | null
+  deviceId: number | null
+  deviceName: string | null
+}
+interface UsageResult {
+  uploadBatchId: number
+  codeTotal: number
+  usedCount: number
+  remainingCount: number
+  taskUsedCount: number
+  legacyBoundCount: number
+  productionRecordsAvailable: boolean
+  unavailableReason: string | null
+  rows: UsageRecord[]
+  total: number
+  page: number
+  pageSize: number
+}
+const showUsageModal = ref(false)
+const usageRow = ref<any>(null)
+const usageData = ref<UsageResult | null>(null)
+const usageLoading = ref(false)
+const usageError = ref('')
+const usagePage = ref(1)
+const usagePageSize = 20
+const usageRows = computed(() => usageData.value?.page === usagePage.value ? usageData.value.rows : [])
+const usageSummary = computed(() => usageData.value || usageRow.value)
+const usageTotalPages = computed(() => Math.max(1, Math.ceil((usageData.value?.total || 0) / usagePageSize)))
+let usageRequest = 0
+let usageController: AbortController | undefined
+const cancelUsageRequest = () => {
+  usageRequest++
+  usageController?.abort()
+  usageController = undefined
+  usageLoading.value = false
+}
+const loadUsage = async () => {
+  if (!showUsageModal.value || !usageRow.value) return
+  usageController?.abort()
+  const controller = new AbortController()
+  usageController = controller
+  const request = ++usageRequest
+  const batchId = Number(usageRow.value.id)
+  const requestedPage = usagePage.value
+  usageLoading.value = true
+  usageError.value = ''
+  try {
+    const result = await $fetch<UsageResult>(`/api/admin/codes/upload-batches/${batchId}/usage`, {
+      query: { page: requestedPage, pageSize: usagePageSize },
+      signal: controller.signal,
+    })
+    if (request !== usageRequest || !showUsageModal.value || Number(usageRow.value?.id) !== batchId) return
+    usageData.value = result
+    // 删除明细等操作可能减少记录页数，回到仍存在的最后一页。
+    const lastPage = Math.max(1, Math.ceil(Number(result.total || 0) / usagePageSize))
+    if (requestedPage > lastPage) {
+      usagePage.value = lastPage
+      void loadUsage()
+    }
+  } catch (e: any) {
+    if (request === usageRequest && !controller.signal.aborted) usageError.value = e?.data?.statusMessage || '使用记录加载失败，请重试'
+  } finally {
+    if (request === usageRequest) {
+      usageLoading.value = false
+      usageController = undefined
+    }
+  }
+}
+const openUsage = (row: any) => {
+  cancelUsageRequest()
+  usageRow.value = row
+  usageData.value = null
+  usagePage.value = 1
+  usageError.value = ''
+  showUsageModal.value = true
+  void loadUsage()
+}
+watch(data, result => {
+  if (!showUsageModal.value || !usageRow.value) return
+  const latestRow = result?.rows?.find((row: any) => Number(row.id) === Number(usageRow.value.id))
+  if (latestRow) usageRow.value = latestRow
+})
+const changeUsagePage = (next: number) => {
+  usagePage.value = next
+  void loadUsage()
+}
+watch(showUsageModal, open => { if (!open) cancelUsageRequest() })
+// 接口统一返回北京时间；保留秒，区分设备采集时间与后台收到时间。
+const usageTime = (value: string | null | undefined) => {
+  if (!value) return '未记录'
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}:\d{2}:\d{2})/)
+  return match ? `${match[1]}年${Number(match[2])}月${Number(match[3])}日 ${match[4]}` : String(value)
+}
+const uploaderText = (record: UsageRecord) => {
+  // 设备编号和登记管理员都不代表实际上传人，留待账号模块接入。
+  const account = record.uploaderUsername && !record.uploaderUsername.startsWith('device:') ? record.uploaderUsername : ''
+  const name = record.uploaderName || ''
+  if (!account && !name) return '上传账号待接入'
+  return account && name && name !== account ? `${account}（${name}）` : account || name
+}
+
+// Keep-Alive 切走时停止刷新；恢复页面或窗口焦点后重新获取最新使用量。
+let codesRefreshTimer: ReturnType<typeof setInterval> | undefined
+let codesPageActive = false
+const refreshVisibleCodes = () => {
+  if (!codesPageActive || document.visibilityState !== 'visible') return
+  if (!pending.value) void refresh()
+  if (showUsageModal.value && !usageLoading.value) void loadUsage()
+}
+const startCodesRefresh = () => {
+  codesPageActive = true
+  if (codesRefreshTimer) return
+  codesRefreshTimer = setInterval(refreshVisibleCodes, 20000)
+  window.addEventListener('focus', refreshVisibleCodes)
+}
+const stopCodesRefresh = () => {
+  codesPageActive = false
+  clearInterval(codesRefreshTimer)
+  codesRefreshTimer = undefined
+  window.removeEventListener('focus', refreshVisibleCodes)
+  cancelUsageRequest()
+}
+onMounted(startCodesRefresh)
+onActivated(() => { startCodesRefresh(); refreshVisibleCodes() })
+onDeactivated(stopCodesRefresh)
+onUnmounted(stopCodesRefresh)
 
 // ============ 整批冻结 ============
 const showFreezeModal = ref(false)
@@ -451,7 +606,7 @@ const flagBadge = (f: number) => {
     <div class="flex items-center justify-between">
       <div>
         <h1 class="b-page-title">码库管理</h1>
-        <p class="b-page-desc">按上传文件批次聚合管理：每行 = 生产采集上传的一份追溯码文件 · 冻结/修正整批生效 · 明细可查看单条码</p>
+        <p class="b-page-desc">按码文件批次查看总量、已用与剩余数量，使用记录展示生产任务、上传来源和时间</p>
       </div>
       <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetSearch">重置</UButton>
     </div>
@@ -511,6 +666,7 @@ const flagBadge = (f: number) => {
               <th>批次名称（上传文件）</th>
               <th>关联产品</th>
               <th class="text-right">码总数量</th>
+              <th>使用情况</th>
               <th>码状态汇总</th>
               <th>生产批号</th>
               <th>上传时间</th>
@@ -522,8 +678,21 @@ const flagBadge = (f: number) => {
               <td>
                 <span class="max-w-72 inline-block truncate align-middle text-[13px] b-strong" :title="row.file_name">{{ row.file_name }}</span>
               </td>
-              <td>{{ row.product_name || '-' }}</td>
-              <td class="text-right font-medium b-strong">{{ row.codeTotal }}</td>
+              <td class="min-w-32">{{ row.product_name || '-' }}</td>
+              <td class="text-right font-medium b-strong" :title="exactQuantity(row.codeTotal)">{{ formatCodeQuantity(row.codeTotal) }}</td>
+              <td class="min-w-64">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="b-tag whitespace-nowrap" :class="usageBadge(row).cls">{{ usageBadge(row).label }}</span>
+                  <span class="font-medium b-strong" :title="exactQuantity(remainingCount(row))">剩余 {{ formatCodeQuantity(remainingCount(row)) }}</span>
+                </div>
+                <p class="mt-1 text-xs text-[var(--b-text-muted)]" :title="exactQuantity(usedCount(row))">已用 {{ formatCodeQuantity(usedCount(row)) }}</p>
+                <p v-if="row.occupiedCount > 0" class="mt-1 text-xs text-[var(--b-text-muted)]">
+                  <span :title="exactQuantity(row.occupiedCount)">任务占用 {{ formatCodeQuantity(row.occupiedCount) }}</span>
+                  <span :title="exactQuantity(row.availableCount)"> · 当前可领 {{ formatCodeQuantity(row.availableCount) }}</span>
+                </p>
+                <p v-if="row.lastUsedAt" class="mt-1 text-xs text-[var(--b-text-muted)]">最近使用：{{ usageTime(row.lastUsedAt) }}</p>
+                <p v-if="row.productionRecordsAvailable === false" class="mt-1 max-w-64 text-xs text-[var(--b-text-muted)]">{{ row.unavailableReason || '生产使用记录暂不可用' }}</p>
+              </td>
               <td>
                 <span
                   class="b-tag"
@@ -535,10 +704,12 @@ const flagBadge = (f: number) => {
                 </span>
               </td>
               <td>{{ row.batch_no || '-' }}</td>
-              <td>{{ String(row.created_at).slice(0, 16) }}</td>
+              <td class="whitespace-nowrap">{{ String(row.created_at).slice(0, 16) }}</td>
               <td>
-                <div class="b-actions justify-end">
+                <div class="b-actions justify-end whitespace-nowrap">
                   <UButton variant="link" color="neutral" size="xs" icon="i-lucide-eye" @click="openDetail(row)">详细</UButton>
+                  <span class="b-sep" />
+                  <UButton variant="link" color="neutral" size="xs" icon="i-lucide-history" @click="openUsage(row)">使用记录</UButton>
                   <!-- 导出（2026-10-10）：仅「生成入库」留档批次——生成页未及时下载文件时的回捞出口 -->
                   <template v-if="isStockedBatch(row)">
                     <span class="b-sep" />
@@ -577,7 +748,7 @@ const flagBadge = (f: number) => {
               </td>
             </tr>
             <tr v-if="!pending && !data?.rows?.length">
-              <td colspan="7" class="b-empty">
+              <td colspan="8" class="b-empty">
                 <div class="b-empty-inner">
                   <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
                   <span class="text-sm">暂无上传批次，请先在「生产采集」上传追溯码文件；或调整筛选条件后重试</span>
@@ -597,6 +768,115 @@ const flagBadge = (f: number) => {
         </div>
       </div>
     </div>
+
+    <!-- 使用记录：各角色均可查看；数量来自后台去重统计，格式化仅用于显示。 -->
+    <UModal v-model:open="showUsageModal" :ui="{ content: 'sm:max-w-7xl' }">
+      <template #content>
+        <div class="b-modal">
+          <div class="b-modal-head">
+            <div class="b-modal-icon">
+              <UIcon name="i-lucide-history" class="h-4 w-4 text-[var(--b-text-regular)]" />
+            </div>
+            <div class="min-w-0 flex-1">
+              <h3 class="b-modal-title">批次使用记录</h3>
+              <p class="b-modal-sub break-words" :title="usageRow?.file_name">{{ usageRow?.file_name }}</p>
+            </div>
+            <UButton variant="outline" color="neutral" size="sm" icon="i-lucide-refresh-cw" :loading="usageLoading" @click="loadUsage">刷新</UButton>
+          </div>
+          <div class="b-modal-body max-h-[70vh] space-y-4 overflow-y-auto">
+            <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div class="b-card p-3">
+                <p class="b-card-extra">码总数量</p>
+                <p class="mt-1 text-lg font-semibold b-strong" :title="exactQuantity(usageSummary?.codeTotal)">{{ formatCodeQuantity(usageSummary?.codeTotal || 0) }}</p>
+              </div>
+              <div class="b-card p-3">
+                <p class="b-card-extra">累计已用</p>
+                <p class="mt-1 text-lg font-semibold b-strong" :title="exactQuantity(usedCount(usageSummary))">{{ formatCodeQuantity(usedCount(usageSummary)) }}</p>
+              </div>
+              <div class="b-card p-3">
+                <p class="b-card-extra">剩余数量</p>
+                <p class="mt-1 text-lg font-semibold b-strong" :title="exactQuantity(remainingCount(usageSummary))">{{ formatCodeQuantity(remainingCount(usageSummary)) }}</p>
+              </div>
+            </div>
+            <p v-if="usageRow?.occupiedCount > 0" class="b-help">
+              剩余码中任务占用 <span :title="exactQuantity(usageRow.occupiedCount)">{{ formatCodeQuantity(usageRow.occupiedCount) }}</span>，当前可领 <span :title="exactQuantity(usageRow.availableCount)">{{ formatCodeQuantity(usageRow.availableCount) }}</span>。领用尚未生产的码仍计入剩余。
+            </p>
+            <div v-if="usageData?.productionRecordsAvailable === false || (!usageData && usageRow?.productionRecordsAvailable === false)" class="b-note">
+              <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+              <p class="b-note-text">{{ usageData?.unavailableReason || usageRow?.unavailableReason || '生产使用记录暂不可用' }}</p>
+            </div>
+            <div v-if="usageData?.legacyBoundCount" class="b-note">
+              <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
+              <p class="b-note-text">有 <span :title="exactQuantity(usageData.legacyBoundCount)">{{ formatCodeQuantity(usageData.legacyBoundCount) }}</span> 历史已绑定码，已计入累计已用；对应的生产任务、上传来源和时间未记录。</p>
+            </div>
+            <p class="b-help">时间均为北京时间。后台收到时间表示上传入库时间，设备采集时间表示移动端扫码时间；重复上传不重复计算使用量。</p>
+            <div v-if="usageError" role="alert" class="b-note">
+              <UIcon name="i-lucide-circle-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
+              <p class="b-note-text flex-1">{{ usageError }}</p>
+              <UButton variant="link" color="neutral" size="xs" :loading="usageLoading" @click="loadUsage">重试</UButton>
+            </div>
+            <div class="b-scroll-x">
+              <table class="b-table">
+                <thead>
+                  <tr>
+                    <th>后台收到时间</th>
+                    <th>生产任务</th>
+                    <th class="text-right">使用量</th>
+                    <th>上传来源</th>
+                    <th>上传账号</th>
+                    <th>采集设备</th>
+                    <th>设备采集时间</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(record, index) in usageRows" :key="`${record.taskId}-${record.usageDate}-${record.source}-${record.uploaderType}-${record.uploaderId}-${record.deviceId}-${index}`">
+                    <td class="min-w-48">
+                      <p>{{ usageTime(record.firstReceivedAt) }}</p>
+                      <p v-if="record.lastReceivedAt && record.lastReceivedAt !== record.firstReceivedAt" class="mt-1 text-xs text-[var(--b-text-muted)]">至 {{ usageTime(record.lastReceivedAt) }}</p>
+                    </td>
+                    <td class="min-w-36">
+                      <p class="font-medium b-strong">{{ record.taskName || '任务名称未记录' }}</p>
+                      <p class="mt-1 text-xs text-[var(--b-text-muted)]">任务编号：{{ record.taskId }}</p>
+                      <p class="mt-1 text-xs text-[var(--b-text-muted)]">生产批号：{{ record.batchNo || '未记录' }}</p>
+                      <p class="mt-1 text-xs text-[var(--b-text-muted)]">生产线：{{ record.lineName || '未记录' }}</p>
+                    </td>
+                    <td class="text-right font-medium b-strong" :title="exactQuantity(record.count)">{{ formatCodeQuantity(record.count) }}</td>
+                    <td><span class="b-tag" :class="record.source === 'mobile' ? 'b-tag-success' : 'b-tag-default'">{{ record.source === 'mobile' ? '移动端上传' : record.sourceLabel || '在线扫码（客户端未记录）' }}</span></td>
+                    <td class="min-w-32">{{ uploaderText(record) }}</td>
+                    <td>{{ record.deviceName || '未记录' }}</td>
+                    <td class="min-w-48">
+                      <template v-if="record.firstCapturedAt">
+                        <p>{{ usageTime(record.firstCapturedAt) }}</p>
+                        <p v-if="record.lastCapturedAt && record.lastCapturedAt !== record.firstCapturedAt" class="mt-1 text-xs text-[var(--b-text-muted)]">至 {{ usageTime(record.lastCapturedAt) }}</p>
+                      </template>
+                      <span v-else class="text-[var(--b-text-muted)]">采集时间未记录</span>
+                    </td>
+                  </tr>
+                  <tr v-if="!usageRows.length">
+                    <td colspan="7" class="b-empty">
+                      <div class="b-empty-inner">
+                        <UIcon :name="usageLoading ? 'i-lucide-loader-circle' : 'i-lucide-inbox'" class="b-empty-icon h-8 w-8" :class="{ 'animate-spin': usageLoading }" />
+                        <span class="text-sm">{{ usageLoading ? '正在加载使用记录' : usageError ? '使用记录未加载，请重试' : usageData?.productionRecordsAvailable === false ? '生产使用记录暂不可用' : '本批次暂无生产使用记录' }}</span>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-if="usageData?.total" class="b-pager">
+              <span class="b-card-extra">共 {{ usageData.total }} 条记录 · 第 {{ usagePage }} / {{ usageTotalPages }} 页</span>
+              <div class="flex items-center gap-2">
+                <UButton variant="outline" color="neutral" size="sm" :disabled="usageLoading || usagePage <= 1" @click="changeUsagePage(usagePage - 1)">上一页</UButton>
+                <UButton variant="outline" color="neutral" size="sm" :disabled="usageLoading || usagePage >= usageTotalPages" @click="changeUsagePage(usagePage + 1)">下一页</UButton>
+              </div>
+            </div>
+          </div>
+          <div class="b-modal-foot">
+            <UButton variant="outline" color="neutral" @click="showUsageModal = false">关闭</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
 
     <!-- 整批冻结确认对话框 -->
     <UModal v-model:open="showFreezeModal">

@@ -41,7 +41,7 @@ export async function startCollection(user: AuthUser, taskId: number, body: Reco
     const context = await contextOf(conn, task)
     if (prior && hash(context) !== prior.context_hash) fail('本批生产资料发生变化，请管理员核对未同步记录')
     const [[product]] = await conn.query<any[]>('SELECT name FROM product WHERE id=?', [task.product_id])
-    const saved = prior ? asJson(prior.context_json) : { ...context, productName: product?.name, name: task.name, lineName: task.line_name || task.name, userId: Number(user.id), userName: user.name || user.username, enterpriseId: task.enterprise_id, deviceId:user.device_id || null, serverTaskCreatedBy: Number(task.created_by) }
+    const saved = prior ? asJson(prior.context_json) : { ...context, productName: product?.name, name: task.name, lineName: task.line_name || task.name, userId: Number(user.id), userName: user.name || user.username, userUsername: user.device_id ? null : user.username, enterpriseId: task.enterprise_id, deviceId:user.device_id || null, serverTaskCreatedBy: Number(task.created_by) }
     if (!prior && user.device_id) await conn.execute('INSERT INTO production_collection_session(id,task_id,user_id,device_id,device,line_snapshot,context_hash,context_json) VALUES (?,?,?,?,?,?,?,?)', [id!,taskId,0,user.device_id,device,saved.lineName,hash(context),JSON.stringify(saved)])
     else if (!prior) await conn.execute('INSERT INTO production_collection_session(id,task_id,user_id,device,line_snapshot,context_hash,context_json) VALUES (?,?,?,?,?,?,?)', [id!, taskId, user.id, device, saved.lineName, hash(context), JSON.stringify(saved)])
     const codes = await conn.query<any[]>(`SELECT d.code,d.state,c.abnormal_flag,
