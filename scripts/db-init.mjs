@@ -19,6 +19,7 @@ import { fileURLToPath } from 'url';
 import { productionDDL, migrateProductionSchema } from './production-schema.mjs';
 import { collectionDDL } from './collection-schema.mjs';
 import { deviceDDL, migrateDeviceSchema } from './device-schema.mjs';
+import { usageBatchDDL, migrateUsageBatchSchema } from './usage-batch-schema.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 读取 .env（简易解析，无 dotenv 依赖）
@@ -607,7 +608,8 @@ async function main() {
   }
   await migrateProductionSchema(conn);
   await migrateDeviceSchema(conn);
-  console.log('[db] ' + (DDL.length + productionDDL.length + collectionDDL.length + deviceDDL.length) + ' 张表创建完成');
+  await migrateUsageBatchSchema(conn);
+  console.log('[db] ' + (DDL.length + productionDDL.length + collectionDDL.length + deviceDDL.length + usageBatchDDL.length) + ' 张表创建完成');
 
   // 3) 增量迁移（历史库补列/补索引）
   await migrate(conn);

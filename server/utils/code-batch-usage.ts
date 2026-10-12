@@ -1,4 +1,5 @@
 import { query } from './db'
+import { usageBatchSchemaAvailable } from './usage-batch-schema'
 
 const requiredColumns: Record<string, string[]> = {
   production_task: ['id', 'enterprise_id', 'batch_id', 'name', 'line_name'],
@@ -74,6 +75,7 @@ export async function codeBatchUsage(uploadBatchId: number, enterpriseId: number
     pageSize,
   }
   if (!productionRecordsAvailable) return result
+  const taskSnapshotsAvailable = await usageBatchSchemaAvailable()
 
   // 先利用上传批次索引限定码，再仅访问这些码涉及的任务会话和 accepted 收据。
   // 同一个码若有多条 accepted 收据，只采用最早一条，避免跨日或跨账号重复计数。
@@ -127,7 +129,8 @@ export async function codeBatchUsage(uploadBatchId: number, enterpriseId: number
        GROUP BY h.task_id, h.source, h.uploader_id, DATE(h.received_at),
          CASE WHEN h.uploader_id IS NULL THEN h.device_id ELSE NULL END
      )
-     SELECT totals.group_total, g.*, t.name AS task_name, b.batch_no
+     SELECT totals.group_total, g.*, t.name AS task_name,
+       ${taskSnapshotsAvailable ? "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.production_snapshot,'$.batch_no')),b.batch_no)" : 'b.batch_no'} AS batch_no
      FROM (SELECT COUNT(*) AS group_total FROM grouped) totals
      LEFT JOIN (
        SELECT * FROM grouped ORDER BY last_received_at DESC, task_id DESC, source, uploader_id, device_id

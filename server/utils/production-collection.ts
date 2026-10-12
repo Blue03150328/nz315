@@ -4,13 +4,17 @@ import type { AuthUser } from './auth'
 import { query } from './db'
 import { transaction, lockedTask, bindProductionInTransaction, endProductionInTransaction, productionReviewer } from './production-task'
 import { collectionId, collectionEvents } from '../../shared/utils/collection-input'
+import { taskProduction } from './task-production'
+import { uploadIdInput, lockedProductionUpload, assignUsageBatch } from './production-uploads'
+import { usageBatchSchemaAvailable, requireUsageBatchSchema } from './usage-batch-schema'
 
 const fail = (message: string, statusCode = 409): never => { throw createError({ statusCode, statusMessage: message }) }
 const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const asJson = (value: any) => typeof value === 'string' ? JSON.parse(value) : value
 async function contextOf(conn: PoolConnection, task: any) {
-  const [[batch]] = await conn.query<any[]>('SELECT * FROM batch WHERE id=? FOR UPDATE', [task.batch_id])
-  if (!batch) fail('生产批次不存在')
+  const [[storedBatch]] = await conn.query<any[]>('SELECT * FROM batch WHERE id=? FOR UPDATE', [task.batch_id])
+  if (!storedBatch) fail('生产批次不存在')
+  const batch = taskProduction(task, storedBatch)
   return { taskId: Number(task.id), productId: Number(task.product_id), batchId: Number(task.batch_id), batchNo: batch.batch_no, produceDate: String(batch.produce_date).slice(0, 10), expireDate: String(batch.expire_date).slice(0, 10), qcResult: Number(batch.qc_result), qualityCertNo: batch.quality_cert_no }
 }
 function owner(user: AuthUser, session: any) {
@@ -23,7 +27,7 @@ async function lockedSession(conn: PoolConnection, user: AuthUser, taskId: numbe
   if (!session) fail('设备采集会话不存在', 404)
   owner(user, session); return session
 }
-function receipt(row: any) { return { eventId: row.event_id, sequence: Number(row.sequence_no), code: row.code || null, kind: row.event_kind, state: row.result_state, reason: row.reason } }
+function receipt(row: any) { return { eventId: row.event_id, sequence: Number(row.sequence_no), code: row.code || null, kind: row.event_kind, state: row.result_state, reason: row.reason, ...(row.upload_id ? { uploadId: row.upload_id } : {}) } }
 
 /** 创建可恢复的设备采集会话，注册后结束任务和修改生产资料均被锁住。 */
 export async function startCollection(user: AuthUser, taskId: number, body: Record<string, any>) {
@@ -55,14 +59,21 @@ export async function startCollection(user: AuthUser, taskId: number, body: Reco
 export async function syncCollection(user: AuthUser, taskId: number, rawId: string, body: Record<string, any>) {
   let id: string, events: ReturnType<typeof collectionEvents>
   try { id = collectionId(rawId); events = collectionEvents(body) } catch (error) { fail((error as Error).message, 400) }
+  const uploadId = body.uploadId === undefined ? null : uploadIdInput(body.uploadId)
+  const modernSchema = uploadId ? (await requireUsageBatchSchema(), true) : await usageBatchSchemaAvailable()
   const receipts = []
   for (const event of events!) {
     try {
       const result = await transaction(async conn => {
         const task = await lockedTask(conn, user, taskId), session = await lockedSession(conn, user, taskId, id!)
+        const upload = uploadId ? await lockedProductionUpload(conn, user, taskId, id!, uploadId, event.sequence) : null
         const payloadHash = hash(event)
         const [[prior]] = await conn.query<any[]>('SELECT * FROM production_collection_event WHERE session_id=? AND sequence_no=? FOR UPDATE', [id!, event.sequence])
-        if (prior) { if (prior.event_id !== event.eventId || prior.payload_hash !== payloadHash) fail('事件序号被不同资料使用，请核对设备记录'); return receipt(prior) }
+        if (prior) { if (prior.event_id !== event.eventId || prior.payload_hash !== payloadHash || (uploadId && prior.upload_id && prior.upload_id !== uploadId)) fail('事件序号或上传批次被不同资料使用，请核对设备记录'); return receipt(prior) }
+        if (!uploadId && modernSchema) {
+          const [[open]] = await conn.query<any[]>('SELECT id FROM production_collection_upload WHERE session_id=? LIMIT 1', [id!])
+          if (open) fail('本会话已启用上传子批次，请保留原上传标识重试')
+        }
         if (session.state !== 'active' || task.status !== 'active') fail('采集或生产已经结束，未确认记录不得转绑其他任务')
         if (event.sequence !== Number(session.last_sequence) + 1) fail('采集序号存在缺口，请先重传较早的记录')
         if (hash(await contextOf(conn, task)) !== session.context_hash) fail('生产资料发生变化，保留本机记录并请管理员核对')
@@ -73,29 +84,31 @@ export async function syncCollection(user: AuthUser, taskId: number, rawId: stri
             if (!event.code) fail('不是完整的本系统32位追溯码', 400)
             const bound = await bindProductionInTransaction(conn, user, taskId, { code: event.code, device: session.device }, task, session.line_snapshot)
             resultState = bound.duplicate ? 'duplicate' : 'accepted'; reason = bound.duplicate ? '云端此前已绑定，不重复计数' : ''
+            if (!bound.duplicate && upload) await assignUsageBatch(conn, upload, event.code!)
           } catch (error: any) {
             await conn.query('ROLLBACK TO SAVEPOINT collection_binding')
             if (!error?.statusCode || error.statusCode >= 500) throw error
             resultState = 'rejected'; reason = String(error.statusMessage || error.message || '码未通过生产绑定校验').slice(0, 500)
           }
         }
-        await conn.execute('INSERT INTO production_collection_event(event_id,session_id,sequence_no,payload_hash,code,raw_code,event_kind,result_state,reason,captured_at) VALUES (?,?,?,?,?,?,?,?,?,?)', [event.eventId, id!, event.sequence, payloadHash, event.code, event.rawCode, event.kind, resultState, reason, event.capturedAt.replace('T', ' ').replace('Z', '')])
+        await conn.execute('INSERT INTO production_collection_event(event_id,session_id,sequence_no,payload_hash,code,raw_code,event_kind,result_state,reason,captured_at' + (modernSchema ? ',upload_id' : '') + ') VALUES (' + (modernSchema ? '?,?,?,?,?,?,?,?,?,?,?' : '?,?,?,?,?,?,?,?,?,?') + ')', [event.eventId, id!, event.sequence, payloadHash, event.code, event.rawCode, event.kind, resultState, reason, event.capturedAt.replace('T', ' ').replace('Z', ''), ...(modernSchema ? [uploadId] : [])])
         const countColumn = resultState === 'accepted' ? 'accepted_count' : resultState === 'duplicate' ? 'duplicate_count' : 'rejected_count'
         await conn.execute(`UPDATE production_collection_session SET last_sequence=?,${countColumn}=${countColumn}+1 WHERE id=?`, [event.sequence, id!])
         if(user.device_id) await conn.execute('UPDATE production_device SET last_sync_at=NOW() WHERE id=?',[user.device_id])
-        return { eventId: event.eventId, sequence: event.sequence, code: event.code, kind: event.kind, state: resultState, reason }
+        return { eventId: event.eventId, sequence: event.sequence, code: event.code, kind: event.kind, state: resultState, reason, ...(uploadId ? { uploadId } : {}) }
       })
       receipts.push(result)
     } catch (error: any) {
       // 未确认的尾部仍留在设备；不把事务失败当成已剔除或已同步。
-      return { ok: false, sessionId: id!, receipts, retryable: true, statusCode: Number(error.statusCode || 503), message: String(error.statusMessage || '云端暂未确认，请保留本机记录并重试').slice(0, 500) }
+      return { ok: false, sessionId: id!, ...(uploadId ? { uploadId } : {}), receipts, retryable: true, statusCode: Number(error.statusCode || 503), message: String(error.statusMessage || '云端暂未确认，请保留本机记录并重试').slice(0, 500) }
     }
   }
-  return { ok: true, sessionId: id!, receipts }
+  return { ok: true, sessionId: id!, ...(uploadId ? { uploadId } : {}), receipts }
 }
 
 /** 停止采集后传最终序号；云端必须收齐包含重复/错误码在内的全部事件才可结束。 */
 export async function completeCollection(user: AuthUser, taskId: number, rawId: string, body: Record<string, any>) {
+  const modernSchema = await usageBatchSchemaAvailable()
   let id: string
   try { id = collectionId(rawId) } catch (error) { fail((error as Error).message, 400) }
   const last = Number(body.lastSequence)
@@ -108,6 +121,10 @@ export async function completeCollection(user: AuthUser, taskId: number, rawId: 
     }
     const [[count]] = await conn.query<any[]>('SELECT COUNT(*) AS n FROM production_collection_event WHERE session_id=?', [id!])
     if (Number(session.last_sequence) !== last || Number(count.n) !== last) fail('云端尚未收齐本机全部记录，不能结束采集')
+    if (modernSchema) {
+      const [[unfinished]] = await conn.query<any[]>("SELECT id FROM production_collection_upload WHERE session_id=? AND state<>'completed' LIMIT 1", [id!])
+      if (unfinished) fail('请先完成本次上传，收齐固定序号范围后再结束采集')
+    }
     await conn.execute("UPDATE production_collection_session SET state='completed',completed_at=NOW() WHERE id=?", [id!])
     const [[active]] = await conn.query<any[]>("SELECT COUNT(*) AS n FROM production_collection_session WHERE task_id=? AND state='active'", [taskId])
     let ended = false, taskStatus = task.status

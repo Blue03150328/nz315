@@ -13,7 +13,7 @@ export function productionDate(value: unknown): string {
 /** 展示和异常判断必须使用同一份最终生效的生产信息。 */
 export function effectiveProduction(code: Record<string, any>, batch: Record<string, any>) {
   return {
-    batchNo: batch.batch_no,
+    batchNo: code.batch_no ?? batch.batch_no,
     produceDate: productionDate(code.produce_date) || productionDate(batch.produce_date),
     expireDate: productionDate(code.expire_date) || productionDate(batch.expire_date),
     qcResult: Number(code.qc_result ?? batch.qc_result) === 1 ? '合格' : '不合格',

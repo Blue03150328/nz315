@@ -8,8 +8,10 @@ export default defineEventHandler(async (event) => {
   const body = await readBody(event) || {}
   const id = Number(getRouterParam(event, 'id'))
   if (!Number.isInteger(id) || id <= 0) throw createError({ statusCode: 400, statusMessage: '无效的上传批次ID' })
-  const selection = { uploadBatchId: id }
+  const scope = body.scope ?? getQuery(event).scope
+  if (scope !== undefined && scope !== 'remaining') throw createError({ statusCode: 400, statusMessage: '码范围无效' })
+  const selection = { uploadBatchId: id, ...(scope === 'remaining' ? { remaining: true } : {}) }
   const { audit, ...result } = await correctCodes(user, body, selection)
-  await logOperation(event, { module: '码库管理', action: '整文件修正', content: JSON.stringify({ ...selection, ...audit }) })
+  await logOperation(event, { module: '码库管理', action: selection.remaining ? '剩余码修正' : '整文件修正', content: JSON.stringify({ ...selection, ...audit }) })
   return result
 })
