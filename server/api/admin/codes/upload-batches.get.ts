@@ -41,7 +41,7 @@ export default defineEventHandler(async (event) => {
   }
   if (q.productId) { conds.push('ub.product_id = ?'); params.push(Number(q.productId)) }
   if (q.batchNo) {
-    conds.push('ub.batch_no LIKE ?')
+    conds.push("EXISTS (SELECT 1 FROM trace_code ft LEFT JOIN batch fb ON fb.id=ft.batch_id WHERE ft.upload_batch_id=ub.id AND ft.status=2 AND COALESCE(NULLIF(ft.batch_no,''),fb.batch_no) LIKE ?)")
     params.push('%' + String(q.batchNo).trim().slice(0, 64) + '%')
   }
   if (q.dateFrom) { conds.push('ub.created_at >= ?'); params.push(String(q.dateFrom) + ' 00:00:00') }
@@ -55,7 +55,12 @@ export default defineEventHandler(async (event) => {
   const [cntRow] = await query<any[]>(
     'SELECT COUNT(*) AS c FROM upload_batch ub ' + whereSql, params)
   const rows = await query<any[]>(
-    `SELECT ub.id, ub.file_name, ub.product_id, ub.batch_no, ub.created_at, ub.created_by,
+    `SELECT ub.id, ub.file_name, ub.product_id, ub.created_at, ub.created_by,
+       CASE WHEN COUNT(DISTINCT CASE WHEN t.status=2 THEN COALESCE(NULLIF(t.batch_no,''),b.batch_no) END)=1 THEN MAX(CASE WHEN t.status=2 THEN COALESCE(NULLIF(t.batch_no,''),b.batch_no) END) END AS batch_no,
+       COUNT(DISTINCT CASE WHEN t.status=2 THEN COALESCE(NULLIF(t.batch_no,''),b.batch_no) END) AS batch_count,
+       GROUP_CONCAT(DISTINCT CASE WHEN t.status=2 THEN COALESCE(NULLIF(t.batch_no,''),b.batch_no) END ORDER BY COALESCE(NULLIF(t.batch_no,''),b.batch_no) SEPARATOR '、') AS batch_nos,
+       CASE WHEN COUNT(DISTINCT CASE WHEN t.status=2 THEN COALESCE(t.produce_date,b.produce_date) END)=1 THEN MAX(CASE WHEN t.status=2 THEN COALESCE(t.produce_date,b.produce_date) END) END AS produce_date,
+       CASE WHEN COUNT(DISTINCT CASE WHEN t.status=2 THEN COALESCE(t.expire_date,b.expire_date) END)=1 THEN MAX(CASE WHEN t.status=2 THEN COALESCE(t.expire_date,b.expire_date) END) END AS expire_date,
        p.name AS product_name,
        COUNT(t.id) AS code_total,
        COALESCE(SUM(t.abnormal_flag = 1), 0) AS frozen_count,
@@ -64,8 +69,9 @@ export default defineEventHandler(async (event) => {
      FROM upload_batch ub
      LEFT JOIN product p ON p.id = ub.product_id
      LEFT JOIN trace_code t ON t.upload_batch_id = ub.id
+     LEFT JOIN batch b ON b.id=t.batch_id
      ` + whereSql + `
-     GROUP BY ub.id, ub.file_name, ub.product_id, ub.batch_no, ub.created_at, ub.created_by, p.name
+     GROUP BY ub.id,ub.file_name,ub.product_id,ub.created_at,ub.created_by,p.name
      ORDER BY ub.id DESC LIMIT ? OFFSET ?`, [...params, pageSize, offset])
 
   return {

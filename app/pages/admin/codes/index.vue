@@ -443,6 +443,23 @@ const flagBadge = (f: number) => {
   if (f === 2) return { cls: 'b-tag-danger', label: '已作废' }
   return { cls: 'b-tag-default', label: '正常' }
 }
+// 采集上传后刷新只读列表与明细；编辑中的表单保持原输入。
+let syncTimer: ReturnType<typeof setInterval> | undefined
+async function refreshProductionView() {
+  if (codesRoute.path !== '/admin/codes' || document.visibilityState !== 'visible' || pending.value || detailLoading.value || showRowEditModal.value || showCorrectModal.value || showBindModal.value) return
+  await refresh()
+  if (showDetailModal.value) {
+    const latest = data.value?.rows?.find((row: any) => row.id === detailRow.value?.id)
+    if (latest) detailRow.value = latest
+    await loadDetail()
+  }
+}
+function startProductionRefresh() { if (!syncTimer) syncTimer = setInterval(() => { void refreshProductionView() }, 20000) }
+function stopProductionRefresh() { clearInterval(syncTimer); syncTimer = undefined }
+onMounted(startProductionRefresh)
+onActivated(() => { startProductionRefresh(); void refreshProductionView() })
+onDeactivated(stopProductionRefresh)
+onBeforeUnmount(stopProductionRefresh)
 </script>
 
 <template>
@@ -534,7 +551,7 @@ const flagBadge = (f: number) => {
                   （正常 {{ row.normalCount }} / 冻结 {{ row.frozenCount }} / 作废 {{ row.voidedCount }}）
                 </span>
               </td>
-              <td>{{ row.batch_no || '-' }}</td>
+              <td :title="row.batch_nos||''">{{ Number(row.batch_count)>1?'多个批号（'+row.batch_count+'个）':row.batch_no||'-' }}<p v-if="row.produce_date" class="text-xs text-[var(--b-text-muted)]">生产 {{ row.produce_date }}<span v-if="row.expire_date"> · 有效至 {{ row.expire_date }}</span></p></td>
               <td>{{ String(row.created_at).slice(0, 16) }}</td>
               <td>
                 <div class="b-actions justify-end">
@@ -868,6 +885,7 @@ const flagBadge = (f: number) => {
             </div>
           </div>
           <div class="b-modal-body">
+            <p v-if="detailRow?.id" class="mb-3 text-sm text-[var(--b-text-muted)]">已绑定 {{ detailRow.boundCount||0 }} / {{ detailRow.codeTotal||0 }} 个码。未扫描码的生产资料显示为 -；可筛选“已绑定”查看生产记录。</p>
             <!-- 明细筛选 -->
             <div class="mb-3 flex flex-wrap items-end gap-2">
               <div class="w-64">
@@ -896,6 +914,7 @@ const flagBadge = (f: number) => {
                     <th>异常标记</th>
                     <th>生产日期</th>
                     <th>生产批号</th>
+                    <th>有效期至</th>
                     <th>上传时间</th>
                     <th class="text-right">操作</th>
                   </tr>
@@ -911,6 +930,7 @@ const flagBadge = (f: number) => {
                     </td>
                     <td>{{ r.produce_date || '-' }}</td>
                     <td>{{ r.batch_no || '-' }}</td>
+                    <td>{{ r.expire_date || '-' }}</td>
                     <td>{{ String(r.created_at).slice(0, 16) }}</td>
                     <td>
                       <div v-if="canWrite && Number(r.abnormal_flag) === 0" class="b-actions justify-end">
@@ -945,7 +965,7 @@ const flagBadge = (f: number) => {
                     </td>
                   </tr>
                   <tr v-if="!detailLoading && !detailRows.length">
-                    <td colspan="8" class="b-empty">
+                    <td colspan="9" class="b-empty">
                       <div class="b-empty-inner">
                         <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
                         <span class="text-sm">本批次暂无符合筛选条件的追溯码</span>
