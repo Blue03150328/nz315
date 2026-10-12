@@ -28,7 +28,7 @@ const productionEditable = computed(() => mode.value !== 'edit' || (editingTask.
 const existingDestination = computed(() => mode.value === 'transfer' && destination.value === 'existing')
 const canEdit = (t: any) => canWrite.value && (canManageUsers.value || Number(t.created_by) === Number(user.value?.id))
 // 远程搜索保留已选产品的名称。
-const productCache = new Map<string, string>()
+const productCache = reactive(new Map<string, string>())
 const productLabel = (p: any) => `${p.name} · ${p.spec_name || '规格未填写'}（${p.registration_no}）`
 watch(products, result => { for (const row of result?.rows || []) productCache.set(String(row.id), productLabel(row)) }, { immediate: true })
 const productItems = computed(() => (products.value?.rows || []).map((r: any) => ({ value: String(r.id), label: productLabel(r) })))
@@ -82,15 +82,16 @@ async function applyCodeLibrarySource() {
   form.value.productId = String(productId)
   prefillSourceId.value = sourceId
   try {
-    const [selectedProduct] = await Promise.all([
+    const [selectedProduct, selectedSources] = await Promise.all([
       $fetch<any>('/api/admin/products', { query: { productId, status: 1, pageSize: 1 } }),
-      refreshSources(),
+      $fetch<any>('/api/admin/production-tasks/sources', { query: { productId, sourceUploadBatchId: sourceId } }),
     ])
     if (request !== prefillRequest || !showForm.value || Number(form.value.productId) !== productId || prefillSourceId.value !== sourceId) return
     const product = selectedProduct.rows?.find((p: any) => Number(p.id) === productId)
     if (!product) throw new Error('来源产品已停用或不属于当前企业')
     productCache.set(String(productId), productLabel(product))
-    const source = sources.value?.uploads?.find((s: any) => Number(s.id) === sourceId)
+    sources.value = selectedSources
+    const source = selectedSources.uploads?.find((s: any) => Number(s.id) === sourceId)
     if (!source || Number(source.available_count) <= 0) {
       toast.add({ title: '该剩余批次当前没有可领用的码，请核对任务占用及审核状态', color: 'warning' })
       return
