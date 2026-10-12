@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"><meta name="color-scheme" content="light"><meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' file:; style-src 'self' file: 'unsafe-inline'; img-src 'self' file: data:; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'"><title>农资315生产扫码</title><link rel="stylesheet" href="app.css"></head>
+<body>
+  <header class="topbar"><div class="brand"><span class="logo" aria-hidden="true">田</span><div><strong>农资315</strong><small>生产扫码</small></div></div><button id="settingsButton" class="iconbutton" aria-label="连接与扫码设置">设置</button></header>
+  <main id="main"></main>
+  <div id="notice" role="status" aria-live="polite" hidden></div>
+  <footer id="receipt" hidden aria-live="polite"></footer>
+  <dialog id="confirmDialog"><form method="dialog"><h2 id="confirmTitle"></h2><p id="confirmMessage"></p><div class="actions"><button value="cancel" class="secondary">取消</button><button value="yes" id="confirmYes" class="primary">确认</button></div></form></dialog>
+  <script src="core.js"></script><script src="app.js"></script>
+</body></html>

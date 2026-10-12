@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import ProductionDatePicker from '~/components/ProductionDatePicker.vue'
 import ProductionAllocationPicker from '~/components/ProductionAllocationPicker.vue'
+import ProductionDeviceManager from '~/components/ProductionDeviceManager.vue'
 definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
 useHead({ title: '生产任务与剩余码审核' })
 const { user, canWrite, canManageUsers } = useUser()
 const toast = useToast()
+const showDevices = ref(false)
+const { data: productionLines, refresh: refreshLines } = await useFetch<any>('/api/admin/production-tasks/lines')
+const lineNames = computed(() => [...new Set<string>((productionLines.value?.rows || []).map((r: any) => r.line_name))])
 const page = ref(1)
 const { data, pending, error, refresh } = await useFetch<any>('/api/admin/production-tasks', { query: { page } })
 const productKeyword = ref(''), productSearch = ref('')
@@ -18,7 +22,7 @@ const requestId = ref(crypto.randomUUID()), busy = ref(false), showForm = ref(fa
 const mode = ref<'create' | 'edit' | 'transfer'>('create')
 const editingTask = ref<any>(null), sourceTask = ref<any>(null), appendCodes = ref(false)
 const destination = ref('new'), destinationId = ref('')
-const productionEditable = computed(() => mode.value !== 'edit' || (editingTask.value?.status === 'active' && Number(editingTask.value?.used_count) === 0))
+const productionEditable = computed(() => mode.value !== 'edit' || (editingTask.value?.status === 'active' && Number(editingTask.value?.used_count) === 0 && !Number(editingTask.value?.active_collection_count)))
 const existingDestination = computed(() => mode.value === 'transfer' && destination.value === 'existing')
 const canEdit = (t: any) => canWrite.value && (canManageUsers.value || Number(t.created_by) === Number(user.value?.id))
 // 远程搜索保留已选产品的名称。
@@ -39,6 +43,9 @@ function selectAllocationTask(task: any) {
 }
 // 超时重试保持提交标识，改变资料后使用新的标识。
 watch(() => JSON.stringify([form.value, allocation.value, appendCodes.value, destination.value, destinationId.value]), () => { if (!busy.value) requestId.value = crypto.randomUUID() })
+const collection = ref<any>(null), collectionPage = ref(1), collectionBusy = ref(false)
+async function loadCollection(){if(!selected.value)return;const id=selected.value;collectionBusy.value=true;try{const result=await $fetch('/api/admin/production-tasks/'+id+'/collection-events',{query:{page:collectionPage.value}});if(selected.value===id)collection.value=result;}catch(e){toast.add({title:message(e),color:'error'});}finally{collectionBusy.value=false;}}
+watch(collectionPage,()=>{void loadCollection()})
 const selected = ref<number | null>(null), detail = ref<any>(null), state = ref(''), detailPage = ref(1), detailBusy = ref(false)
 const reason = ref(''), scanCode = ref(''), history = ref<any>(null), showHistory = ref(false)
 const statusLabels: Record<string, string> = { active: '生产中', pending: '剩余码待审核', rejected: '审核退回，继续锁定', approved: '已结束，剩余码已放行' }
@@ -78,13 +85,13 @@ async function loadDetail(id = selected.value) {
   detailBusy.value = true
   try {
     const result = await $fetch('/api/admin/production-tasks/' + id, { query: { state: state.value, page: detailPage.value } })
-    if (request === detailRequest) { detail.value = result; selected.value = id }
+    if (request === detailRequest) { detail.value = result; selected.value = id; void loadCollection() }
   } catch (e) { if (request === detailRequest) toast.add({ title: message(e), color: 'error' }) }
   finally { if (request === detailRequest) detailBusy.value = false }
 }
 watch(state, () => { detailPage.value = 1; void loadDetail() })
 watch(detailPage, () => { void loadDetail() })
-async function selectTask(id: number) { selected.value = id; state.value = ''; detailPage.value = 1; await loadDetail(id) }
+async function selectTask(id: number) { selected.value = id; collection.value=null; collectionPage.value=1; state.value = ''; detailPage.value = 1; await loadDetail(id) }
 function allocationBody() {
   return allocation.value.kind === 'manual' ? { content: allocation.value.content } : { [allocation.value.kind === 'task' ? 'sourceTaskId' : 'sourceUploadBatchId']: Number(allocation.value.sourceId), quantity: Number(allocation.value.quantity) }
 }
@@ -120,7 +127,8 @@ async function loadHistory(c: any) {
 
 <template>
   <div class="space-y-5">
-    <div class="flex flex-wrap items-center justify-between gap-3"><div><h1 class="b-page-title">生产任务与剩余码审核</h1><p class="b-page-desc">选择码文件或已审核任务，按数量领用；生产扫码后才绑定批次资料。</p></div><UButton v-if="canWrite" @click="openCreate">新建任务</UButton></div>
+    <div class="flex flex-wrap items-center justify-between gap-3"><div><h1 class="b-page-title">生产任务与剩余码审核</h1><p class="b-page-desc">选择码文件或已审核任务，按数量领用；生产扫码后才绑定批次资料。</p></div><div class="flex gap-2"><UButton v-if="canManageUsers" variant="outline" @click="showDevices = !showDevices; refreshLines()">{{ showDevices ? '收起设备管理' : '设备管理' }}</UButton><UButton v-if="canWrite" @click="openCreate(); refreshLines()">新建任务</UButton></div></div>
+    <div v-if="showDevices && canManageUsers" class="rounded-xl border p-5"><ProductionDeviceManager /></div>
     <div class="b-card p-5 space-y-3">
       <div class="flex justify-between"><h2 class="font-semibold">任务使用情况</h2><UButton variant="outline" @click="refresh(); loadDetail()">刷新</UButton></div>
       <p class="text-sm text-muted">本任务已生产保留历史；可再次领用和已转领反映当前去向。</p>
@@ -135,7 +143,13 @@ async function loadHistory(c: any) {
       <div class="flex flex-wrap justify-between gap-2"><h2 class="font-semibold">{{ detail.task.name }} · {{ statusLabels[detail.task.status] }}</h2><div class="flex gap-2"><UButton v-if="canEdit(detail.task)" variant="outline" @click="openTaskForm(detail.task, 'edit')">编辑任务</UButton><UButton v-if="canWrite && detail.task.available_count > 0" @click="openTaskForm(detail.task, 'transfer')">领取剩余码</UButton></div></div>
       <p>{{ detail.task.product_name }} / {{ detail.task.line_name || detail.task.name }} / 批号 {{ detail.task.batch_no }} / 生产日期 {{ dateText(detail.task.produce_date) }} / 有效期 {{ dateText(detail.task.expire_date) }} / 合格证 {{ detail.task.quality_cert_no }}</p>
       <div class="flex flex-wrap gap-4 rounded bg-elevated p-3 text-sm"><span>累计领用 {{ detail.task.total }}</span><span>本任务已生产 {{ detail.task.used_count }}</span><span>待生产 {{ detail.task.reserved_count }}</span><span>待审核 {{ detail.task.pending_count }}</span><span>可再次领用 {{ detail.task.available_count }}</span><span>已转领 {{ detail.task.transferred_count }}（其中已生产 {{ detail.task.transferred_used_count }}）</span></div>
-      <div v-if="canWrite && detail.task.status === 'active'" class="flex flex-wrap gap-3"><input v-model="scanCode" class="rounded border p-2" placeholder="输入或扫描本任务二维码" @keydown.enter.prevent="act('scan', { code: scanCode, device: '后台生产采集' })" /><UButton :disabled="busy || !scanCode" @click="act('scan', { code: scanCode, device: '后台生产采集' })">确认生产扫码</UButton><UButton v-if="canEdit(detail.task)" color="warning" :disabled="busy" @click="act('end', {})">结束生产</UButton></div>
+      <div v-if="canWrite && detail.task.status === 'active'" class="flex flex-wrap gap-3"><input v-model="scanCode" class="rounded border p-2" placeholder="输入或扫描本任务二维码" @keydown.enter.prevent="act('scan', { code: scanCode, device: '后台生产采集' })" /><UButton :disabled="busy || !scanCode" @click="act('scan', { code: scanCode, device: '后台生产采集' })">确认生产扫码</UButton><UButton v-if="canEdit(detail.task)" color="warning" :disabled="busy || !!detail.task.active_collection_count" @click="act('end', {})">结束生产</UButton></div>
+      <p v-if="detail.task.active_collection_count" class="rounded bg-warning/10 p-3 text-sm">当前 {{ detail.task.active_collection_count }} 台设备仍在采集或等待完成同步。请先在设备结束采集并确认全部上传，才能结束任务或修改生产资料。</p>
+      <details v-if="collection" class="rounded border p-3"><summary class="cursor-pointer font-semibold">设备采集与异常记录（{{ collection.total }} 条重复 / 异常）</summary>
+        <p v-for="s in collection.sessions" :key="s.id" class="my-2 text-sm">{{ s.device }} · {{ s.line_snapshot }} · {{ s.state === 'active' ? '采集 / 同步中' : '已完成同步' }} · 云端已绑定 {{ s.accepted_count }} · 重复 {{ s.duplicate_count }} · 异常 {{ s.rejected_count }}</p>
+        <div class="overflow-x-auto"><table class="b-table"><thead><tr><th>追溯码 / 原文</th><th>异常原因</th><th>操作员 / 设备 / 生产线</th><th>采集时间</th></tr></thead><tbody><tr v-for="e in collection.rows" :key="e.event_id"><td class="max-w-md break-all font-mono">{{ e.code || '-' }}<br />{{ e.raw_code }}</td><td>{{ e.result_state === 'duplicate' ? '重复码' : '异常码' }}：{{ e.reason }}</td><td>{{ e.operator_name }}<br />{{ e.device }}<br />{{ e.line_snapshot }}</td><td>{{ e.captured_at }}</td></tr></tbody></table></div>
+        <div class="mt-3 flex items-center gap-3"><UButton :disabled="collectionPage <= 1 || collectionBusy" variant="outline" @click="collectionPage--">上一页</UButton><span>第 {{ collectionPage }} 页</span><UButton :disabled="collectionPage * 50 >= collection.total || collectionBusy" variant="outline" @click="collectionPage++">下一页</UButton></div>
+      </details>
       <div v-if="canManageUsers && ['pending', 'rejected'].includes(detail.task.status)" class="space-y-3"><textarea v-model="reason" maxlength="500" class="w-full rounded border p-2" placeholder="填写审核原因，确认未使用包装可再次领用" /><UButton :disabled="busy || !reason.trim()" @click="act('review', { decision: 'approve', reason })">批准剩余码再次领用</UButton><UButton class="ml-3" color="warning" :disabled="busy || !reason.trim()" @click="act('review', { decision: 'reject', reason })">退回，继续锁定</UButton></div>
       <label>码明细筛选 <select v-model="state" class="rounded border p-2"><option value="">全部</option><option v-for="(label, value) in stateLabels" :key="value" :value="value">{{ label }}</option></select></label><p v-if="detailBusy">正在加载…</p>
       <div class="overflow-x-auto"><table class="b-table"><thead><tr class="text-left"><th>追溯码</th><th>当前情况</th><th>当前任务 / 实际生产线 / 批号</th><th>生产时间 / 设备</th><th>流转</th></tr></thead><tbody><tr v-for="c in detail.rows" :key="c.code_id" class="border-t"><td class="py-2 font-mono">{{ c.code }}</td><td>{{ codeState(c) }}</td><td><button v-if="c.current_task_id" class="text-primary underline" @click="selectTask(c.current_task_id)">{{ c.current_task_name }}</button><span v-else>-</span><br />{{ c.actual_line_name || '-' }} / {{ c.current_batch_no || '-' }}</td><td>{{ c.current_used_at || '-' }} / {{ c.current_device || '-' }}</td><td><UButton size="sm" variant="ghost" @click="loadHistory(c)">流转记录</UButton></td></tr></tbody></table></div>
@@ -148,7 +162,7 @@ async function loadHistory(c: any) {
         <label v-if="mode === 'transfer'" class="block space-y-1"><span>领用到</span><select v-model="destination" class="w-full rounded border p-2"><option value="new">新建下一批任务</option><option value="existing">现有生产中的任务</option></select></label>
         <label v-if="existingDestination" class="block space-y-1"><span>目标任务</span><select v-model="destinationId" required class="w-full rounded border p-2"><option value="">请选择目标任务</option><option v-for="t in sources?.activeTasks || []" :key="t.id" :value="String(t.id)">{{ t.name }} · {{ t.line_name || t.name }}</option></select><span class="text-sm text-muted">追加到目标任务，使用该任务的生产资料。</span></label>
         <div v-else class="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <label class="space-y-1"><span>任务名称</span><input v-model="form.name" required maxlength="100" class="w-full rounded border p-2" placeholder="例如：10月9日上午生产" /></label><label class="space-y-1"><span>生产线</span><input v-model="form.lineName" required maxlength="100" class="w-full rounded border p-2" placeholder="例如：一号线" /></label>
+          <label class="space-y-1"><span>任务名称</span><input v-model="form.name" required maxlength="100" class="w-full rounded border p-2" placeholder="例如：10月9日上午生产" /></label><label class="space-y-1"><span>生产线</span><input v-model="form.lineName" list="production-line-names" required maxlength="100" class="w-full rounded border p-2" placeholder="选择已有生产线，或填写新生产线" /><datalist id="production-line-names"><option v-for="line in lineNames" :key="line" :value="line" /></datalist></label>
           <div class="space-y-1 md:col-span-2"><label for="production-product">产品</label><USelectMenu id="production-product" v-model="form.productId" v-model:search-term="productSearch" :items="productItems" value-key="value" :loading="productLoading" :disabled="busy || mode !== 'create'" required ignore-filter aria-label="产品" :clear="{ 'aria-label': '清除产品选择' }" :search-input="{ placeholder: '输入产品名或登记证号搜索' }" placeholder="搜索并选择产品" class="w-full"><template #default><span class="truncate" :class="{ 'text-muted': !form.productId }">{{ selectedProductLabel || '搜索并选择产品' }}</span></template><template #empty>{{ productError ? '产品加载失败，请重新搜索' : productLoading ? '正在搜索…' : '没有匹配的产品' }}</template></USelectMenu></div>
           <p v-if="!productionEditable" class="md:col-span-2 text-sm text-muted">已有生产记录或任务已结束，生产资料保持原值。更改生产线只影响后续扫码，已生产码保留当时的生产线。</p>
           <label class="space-y-1"><span>生产批号</span><input v-model="form.batchNo" :disabled="!productionEditable" required maxlength="64" class="w-full rounded border p-2" /></label><label class="space-y-1"><span>质量合格证号</span><input v-model="form.qualityCertNo" :disabled="!productionEditable" required maxlength="100" class="w-full rounded border p-2" /></label>

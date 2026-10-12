@@ -100,3 +100,6 @@ npm run dev -- --host 0.0.0.0 --port 3100
 - 待决项：D1 亿级数据方案（上线前定）、D2 登记证数据库对接、D3 限用农药、D4 旧规迁移（详见 PRD 第十章）
 - 生产环境必须修改 `.env` 中的 `SESSION_SECRET` 为强随机值并启用 HTTPS
 - 数据备份建议配置每日自动执行（当前支持手动备份）
+## 安卓生产扫码与设备管理
+
+单产品生产扫码与独立设备认证源码位于 [regcode-production](regcode-production/README.md)，安装和增量部署参见 [生产扫码说明](docs/production-pda/README.md)。

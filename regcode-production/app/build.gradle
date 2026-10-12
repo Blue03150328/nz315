@@ -1,0 +1,48 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.regcode.app'
+    compileSdk 35
+    buildFeatures { buildConfig true }
+    defaultConfig {
+        applicationId 'cn.nz315.production.pda'
+        minSdk 26
+        targetSdk 35
+        versionCode 6
+        versionName '2.2.0'
+        testInstrumentationRunner 'com.regcode.app.QueueStoreInstrumentation'
+        buildConfigField 'String', 'DEFAULT_SERVER', '"https://www.nz315.cn"'
+        buildConfigField 'boolean', 'ALLOW_LOCAL_HTTP', 'false'
+    }
+    testBuildType 'deviceTest'
+    buildTypes {
+        debug {
+            versionNameSuffix '-test'
+            buildConfigField 'boolean', 'ALLOW_LOCAL_HTTP', 'true'
+            buildConfigField 'String', 'DEFAULT_SERVER', '"' + providers.gradleProperty('pdaTestServer').getOrElse('https://www.nz315.cn') + '"'
+        }
+        release { minifyEnabled false }
+        deviceTest {
+            initWith debug
+            applicationIdSuffix '.devicetest'
+            matchingFallbacks = ['debug']
+        }
+        online {
+            initWith release
+            versionNameSuffix '-online'
+            // 沿用已交付APK签名，覆盖更新时保留本机队列。
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['release']
+            // 保留私网测试队列的同步能力；公网仍只允许HTTPS。
+            buildConfigField 'boolean', 'ALLOW_LOCAL_HTTP', 'true'
+        }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    lint { abortOnError true; checkReleaseBuilds true }
+}
+dependencies {
+    implementation project(':collection-core')
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+    testImplementation 'org.xerial:sqlite-jdbc:3.46.1.0'
+    testRuntimeOnly 'org.slf4j:slf4j-nop:2.0.13'
+}
