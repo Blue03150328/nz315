@@ -13,7 +13,10 @@ import java.util.List;
 public final class QueueDatabase implements QueueStore.Sql, AutoCloseable {
     private final SQLiteDatabase db;
     public QueueDatabase(Context context) {
-        java.io.File file=context.getDatabasePath("production-outbox.sqlite");
+        this(context,"production-outbox.sqlite");
+    }
+    public QueueDatabase(Context context,String name) {
+        java.io.File file=context.getDatabasePath(name);
         java.io.File parent=file.getParentFile();
         if(parent==null || (!parent.exists() && !parent.mkdirs()))throw new IllegalStateException("无法创建本机扫码数据库目录");
         db=SQLiteDatabase.openOrCreateDatabase(file,null);

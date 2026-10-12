@@ -26,6 +26,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.io.OutputStream;
 import com.regcode.collection.QueueStore;
+import com.regcode.collection.ExternalQueueStore;
 
 /** 基于来件的WebView和PDA广播接入，页面收口为联网生产扫码。 */
 public class MainActivity extends Activity {
@@ -35,6 +36,8 @@ public class MainActivity extends Activity {
     private ProductionClient client;
     private QueueStore queue;
     private CollectionSync sync;
+    private ExternalQueueStore externalQueue;
+    private ExternalCollectionSync externalSync;
     private DeviceCredentials deviceCredentials;
     private volatile boolean capturing;
     private volatile boolean foreground;
@@ -64,9 +67,9 @@ public class MainActivity extends Activity {
                     }
                 }
                 if (code == null && action != null && action.equals(preferences.getString("action", ""))) code = intent.getStringExtra(preferences.getString("extra", "scannerdata"));
-                if (code != null && !code.trim().isEmpty() && code.length() <= 4096) {
+                if (code != null && !code.trim().isEmpty()) {
                     // 原始码经过JSON编码，禁止用字符串拼接把二维码文本当成脚本执行。
-                    evaluate("window.PDAScanAdapter&&window.PDAScanAdapter.onScan(" + JSONObject.quote(code.trim()) + "," + JSONObject.quote(action) + ")");
+                    evaluate("window.PDAScanAdapter&&window.PDAScanAdapter.onScan(" + JSONObject.quote(scanPayload(code)) + "," + JSONObject.quote(action) + ")");
                 }
             } catch (RuntimeException ignored) { notifyText("扫码广播数据格式不正确，请核对设备输出设置"); }
         }
@@ -82,7 +85,7 @@ public class MainActivity extends Activity {
         catch (Exception ignored) { client.configure("https://www.nz315.cn"); }
         deviceCredentials=new DeviceCredentials(preferences);
         restoreDeviceCredential();
-        try { queue=new QueueStore(new QueueDatabase(this));sync=new CollectionSync(queue,client); }
+        try { queue=new QueueStore(new QueueDatabase(this));sync=new CollectionSync(queue,client);externalQueue=new ExternalQueueStore(new QueueDatabase(this,"external-outbox.sqlite"));externalSync=new ExternalCollectionSync(externalQueue,client);restoreDeviceCredential();if(client.deviceMode())externalSync.authenticated(true); }
         catch(Exception error){android.util.Log.e("NZ315PDA","本机扫码数据库初始化失败",error);notifyText("本机扫码数据库无法打开，请检查存储；禁止继续采集");}
         try { tone = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 65); }
         catch (RuntimeException ignored) { tone = null; }
@@ -105,7 +108,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() { super.onResume(); foreground = true; registerScanner(); evaluate("window.App&&window.App.lifecycle(true)"); }
     @Override protected void onPause() { foreground = false; capturing=false; unregisterScanner(); evaluate("window.App&&window.App.lifecycle(false)"); super.onPause(); }
-    @Override protected void onDestroy() { unregisterScanner(); if(sync!=null)sync.stop(); executor.shutdownNow(); if (tone != null) tone.release(); if (webView != null) { webView.removeJavascriptInterface("Native"); webView.destroy(); webView = null; } super.onDestroy(); }
+    @Override protected void onDestroy() { unregisterScanner(); if(sync!=null)sync.stop();if(externalSync!=null)externalSync.stop(); executor.shutdownNow(); if (tone != null) tone.release(); if (webView != null) { webView.removeJavascriptInterface("Native"); webView.destroy(); webView = null; } super.onDestroy(); }
     @Override @SuppressWarnings("deprecation") public void onBackPressed() { evaluate("window.App&&window.App.back()"); }
     @Override @SuppressWarnings("deprecation") protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
@@ -116,7 +119,7 @@ public class MainActivity extends Activity {
         executor.execute(()->{
             try(OutputStream output=getContentResolver().openOutputStream(destination,"wt")){
                 if(output==null)throw new IllegalStateException("无法打开备份文件");
-                queue.writeBackup(output);output.flush();
+                queue.writeBackup(output,externalQueue);output.flush();
                 notifyText("备份已导出，包含完整采集记录和上传收据；本机记录保留");
             }catch(Exception error){notifyText("备份导出失败，请重新选择保存位置；本机记录保留");}
         });
@@ -136,9 +139,10 @@ public class MainActivity extends Activity {
     private void evaluate(String script) { runOnUiThread(() -> { if (webView != null && !isFinishing() && !isDestroyed()) webView.evaluateJavascript(script, null); }); }
     private void notifyText(String message) { runOnUiThread(() -> Toast.makeText(this, message, Toast.LENGTH_SHORT).show()); }
     private String deviceName() { String value = Build.MANUFACTURER + " " + Build.MODEL + " / " + preferences.getString("deviceId", ""); return value.substring(0, Math.min(100, value.length())); }
+    private String scanPayload(String raw){if(!preferences.getBoolean("stripTerminator",true))return raw;int end=raw.length();while(end>0&&(raw.charAt(end-1)=='\r'||raw.charAt(end-1)=='\n'))end--;return raw.substring(0,end);}
     private void restoreDeviceCredential(){try{if(queue!=null&&queue.current()!=null&&queue.current().getJSONObject("context").optLong("deviceId")==0){client.accountMode();return;}JSONObject data=deviceCredentials.read();if(data!=null&&preferences.getString("server",BuildConfig.DEFAULT_SERVER).equals(data.optString("server")))client.deviceCredential(data.getString("credential"));}catch(Exception ignored){/* Keystore丢失时不假定设备已获授权。 */}}
     private JSONObject activateDevice(JSONObject input) throws Exception {
-        if(queue==null||queue.current()!=null)throw new IllegalArgumentException("本机有未结束采集，请先使用原认证方式同步并结束后再激活");
+        if(queue==null||externalQueue==null||queue.current()!=null||externalQueue.nextBatch()!=null)throw new IllegalArgumentException("本机有未结束采集，请先使用原认证方式同步并结束后再激活");
         String code=input.optString("activationCode").trim();
         if(code.isEmpty()){JSONObject pending=deviceCredentials.read();if(pending!=null)code=pending.optString("activationCode");}
         if(!code.startsWith("NZ315-DEVICE:")||code.length()>2048)throw new IllegalArgumentException("请扫描后台生成的设备激活二维码");
@@ -159,6 +163,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface public String settings() {
             try { return new JSONObject().put("server", preferences.getString("server", BuildConfig.DEFAULT_SERVER)).put("mode", preferences.getString("mode", "auto"))
                     .put("action", preferences.getString("action", "")).put("extra", preferences.getString("extra", "scannerdata"))
+                    .put("stripTerminator",preferences.getBoolean("stripTerminator",true))
                     .put("device", deviceName()).toString(); }
             catch (Exception ignored) { return "{}"; }
         }
@@ -174,10 +179,12 @@ public class MainActivity extends Activity {
                 if(queue==null)throw new IllegalStateException("本机数据库不可用");
                 JSONObject existing=queue.current();
                 if (existing!=null && !target.equals(existing.getString("server"))) throw new IllegalArgumentException("本机采集尚未结束，请先在原服务器完成同步");
+                JSONObject external=externalQueue==null?null:externalQueue.nextBatch();
+                if(external!=null&&!target.equals(external.getString("server")))throw new IllegalArgumentException("本机外部采集尚未同步完成，请保留原服务器连接");
                 String mode = data.optString("mode", "auto"), action = data.optString("action"), extra = data.optString("extra", "scannerdata");
                 if (!(mode.equals("auto") || mode.equals("broadcast") || mode.equals("keyboard")) || action.length() > 150 || extra.length() > 100 || extra.isEmpty()) throw new IllegalArgumentException("扫码设置格式不正确");
-                client.configure(target);if(sync!=null)sync.authenticated(false);
-                if (!preferences.edit().putString("server", data.getString("server").replaceAll("/+$", "")).putString("mode", mode).putString("action", action).putString("extra", extra).commit()) throw new IllegalStateException("设备未能保存连接设置");
+                client.configure(target);if(sync!=null)sync.authenticated(false);if(externalSync!=null)externalSync.authenticated(false);
+                if (!preferences.edit().putString("server", data.getString("server").replaceAll("/+$", "")).putString("mode", mode).putString("action", action).putString("extra", extra).putBoolean("stripTerminator",data.optBoolean("stripTerminator",true)).commit()) throw new IllegalStateException("设备未能保存连接设置");
                 restoreDeviceCredential();
                 runOnUiThread(() -> { unregisterScanner(); if (foreground) registerScanner(); });
                 return "";
@@ -191,7 +198,7 @@ public class MainActivity extends Activity {
         }
         @JavascriptInterface public String prepare(long taskId,String userJson) {
             capturing=false;
-            try { JSONObject user=new JSONObject(userJson);if(sync.blocked())throw new Exception("设备已停用，请联系管理员");queue.prepare(preferences.getString("server",BuildConfig.DEFAULT_SERVER),taskId,new JSONObject().put("device",deviceName()).put("userId",user.getLong("id")).put("deviceId",client.deviceMode()?user.optLong("device_id"):0));return queue(); }
+            try { JSONObject user=new JSONObject(userJson);if(externalQueue!=null&&externalQueue.nextBatch()!=null)throw new Exception("请先完成外部采集及全部补传，再开始内部生产");if(sync.blocked())throw new Exception("设备已停用，请联系管理员");queue.prepare(preferences.getString("server",BuildConfig.DEFAULT_SERVER),taskId,new JSONObject().put("device",deviceName()).put("userId",user.getLong("id")).put("deviceId",client.deviceMode()?user.optLong("device_id"):0));return queue(); }
             catch(Exception error){return failure(error);}
         }
         @JavascriptInterface public String collect(String raw) {
@@ -206,7 +213,17 @@ public class MainActivity extends Activity {
             try{JSONObject finished=queue.finishUpload();if(finished!=null)sync.uploadNow();return new JSONObject(queue()).put("finishRequested",finished!=null).toString();}
             catch(Exception error){return failure(error);}
         }
-        @JavascriptInterface public void resumeUpload(){if(sync!=null)sync.authenticated(true);}
+        @JavascriptInterface public String externalQueue(){try{if(externalQueue==null||externalSync==null)throw new Exception("本机外部数据库不可用");return externalQueue.snapshot().put("ok",true).put("syncMessage",externalSync.message()).toString();}catch(Exception error){return failure(error);}}
+        @JavascriptInterface public String prepareExternal(String workerNo){
+            capturing=false;
+            try{if(queue==null||queue.current()!=null)throw new Exception("请先完成本机内部生产采集和同步");JSONObject credential=deviceCredentials.read();String server=preferences.getString("server",BuildConfig.DEFAULT_SERVER);if(credential==null||!credential.optBoolean("registered")||!server.equals(credential.optString("server")))throw new Exception("请先激活并验证设备；缓存凭证丢失时原记录仅保留备份");restoreDeviceCredential();if(!client.deviceMode())throw new Exception("请先恢复原设备认证");externalQueue.prepare(server,workerNo);externalSync.authenticated(true);return externalQueue();}catch(Exception error){return failure(error);}
+        }
+        @JavascriptInterface public String collectExternal(String raw){
+            try{if(!foreground||!capturing)throw new Exception("扫码已暂停，请先开始外部采集");JSONObject credential=deviceCredentials.read();if(!client.deviceMode()||credential==null||!credential.optBoolean("registered")||!preferences.getString("server",BuildConfig.DEFAULT_SERVER).equals(credential.optString("server")))throw new Exception("设备凭证不可用，已停止采集；本机记录保留");return new JSONObject().put("ok",true).put("event",externalQueue.capture(scanPayload(raw))).toString();}catch(Exception error){capturing=false;return failure(error);}
+        }
+        @JavascriptInterface public String finishExternal(){try{JSONObject finished=externalQueue.finish();if(finished!=null)externalSync.uploadNow();return new JSONObject(externalQueue()).put("finishRequested",finished!=null).toString();}catch(Exception error){return failure(error);}}
+        @JavascriptInterface public String uploadExternal(){try{return new JSONObject().put("ok",externalSync.uploadNow()).put("message",externalSync.message()).toString();}catch(Exception error){return failure(error);}}
+        @JavascriptInterface public void resumeUpload(){if(sync!=null)sync.authenticated(true);if(externalSync!=null&&client.deviceMode())externalSync.authenticated(true);}
         @JavascriptInterface public String uploadNow(){
             try{if(sync==null)throw new Exception("本机数据库不可用");return new JSONObject().put("ok",sync.uploadNow()).put("loginRequired",sync.loginRequired()).put("message",sync.message()).toString();}
             catch(Exception error){return failure(error);}
@@ -228,16 +245,17 @@ public class MainActivity extends Activity {
                 try{
                     if("/api/device/activate".equals(path))result=activateDevice(new JSONObject(requestBody));
                     else{
-                        if("/api/auth/login".equals(path)){if(queue.current()!=null&&queue.current().getJSONObject("context").optLong("deviceId")>0)throw new IllegalArgumentException("本机是设备认证采集，请先恢复原设备认证完成同步");client.accountMode();}
+                        if("/api/auth/login".equals(path)){if((queue.current()!=null&&queue.current().getJSONObject("context").optLong("deviceId")>0)||(externalQueue!=null&&externalQueue.nextBatch()!=null))throw new IllegalArgumentException("本机是设备认证采集，请先恢复原设备认证完成同步");client.accountMode();}
                         if("/api/device/context".equals(path))restoreDeviceCredential();
-                        if("/api/device/context".equals(path)&&"POST".equals(method)){JSONObject snapshot=queue.snapshot();requestBody=new JSONObject().put("pending",snapshot.optJSONObject("counts")==null?0:snapshot.getJSONObject("counts").optInt("waiting")).toString();}
+                        if("/api/device/context".equals(path)&&"POST".equals(method)){JSONObject snapshot=queue.snapshot();int pending=snapshot.optJSONObject("counts")==null?0:snapshot.getJSONObject("counts").optInt("waiting");if(externalQueue!=null)pending+=externalQueue.snapshot().getJSONObject("queueCounts").optInt("waiting");requestBody=new JSONObject().put("pending",pending).toString();}
                         result=client.request(method,path,requestBody);
-                        if("/api/device/context".equals(path)&&result.optInt("status")==200){deviceCredentials.ready();if(sync!=null)sync.authenticated(true);}
+                        if("/api/device/context".equals(path)&&result.optInt("status")==200){deviceCredentials.ready();if(externalQueue!=null)externalQueue.trust(preferences.getString("server",BuildConfig.DEFAULT_SERVER),result.getJSONObject("body"));if(sync!=null)sync.authenticated(true);if(externalSync!=null)externalSync.authenticated(true);}
                     }
                 }catch(Exception error){try{result=new JSONObject().put("status",0).put("error",error instanceof IllegalArgumentException?error.getMessage():"设备凭证未能保存，请暂停操作后重试");}catch(Exception impossible){return;}}
                 if(sync!=null){if(result.optInt("status")==401)sync.authenticated(false);
                     else if("/api/auth/login".equals(path) && result.optInt("status")==200 && client.hasSession())sync.authenticated(true);}
                 if(client.deviceMode()&&sync!=null&&(result.optInt("status")==401||result.optInt("status")==403)){sync.deviceBlocked();capturing=false;}
+                if(client.deviceMode()&&externalSync!=null&&(result.optInt("status")==401||result.optInt("status")==403)){externalSync.deviceBlocked();capturing=false;}
                 evaluate("window.NzApi&&window.NzApi.receive(" + JSONObject.quote(id) + "," + result + ")");
             });
         }

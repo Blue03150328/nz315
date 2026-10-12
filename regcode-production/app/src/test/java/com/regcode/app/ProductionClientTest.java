@@ -115,6 +115,13 @@ public class ProductionClientTest {
     @Test public void refusesArbitraryEndpoints() throws Exception {
         for (String path : new String[] { "https://example.com/api/auth/me", "//example.com/api/auth/me", "/api/users", "/api/admin/production-tasks/1/scan#fragment" }) assertEquals(0, client.request("GET", path, "{}").getInt("status"));
     }
+    @Test public void externalRoutesRequireDeviceCredentialAndKeepFullRawText() throws Exception {
+        String id="3beff054-1b7d-4c72-8c25-e8937024b523",path="/api/device/external-collections/"+id+"/events",raw="https://example.com/?code=00001&x=%2f";
+        assertEquals(0,client.request("POST",path,"{}").getInt("status"));client.deviceCredential("c".repeat(64));
+        for(String target:new String[]{"/api/device/external-collections",path,"/api/device/external-collections/"+id+"/complete"})assertEquals(200,client.request("POST",target,new JSONObject().put("rawCode",raw).toString()).getInt("status"));
+        assertEquals("Bearer "+"c".repeat(64),authorization.get());assertEquals(raw,new JSONObject(payload.get()).getString("rawCode"));
+        assertEquals(0,client.request("GET",path,"{}").getInt("status"));assertEquals(0,client.request("POST","/api/device/external-collections/"+id+"/delete","{}").getInt("status"));
+    }
     @Test public void productionRequiresHttpsAndRootUrl() {
         ProductionClient production = new ProductionClient(false);
         for (String url : new String[] { base, "https://user:password@example.com", "https://example.com/trace", "https://example.com?code=1", "file:///tmp/page" }) {

@@ -60,6 +60,7 @@ public final class ProductionClient {
                     || resource.matches("/api/admin/production-tasks/[1-9][0-9]*/collection-sessions/[a-fA-F0-9-]{36}/uploads/[a-fA-F0-9-]{36}/complete"));
             allowed |= "GET".equals(method) && (resource.equals("/api/device/context") || resource.equals("/api/device/production-tasks") || resource.matches("/api/device/production-tasks/[1-9][0-9]*"));
             allowed |= "POST".equals(method) && (resource.equals("/api/device/activate") || resource.equals("/api/device/context") || resource.matches("/api/device/production-tasks/[1-9][0-9]*/collection-sessions") || resource.matches("/api/device/production-tasks/[1-9][0-9]*/collection-sessions/[a-fA-F0-9-]{36}/(events|complete|uploads)") || resource.matches("/api/device/production-tasks/[1-9][0-9]*/collection-sessions/[a-fA-F0-9-]{36}/uploads/[a-fA-F0-9-]{36}/complete"));
+            allowed |= deviceMode() && "POST".equals(method) && (resource.equals("/api/device/external-collections") || resource.matches("/api/device/external-collections/[a-fA-F0-9-]{36}/(events|complete)"));
             if (!allowed || relative.isAbsolute() || relative.getRawAuthority() != null || relative.getFragment() != null) {
                 throw new IllegalArgumentException("不支持的生产操作");
             }

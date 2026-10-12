@@ -210,9 +210,13 @@ public final class QueueStore {
     }
     /** 分页写出完整备份，长时间采集的记录也不需要全部加载进内存。 */
     public synchronized void writeBackup(OutputStream output) throws Exception {
+        writeBackup(output,null);
+    }
+    /** 新版完整备份继续保留内部字段，并分页附加独立外部队列，不包含设备凭证。 */
+    public synchronized void writeBackup(OutputStream output,ExternalQueueStore external) throws Exception {
         db.transaction(() -> {
             Writer writer=new OutputStreamWriter(output,StandardCharsets.UTF_8);
-            writer.write("{\"format\":\"nz315-production-backup\",\"version\":2,\"exportedAt\":"+JSONObject.quote(TIME.format(Instant.now())));
+            writer.write("{\"format\":\"nz315-production-backup\",\"version\":"+(external==null?2:3)+",\"exportedAt\":"+JSONObject.quote(TIME.format(Instant.now())));
             String[] tables={"session","allowed","upload","event"},keys={"sessions","allowed","uploads","events"};
             for(int i=0;i<tables.length;i++){
                 writer.write(",\""+keys[i]+"\":[");long last=0;boolean first=true;
@@ -223,6 +227,7 @@ public final class QueueStore {
                 }
                 writer.write(']');
             }
+            if(external!=null){writer.write(",\"external\":");writer.flush();external.writeBackup(output);}
             writer.write('}');writer.flush();return null;
         });
     }
