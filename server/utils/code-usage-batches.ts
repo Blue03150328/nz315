@@ -1,63 +1,17 @@
+// 采集上传批次的整任务更正（2026-10-12 码库去子批次：已删除上传子批次列表查询，只保留更正预览与执行）。
 import { createHash } from 'node:crypto'
 import type { AuthUser } from './auth'
-import { getPool, query } from './db'
+import { query } from './db'
 import { transaction, lockedTask, productionReviewer } from './production-task'
 import { productionRequestId } from '../../shared/utils/production-task-input'
 import { productionPatch } from './production-patch'
 import { isInputDate } from '../../shared/utils/input-date'
 import { taskProduction } from './task-production'
-import { usageBatchSchemaAvailable, requireUsageBatchSchema } from './usage-batch-schema'
-import { resolveCodeScope, codeScopeSql } from './code-scope'
-import { freeProductionCode } from './production-allocation'
+import { requireUsageBatchSchema } from './usage-batch-schema'
+import { resolveCodeScope } from './code-scope'
 import { refreshUploadSnapshots } from './upload-snapshot'
 
 const fail = (message: string, statusCode = 409): never => { throw createError({ statusCode, statusMessage: message }) }
-const beijing = (field: string) => `DATE_FORMAT(TIMESTAMPADD(SECOND,28800-TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),NOW()),${field}),'%Y-%m-%d %H:%i:%s')`
-function abnormalSummary(total: number, frozen: number, voided: number) {
-  return !total ? '空批次' : voided === total ? '全部作废' : voided ? '部分作废' : frozen === total ? '全部冻结' : frozen ? '部分冻结' : '正常'
-}
-function mappedStats(row: any, root: any, used: boolean) {
-  const count = Number(row.code_total || 0), frozenCount = Number(row.frozen_count || 0), voidedCount = Number(row.voided_count || 0)
-  return { count, codeTotal: count, usedCount: used ? count : 0, remainingCount: used ? 0 : count, frozenCount, voidedCount,
-    normalCount: Math.max(0, count - frozenCount - voidedCount), summary: abnormalSummary(count, frozenCount, voidedCount),
-    occupiedCount: Number(row.occupied_count || 0), availableCount: Number(row.available_count || 0), flagableCount: count - voidedCount,
-    canDelete: !used && count > 0 && Number(row.history_count || 0) === 0,
-    canCorrect: count > 0 && !frozenCount && !voidedCount && (used || !Number(row.occupied_count || 0)),
-    canExport: count > 0 && String(root.file_name || '').startsWith('生成入库') }
-}
-export async function usageBatchChildren(user: AuthUser, rootId: number, page: number, pageSize: number) {
-  const { row: root } = await resolveCodeScope(user, { uploadBatchId: rootId })
-  if (!await usageBatchSchemaAvailable()) return { rows: [], total: 0, page, pageSize, productionRecordsAvailable: false, unavailableReason: '使用子批次结构尚未安装，请管理员完成数据库升级' }
-  const [[totals]] = await getPool().query<any[]>(`SELECT COUNT(*) AS codeTotal,SUM(c.status=2 OR EXISTS(SELECT 1 FROM production_task_code d WHERE d.code_id=c.id AND d.state='used')) AS usedCount,
-    SUM(c.usage_batch_id IS NULL AND (c.status=2 OR EXISTS(SELECT 1 FROM production_task_code d WHERE d.code_id=c.id AND d.state='used'))) AS legacyBoundCount FROM trace_code c WHERE c.upload_batch_id=? AND c.enterprise_id=?`, [rootId, root.enterprise_id])
-  const [[count]] = await getPool().query<any[]>('SELECT COUNT(*) AS n FROM code_usage_batch WHERE parent_upload_batch_id=?', [rootId])
-  const children = await query<any[]>(`SELECT cb.*,t.name AS task_name,t.production_snapshot,b.batch_no,b.produce_date,b.expire_date,b.qc_result,b.quality_cert_no,
-    u.state AS upload_state,u.uploader_id,u.uploader_username,u.uploader_name,
-    COUNT(c.id) AS code_total,SUM(c.abnormal_flag=1) AS frozen_count,SUM(c.abnormal_flag=2) AS voided_count,
-    ${beijing('MIN(e.received_at)')} AS first_received_at,${beijing('MAX(e.received_at)')} AS last_received_at,
-    DATE_FORMAT(TIMESTAMPADD(HOUR,8,MIN(e.captured_at)),'%Y-%m-%d %H:%i:%s') AS first_captured_at,
-    DATE_FORMAT(TIMESTAMPADD(HOUR,8,MAX(e.captured_at)),'%Y-%m-%d %H:%i:%s') AS last_captured_at
-    FROM (SELECT * FROM code_usage_batch WHERE parent_upload_batch_id=? ORDER BY id DESC LIMIT ? OFFSET ?) cb
-    JOIN production_collection_upload u ON u.id=cb.upload_id JOIN production_task t ON t.id=cb.task_id JOIN batch b ON b.id=t.batch_id
-    JOIN trace_code c ON c.usage_batch_id=cb.id AND c.upload_batch_id=cb.parent_upload_batch_id
-    LEFT JOIN production_collection_event e ON e.upload_id=cb.upload_id AND e.code=c.code AND e.result_state='accepted'
-    GROUP BY cb.id,cb.parent_upload_batch_id,cb.upload_id,cb.task_id,cb.spec_name_snapshot,cb.created_at,t.name,t.production_snapshot,b.batch_no,b.produce_date,b.expire_date,b.qc_result,b.quality_cert_no,u.state,u.uploader_id,u.uploader_username,u.uploader_name
-    ORDER BY cb.id DESC`, [rootId, pageSize, (page - 1) * pageSize])
-  const remaining = codeScopeSql({ uploadBatchId: rootId, remaining: true })
-  const [rest] = await query<any[]>(`SELECT COUNT(*) AS code_total,SUM(c.abnormal_flag=1) AS frozen_count,SUM(c.abnormal_flag=2) AS voided_count,
-    SUM(a.active_code_id IS NOT NULL) AS occupied_count,SUM(${freeProductionCode}) AS available_count,
-    SUM(EXISTS(SELECT 1 FROM production_task_code h WHERE h.code_id=c.id)) AS history_count
-    FROM trace_code c LEFT JOIN production_task_code a ON a.active_code_id=c.id WHERE ${remaining.sql} AND c.enterprise_id=?`, [...remaining.values, root.enterprise_id])
-  const rows = children.map(row => {
-    const production = taskProduction(row, { id: 0, batch_no: row.batch_no, produce_date: row.produce_date, expire_date: row.expire_date, qc_result: row.qc_result, quality_cert_no: row.quality_cert_no })
-    return { id: Number(row.id), parentUploadBatchId: rootId, kind: 'used', taskId: Number(row.task_id), name: `${row.task_name} · 上传子批次${row.id}`,
-      ...mappedStats(row, root, true), specName: row.spec_name_snapshot || null, batchNo: production.batch_no, produceDate: production.produce_date, expireDate: production.expire_date, qcResult: production.qc_result, qualityCertNo: production.quality_cert_no,
-      uploadId: row.upload_id, uploadState: row.upload_state, uploaderId: row.uploader_id ? Number(row.uploader_id) : null, uploaderUsername: row.uploader_username || null, uploaderName: row.uploader_name || null,
-      firstReceivedAt: row.first_received_at, lastReceivedAt: row.last_received_at, firstCapturedAt: row.first_captured_at, lastCapturedAt: row.last_captured_at }
-  })
-  const codeTotal = Number(totals.codeTotal || 0), usedCount = Number(totals.usedCount || 0)
-  return { rows: [{ id: null, parentUploadBatchId: rootId, kind: 'remaining', taskId: null, name: '剩余未使用', ...mappedStats(rest || {}, root, false), specName: root.spec_name_snapshot || null, batchNo: null, produceDate: null, expireDate: null, qcResult: null, qualityCertNo: null }, ...rows], total: Number(count.n), page, pageSize, codeTotal, usedCount, remainingCount: codeTotal - usedCount, legacyBoundCount: Number(totals.legacyBoundCount || 0), productionRecordsAvailable: true, unavailableReason: null }
-}
 
 async function taskImpact(taskId: number) {
   return query<any[]>(`SELECT ub.id,ub.file_name AS fileName,COUNT(*) AS count,SUM(d.state='used') AS usedCount

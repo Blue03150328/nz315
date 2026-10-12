@@ -56,18 +56,20 @@ export async function deleteCodeScope(user: AuthUser, selection: CodeScope) {
   return { ok: true, deletedCodes, fileName: row.file_name, scope }
 }
 
-/** 导出读取固定子批归属或当时剩余范围，使用生成时规格快照命名。 */
+/** 导出读取固定上传批次归属或当时剩余范围，使用生成时规格快照命名。 */
 export async function exportCodeScope(event: H3Event, user: AuthUser, selection: CodeScope, format: string) {
   if (!['txt', 'urls', 'csv'].includes(format)) fail('导出格式不支持')
   const { row: root, scope } = await resolveCodeScope(user, selection)
-  if (!String(root.file_name || '').startsWith('生成入库')) fail('仅生成入库留档批次支持导出，采集文件请使用原始文件', 403)
+  // 2026-10-12 码库去子批次：列表主体已是「一次上传」，本次上传批次的码同样允许导出；
+  // 仅按总批次导出时仍限「生成入库」留档（采集文件请使用原始文件）。
+  if (!scope.usageBatchId && !String(root.file_name || '').startsWith('生成入库')) fail('仅生成入库留档批次或本次上传批次支持导出，采集文件请使用原始文件', 403)
   const [meta] = await query<any[]>(`SELECT p.name,p.registration_no,e.name AS company_name FROM product p JOIN enterprise e ON e.id=p.enterprise_id WHERE p.id=?`, [root.product_id])
   const selected = codeScopeSql(scope)
   const [count] = await query<any[]>(`SELECT COUNT(*) AS n FROM trace_code c WHERE ${selected.sql} AND c.enterprise_id=?`, [...selected.values, root.enterprise_id])
   const total = Number(count.n)
   if (!total) fail('所选范围没有可导出的追溯码')
   const safe = (value: unknown) => String(value ?? '').replace(/[\\/:*?"<>|]/g, '_')
-  const suffix = scope.usageBatchId ? `_使用子批${scope.usageBatchId}` : scope.remaining ? '_剩余未用' : ''
+  const suffix = scope.usageBatchId ? `_本次上传${scope.usageBatchId}` : scope.remaining ? '_剩余未用' : ''
   const fileName = `${safe(root.enterprise_id)}_${safe(meta?.name)}_${safe(root.spec_name_snapshot || '原规格未记录')}_${String(root.created_at).slice(0, 10).replaceAll('-', '')}${suffix}.${format === 'csv' ? 'csv' : 'txt'}`
   const base = String(useRuntimeConfig().public?.traceBaseUrl || 'https://www.nz315.cn/trace?code=')
   const csv = (value: unknown) => '"' + String(value ?? '').replaceAll('"', '""') + '"'
