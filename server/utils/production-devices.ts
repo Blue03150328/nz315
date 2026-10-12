@@ -14,7 +14,18 @@ export function activationServer(event: any) {
 export function deviceManager(user: AuthUser) { if (!['enterprise_admin','platform_admin'].includes(user.role) || user.device_id) fail('仅厂家管理员和总部管理员可管理设备',403) }
 function scope(user: AuthUser, row: any) { if (!row || (user.role !== 'platform_admin' && Number(row.enterprise_id) !== Number(user.enterprise_id))) fail('设备不存在或不属于本企业',404) }
 const text = (value: any, label: string) => { if (typeof value !== 'string' || !value.trim() || value.trim().length > 100) fail(label+'请填写1至100字',400); return value.trim() }
-async function activeCount(conn: any, id: number) { const [[r]] = await conn.query("SELECT COUNT(*) AS n FROM production_collection_session WHERE device_id=? AND state='active'",[id]);return Number(r.n) }
+async function activeCount(conn: any, id: number) {
+  const [[r]] = await conn.query("SELECT COUNT(*) AS n FROM production_collection_session WHERE device_id=? AND state='active'", [id])
+  let external = 0
+  try {
+    const [[row]] = await conn.query("SELECT COUNT(*) AS n FROM external_collection_batch WHERE device_id=? AND state='active'", [id])
+    external = Number(row.n)
+  } catch (error: any) {
+    // 旧库尚未安装外部采集表时仍可管理原设备；其他数据库错误必须报出。
+    if (error?.code !== 'ER_NO_SUCH_TABLE') throw error
+  }
+  return Number(r.n) + external
+}
 async function audit(conn: any, id: number, actor: number | null, action: string, detail: any) { await conn.execute('INSERT INTO production_device_change(device_id,actor_id,action,detail) VALUES (?,?,?,?)',[id,actor,action,JSON.stringify(detail)]) }
 export async function deviceOptions(user: AuthUser) {
   deviceManager(user)

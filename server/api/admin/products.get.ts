@@ -10,6 +10,10 @@ export default defineEventHandler(async (event) => {
 
   if (user.role !== 'platform_admin') {
     conds.push('p.enterprise_id = ?'); params.push(user.enterprise_id)
+  } else if (q.enterpriseId !== undefined && q.enterpriseId !== '') {
+    const enterpriseId = Number(q.enterpriseId)
+    if (!Number.isSafeInteger(enterpriseId) || enterpriseId <= 0) throw createError({ statusCode: 400, statusMessage: '企业筛选无效' })
+    conds.push('p.enterprise_id = ?'); params.push(enterpriseId)
   }
   if (q.keyword) {
     const kw = '%' + String(q.keyword).trim().slice(0, 64) + '%'
