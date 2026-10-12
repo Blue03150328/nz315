@@ -115,7 +115,7 @@
 - 主题：`app/assets/css/main.css`（UI4 变量体系，主色沉稳深绿 hsl(142 32% 30%)，圆角 --ui-radius 0.375rem，中后台克制基调）
 - 静态下载件：`public/templates/`（规格导入模板 xlsx）+ `public/tools/`（**离线二维码生成工具 EXE——注意：该文件与「生成页走离线工具」的改造只存在于 `feature/ewm` 分支，未合入 master；master 版生成页仍走服务端渲染，不需要也没有这个文件**；体积大已 gitignore，若在该分支部署需单独拷贝）；页面内下载统一走 `fetch → Blob → 临时 a 标签`（`<a href download>` 直链会被 SPA 路由拦截）
 
-> **2026-10-12 最新生产线3.1.0**：新任务为名称、生产线、整份入库码文件和操作员；工人端填写生产资料。员工进度、5秒取消结束、离线签名TXT与结束收齐闸已验收；保留旧任务/队列/接口。说明与验收见 `docs/production-line/`，上线用 `scripts/migrate-production-workers.mjs` 增量迁移，禁止演示初始化。
+> **2026-10-12 最新生产线3.1.0**：已受控上线26文件增量，功能提交66773f2、PR #8待合并；已连接Android12设备覆盖更新。新任务为名称、生产线、整份入库码文件和操作员；工人端填写生产资料。员工进度、5秒取消结束、离线签名TXT与结束收齐闸已验收；保留旧任务/队列/接口。说明与验收见 `docs/production-line/`，上线用 `scripts/migrate-production-workers.mjs` 增量迁移，禁止演示初始化。
 
 ### ✅ 项目进度（截至 2026-10-12）
 
