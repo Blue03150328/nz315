@@ -70,6 +70,13 @@ const MENU_GROUPS: { title?: string; items: MenuItem[] }[] = [
     ],
   },
   {
+    title: '外部追溯码',
+    items: [
+      { path: '/admin/external-codes', label: '外部码库', icon: 'i-lucide-scan-text' },
+      { path: '/admin/external-production', label: '外部生产记录', icon: 'i-lucide-clipboard-list' },
+    ],
+  },
+  {
     title: '监控',
     items: [
       { path: '/admin/batches', label: '效期预警', icon: 'i-lucide-boxes' },
