@@ -38,7 +38,17 @@ export async function deviceOptions(user: AuthUser) {
 export async function listDevices(user: AuthUser) {
   deviceManager(user)
   const rows=await query<any[]>(`SELECT ${publicColumns},e.name AS enterprise_name,(SELECT COUNT(*) FROM production_collection_session s WHERE s.device_id=d.id AND s.state='active') AS active_sessions FROM production_device d JOIN enterprise e ON e.id=d.enterprise_id WHERE d.deleted_at IS NULL`+(user.role==='platform_admin'?'':' AND d.enterprise_id=?')+' ORDER BY d.id DESC LIMIT 500',user.role==='platform_admin'?[]:[user.enterprise_id])
-  return {rows}
+  const externalCounts = new Map<number, number>()
+  if (rows.length) {
+    try {
+      const counts = await query<any[]>("SELECT device_id,COUNT(*) AS n FROM external_collection_batch WHERE state='active' AND device_id IN (?) GROUP BY device_id", [rows.map(row => Number(row.id))])
+      for (const row of counts) externalCounts.set(Number(row.device_id), Number(row.n))
+    } catch (error: any) {
+      // 缺少新表沿用原设备列表，查询错误不冒充零个未结束采集。
+      if (error?.code !== 'ER_NO_SUCH_TABLE') throw error
+    }
+  }
+  return { rows: rows.map(row => ({ ...row, external_active_batches: externalCounts.get(Number(row.id)) || 0, active_sessions: Number(row.active_sessions) + (externalCounts.get(Number(row.id)) || 0) })) }
 }
 async function activation(conn: any,id: number,user: AuthUser,server: string) {
   // 更换激活码前必须先排空原设备，保留旧记录归属。

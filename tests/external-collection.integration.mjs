@@ -102,6 +102,32 @@ try {
   const admin = await actor('enterprise_admin', a.id), viewer = await actor('viewer', a.id), foreign = await actor('enterprise_admin', b.id), platform = await actor('platform_admin', null)
   const d1 = await device(a.id, '一号流水线', admin.id), d2 = await device(a.id, '二号流水线', admin.id), d3 = await device(b.id, '乙流水线', foreign.id)
   const batch1 = randomUUID(), batch2 = randomUUID(), batch3 = randomUUID()
+  if (process.env.NZ315_TEST_DEVICE_COUNTS_ONLY === '1') {
+    await start(d1, batch1)
+    const [physical] = await db.execute('INSERT INTO batch(enterprise_id,product_id,batch_no,quantity) VALUES (?,?,?,0)', [a.id, a.productId, '设备统计夹具'])
+    const [task] = await db.execute('INSERT INTO production_task(enterprise_id,product_id,batch_id,name,line_name,request_id,request_hash,created_by) VALUES (?,?,?,?,?,?,?,?)', [a.id, a.productId, physical.insertId, '内部统计夹具', d1.device_line, randomUUID(), '0'.repeat(64), admin.id])
+    await db.execute('INSERT INTO production_collection_session(id,task_id,user_id,device,line_snapshot,context_hash,context_json,device_id) VALUES (?,?,?,?,?,?,?,?)', [randomUUID(), task.insertId, 0, d1.name, d1.device_line, '0'.repeat(64), '{}', d1.device_id])
+    await check('设备列表合计内部会话与外部活跃批，其他设备及厂家不混数', async () => {
+      const own = await devices.listDevices(admin), row = own.rows.find(row => row.id === d1.device_id)
+      assert.equal(row.active_sessions, 2); assert.equal(row.external_active_batches, 1); assert.equal(own.rows.find(row => row.id === d2.device_id).active_sessions, 0)
+      assert.ok(!own.rows.some(row => row.id === d3.device_id))
+    })
+    await check('设备列表旧库缺外部表保留内部统计，字段错误必须报错', async () => {
+      await db.query('RENAME TABLE external_collection_batch TO isolated_hidden_batch')
+      try { const row = (await devices.listDevices(admin)).rows.find(row => row.id === d1.device_id); assert.equal(row.active_sessions, 1); assert.equal(row.external_active_batches, 0) } finally { await db.query('RENAME TABLE isolated_hidden_batch TO external_collection_batch') }
+      await db.query('ALTER TABLE external_collection_batch RENAME COLUMN device_id TO unavailable_device_id')
+      try { await assert.rejects(() => devices.listDevices(admin), error => error.code === 'ER_BAD_FIELD_ERROR') } finally { await db.query('ALTER TABLE external_collection_batch RENAME COLUMN unavailable_device_id TO device_id') }
+    })
+    if (process.env.NZ315_TEST_BUILD_DIR) {
+      await startHttp(); const ac = await login(admin), fc = await login(foreign)
+      await check('HTTP设备列表显示外部批与内部会话总数，完成后只扣外批且企业隔离', async () => {
+        const row = ok(await request('/api/admin/production-devices', ac)).rows.find(row => row.id === d1.device_id); assert.equal(row.active_sessions, 2); assert.equal(row.external_active_batches, 1)
+        assert.ok(!ok(await request('/api/admin/production-devices', fc)).rows.some(row => row.id === d1.device_id))
+        await complete(d1, batch1, 0)
+        const completed = ok(await request('/api/admin/production-devices', ac)).rows.find(row => row.id === d1.device_id); assert.equal(completed.active_sessions, 1); assert.equal(completed.external_active_batches, 0)
+      })
+    }
+  } else {
   const raw1 = ' https://EXAMPLE.invalid/t?code=000000001&x=%2F,"中文" ', raw2 = 'https://example.invalid/t?code=000000002'
   const e1 = event(raw1, 1), duplicateEvent = event(raw1, 1)
   await check('启动幂等、企业设备快照和工号固定，未完成不能创建下一批', async () => {
@@ -264,6 +290,7 @@ try {
       assert.equal((await request('/api/admin/enterprises/' + pure.insertId, pc, undefined, 'DELETE')).status, 400)
       assert.ok(await one('SELECT id FROM enterprise WHERE id=?', [pure.insertId]))
     })
+  }
   }
   fs.mkdirSync(logDirectory, { recursive: true }); fs.writeFileSync(path.join(logDirectory, 'results.json'), JSON.stringify({ databaseName, passed: results.length, results, http: !!process.env.NZ315_TEST_BUILD_DIR }, null, 2))
   console.log('外部采集独立库验收共通过 ' + results.length + ' 组；隔离库将清理。')
