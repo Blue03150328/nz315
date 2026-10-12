@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import { isInputDate } from '#shared/utils/input-date'
 import { formatCodeQuantity } from '#shared/utils/code-quantity'
-// 码库管理（2026-09-04 聚合改造）：不再逐条展示追溯码，改为按「上传文件批次」聚合展示——
-// 每行 = 生产采集上传的一份追溯码文件（upload_batch），展示批次汇总信息与整批操作。
-// 行操作：【详细】弹窗查看/单行操作本批次码明细（原单条表格内容，仅查看+单行冻结/作废/恢复）、
-//         【冻结】确认后整批冻结、【修正】整批修正（复用批量修正表单字段，作用域=本批次全部码）。
-// 原单条追溯码业务逻辑与接口不变（明细弹窗复用 /api/admin/codes 加 uploadBatchId 过滤）。
+// 原码文件保留为总批次；每次移动端完成上传形成独立已用子批次，未使用的码归入剩余子批次。
+// 子批次按需分页加载，操作范围由服务端筛选，前端不拼接整批码 ID。
 // Keep-Alive 页面缓存：菜单切换保留页面状态；刷新/登出自动清空；【重置】恢复初始。
 // 只读账号（viewer）在模板中隐藏全部写操作入口
 const { canWrite } = useUser()
@@ -36,7 +33,7 @@ const { data: productData } = await useFetch<any>('/api/admin/products', {
   query: { page: 1, pageSize: 100, bindable: 1 },
 })
 const PRODUCT_OPTIONS = computed(() =>
-  (productData.value?.rows || []).map((p: any) => ({ value: Number(p.id), label: p.name })))
+  (productData.value?.rows || []).map((p: any) => ({ value: Number(p.id), label: `${p.name} · ${p.spec_name || '规格未填写'}` })))
 
 const { data, pending, refresh } = await useFetch<any>('/api/admin/codes/upload-batches', {
   key: 'admin-upload-batches',
@@ -76,6 +73,110 @@ const usageBadge = (row: any) => usedCount(row) === 0
   : remainingCount(row) === 0
     ? { label: '已用完', cls: 'b-tag-success' }
     : { label: '部分使用', cls: 'b-tag-warning' }
+
+const batchSpec = (row: any) => row?.specName || '原规格资料未记录'
+const isUsedChild = (row: any) => row?.kind === 'used'
+const isRemainingChild = (row: any) => row?.kind === 'remaining'
+const batchRootId = (row: any) => Number(row?.parentUploadBatchId || row?.id || 0)
+const batchKey = (row: any) => `${row?.kind || 'root'}:${isUsedChild(row) ? row.id : batchRootId(row)}`
+const batchApi = (row: any, action = '') => `/api/admin/codes/${isUsedChild(row) ? 'usage-batches/' + row.id : 'upload-batches/' + batchRootId(row)}${action ? '/' + action : ''}`
+const batchScope = (row: any): Record<string, string> => isRemainingChild(row) ? { scope: 'remaining' } : {}
+const batchScopeText = (row: any) => isUsedChild(row)
+  ? `本次上传子批次，共 ${exactQuantity(row.codeTotal)}`
+  : isRemainingChild(row)
+    ? `本总批次尚未使用的码，共 ${exactQuantity(row.codeTotal)}`
+    : `整个总批次，包含其全部已用及剩余子批次，共 ${exactQuantity(row?.codeTotal)}`
+
+interface ChildPage {
+  rows: any[]
+  total: number
+  page: number
+  pageSize: number
+  legacyBoundCount: number
+  productionRecordsAvailable: boolean
+  unavailableReason: string | null
+}
+interface ChildState {
+  page: number
+  loading: boolean
+  error: string
+  result: ChildPage | null
+}
+const expandedBatches = reactive(new Set<number>())
+const childStates = reactive<Record<number, ChildState>>({})
+const childPageSize = 20
+const childControllers = new Map<number, AbortController>()
+const childRequests = new Map<number, number>()
+const childState = (id: number) => childStates[id] || (childStates[id] = { page: 1, loading: false, error: '', result: null })
+const cancelChildren = (id: number) => {
+  childRequests.set(id, (childRequests.get(id) || 0) + 1)
+  childControllers.get(id)?.abort()
+  childControllers.delete(id)
+  if (childStates[id]) childStates[id]!.loading = false
+}
+const loadChildren = async (id: number) => {
+  if (!expandedBatches.has(id)) return
+  cancelChildren(id)
+  const state = childState(id)
+  const requestedPage = state.page
+  const request = (childRequests.get(id) || 0) + 1
+  childRequests.set(id, request)
+  const controller = new AbortController()
+  childControllers.set(id, controller)
+  state.loading = true
+  state.error = ''
+  try {
+    const result = await $fetch<ChildPage>(`/api/admin/codes/upload-batches/${id}/children`, {
+      query: { page: requestedPage, pageSize: childPageSize }, signal: controller.signal,
+    })
+    if (childRequests.get(id) !== request || !expandedBatches.has(id)) return
+    state.result = result
+    const lastPage = Math.max(1, Math.ceil(Number(result.total || 0) / childPageSize))
+    if (requestedPage > lastPage) { state.page = lastPage; void loadChildren(id) }
+  } catch (e: any) {
+    if (childRequests.get(id) === request && !controller.signal.aborted) state.error = e?.data?.statusMessage || '子批次加载失败，请重试'
+  } finally {
+    if (childRequests.get(id) === request) { state.loading = false; childControllers.delete(id) }
+  }
+}
+const toggleChildren = (row: any) => {
+  const id = batchRootId(row)
+  if (expandedBatches.has(id)) { expandedBatches.delete(id); cancelChildren(id) }
+  else { expandedBatches.add(id); void loadChildren(id) }
+}
+const changeChildPage = (id: number, next: number) => { childState(id).page = next; void loadChildren(id) }
+const childTotalPages = (id: number) => Math.max(1, Math.ceil(Number(childStates[id]?.result?.total || 0) / childPageSize))
+const childRows = (root: any) => {
+  const state = childStates[Number(root.id)]
+  if (!state?.result || state.result.page !== state.page) return []
+  // 历史已用码只计入父汇总；剩余行按当前未使用范围展示，不补造历史已用子批次。
+  return [...state.result.rows].sort((a, b) => Number(a.kind === 'remaining') - Number(b.kind === 'remaining')).map(child => ({
+    ...child, parentUploadBatchId: Number(root.id),
+    file_name: child.name || (child.kind === 'remaining' ? '剩余子批次' : '已用子批次'),
+    product_id: root.product_id, product_name: root.product_name,
+    batch_no: child.batchNo, created_at: child.firstReceivedAt || root.created_at,
+    boundCount: child.kind === 'used' ? Number(child.count || child.codeTotal || 0) : 0,
+  }))
+}
+const visibleBatchRows = computed(() => (data.value?.rows || []).flatMap((root: any) => [
+  { ...root, kind: 'root' },
+  ...(expandedBatches.has(Number(root.id)) ? [
+    ...childRows(root), { kind: 'children-info', id: `info-${root.id}`, parentUploadBatchId: Number(root.id) },
+  ] : []),
+]))
+watch(data, result => {
+  const visibleIds = new Set<number>((result?.rows || []).map((row: any) => Number(row.id)))
+  for (const id of childControllers.keys()) if (!visibleIds.has(id)) cancelChildren(id)
+  for (const id of expandedBatches) if (visibleIds.has(id)) void loadChildren(id)
+})
+const refreshAllBatches = () => {
+  void refresh()
+  if (showUsageModal.value) void loadUsage()
+}
+const createRemainingTask = (row: any) => {
+  if (!canWrite.value || Number(row.availableCount || 0) <= 0) return
+  void navigateTo({ path: '/admin/production-tasks', query: { create: '1', productId: String(row.product_id), sourceUploadBatchId: String(batchRootId(row)) } })
+}
 
 // ============ 批次使用记录（仅查看，按后台收到日期、任务和上传账号汇总） ============
 interface UsageRecord {
@@ -187,7 +288,7 @@ const usageTime = (value: string | null | undefined) => {
   const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}:\d{2}:\d{2})/)
   return match ? `${match[1]}年${Number(match[2])}月${Number(match[3])}日 ${match[4]}` : String(value)
 }
-const uploaderText = (record: UsageRecord) => {
+const uploaderText = (record: Pick<UsageRecord, 'uploaderUsername' | 'uploaderName'>) => {
   // 设备编号和登记管理员都不代表实际上传人，留待账号模块接入。
   const account = record.uploaderUsername && !record.uploaderUsername.startsWith('device:') ? record.uploaderUsername : ''
   const name = record.uploaderName || ''
@@ -202,6 +303,7 @@ const refreshVisibleCodes = () => {
   if (!codesPageActive || document.visibilityState !== 'visible') return
   if (!pending.value) void refresh()
   if (showUsageModal.value && !usageLoading.value) void loadUsage()
+  if (showDetailModal.value && !detailLoading.value) void loadDetail()
 }
 const startCodesRefresh = () => {
   codesPageActive = true
@@ -215,35 +317,45 @@ const stopCodesRefresh = () => {
   codesRefreshTimer = undefined
   window.removeEventListener('focus', refreshVisibleCodes)
   cancelUsageRequest()
+  for (const id of childControllers.keys()) cancelChildren(id)
+  cancelDetailRequest()
+  cancelCorrectPreview()
 }
 onMounted(startCodesRefresh)
 onActivated(() => { startCodesRefresh(); refreshVisibleCodes() })
 onDeactivated(stopCodesRefresh)
 onUnmounted(stopCodesRefresh)
 
-// ============ 整批冻结 ============
+// ============ 父批次及子批次异常标记 ============
 const showFreezeModal = ref(false)
 const freezing = ref(false)
-const freezeTarget = ref<any>(null) // 当前操作的 upload_batch 行
-const openFreeze = (row: any) => {
-  if (row.normalCount <= 0) {
-    toast.add({ title: row.summary === '全部作废' ? '批次码已全部作废（终态），无可冻结的码' : '批次码已全部冻结，无可冻结的码', color: 'warning' })
-    return
-  }
+const freezeTarget = ref<any>(null)
+const batchFlagAction = ref<'freeze' | 'void' | 'restore'>('freeze')
+const batchFlagReason = ref('')
+const batchFlagLabel = computed(() => ({ freeze: '冻结', void: '作废', restore: '恢复正常' })[batchFlagAction.value])
+const batchFlagCount = computed(() => Number(batchFlagAction.value === 'freeze' ? freezeTarget.value?.normalCount : batchFlagAction.value === 'restore' ? freezeTarget.value?.frozenCount : Number(freezeTarget.value?.codeTotal || 0) - Number(freezeTarget.value?.voidedCount || 0)))
+const openFreeze = (row: any, action: 'freeze' | 'void' | 'restore' = 'freeze') => {
+  if (!canWrite.value) return
   freezeTarget.value = row
+  batchFlagAction.value = action
+  batchFlagReason.value = ''
+  if (batchFlagCount.value <= 0) { toast.add({ title: `本批次没有可${batchFlagLabel.value}的追溯码`, color: 'warning' }); return }
   showFreezeModal.value = true
 }
 const submitFreeze = async () => {
+  if (!canWrite.value || !freezeTarget.value) return
+  const flag = { freeze: 1, void: 2, restore: 0 }[batchFlagAction.value]
+  if (flag === 2 && !batchFlagReason.value.trim()) { toast.add({ title: '作废必须填写原因', color: 'warning' }); return }
   freezing.value = true
   try {
-    const res = await $fetch('/api/admin/codes/upload-batches/' + freezeTarget.value.id + '/flag', {
-      method: 'POST', body: { flag: 1 },
+    const res = await $fetch<any>(batchApi(freezeTarget.value, 'flag'), {
+      method: 'POST', body: { flag, reason: batchFlagReason.value.trim(), ...batchScope(freezeTarget.value) },
     })
-    toast.add({ title: '整批冻结完成：' + res.affected + ' 条', color: 'success' })
+    toast.add({ title: batchFlagLabel.value + '完成：' + res.affected + ' 条', color: 'success' })
     showFreezeModal.value = false
-    refresh()
+    refreshAllBatches()
   } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage || '冻结失败', color: 'error' })
+    toast.add({ title: e?.data?.statusMessage || batchFlagLabel.value + '失败', color: 'error' })
   } finally {
     freezing.value = false
   }
@@ -254,6 +366,48 @@ const showCorrectModal = ref(false)
 const showBindModal = ref(false)
 const correcting = ref(false)
 const correctTarget = ref<any>(null)
+interface CorrectPreview {
+  task: { id: number, name: string, batchNo?: string }
+  totalCodes: number
+  usedCodes: number
+  rootCount: number
+  roots: { id: number, fileName: string, count: number, usedCount: number }[]
+  canCorrect: boolean
+  reason: string | null
+}
+const correctPreview = ref<CorrectPreview | null>(null)
+const correctPreviewLoading = ref(false)
+const correctPreviewError = ref('')
+const correctConfirmed = ref(false)
+const correctRequestId = ref('')
+let correctPreviewRequest = 0
+let correctPreviewController: AbortController | undefined
+const cancelCorrectPreview = () => {
+  correctPreviewRequest++
+  correctPreviewController?.abort()
+  correctPreviewController = undefined
+  correctPreviewLoading.value = false
+}
+const loadCorrectPreview = async () => {
+  if (!showCorrectModal.value || !isUsedChild(correctTarget.value)) return
+  cancelCorrectPreview()
+  const targetKey = batchKey(correctTarget.value)
+  const request = ++correctPreviewRequest
+  const controller = new AbortController()
+  correctPreviewController = controller
+  correctPreviewLoading.value = true
+  correctPreviewError.value = ''
+  try {
+    const result = await $fetch<CorrectPreview>(batchApi(correctTarget.value, 'correct'), { signal: controller.signal })
+    if (request === correctPreviewRequest && showCorrectModal.value && targetKey === batchKey(correctTarget.value)) correctPreview.value = result
+  } catch (e: any) {
+    if (request === correctPreviewRequest && !controller.signal.aborted) correctPreviewError.value = e?.data?.statusMessage || '关联任务修改范围加载失败，请重试'
+  } finally {
+    if (request === correctPreviewRequest) { correctPreviewLoading.value = false; correctPreviewController = undefined }
+  }
+}
+watch(showCorrectModal, open => { if (!open) cancelCorrectPreview() })
+const correctImpactCount = computed(() => isUsedChild(correctTarget.value) ? Number(correctPreview.value?.totalCodes || 0) : Number(correctTarget.value?.codeTotal || 0))
 // batchId=0 与 qcResult='keep' 为「不修改」哨兵值（reka-ui 禁止空字符串 value）
 const correctForm = reactive({
   batchId: 0 as number,
@@ -268,17 +422,30 @@ const { data: batchAll } = await useFetch<any>('/api/admin/batches', {
   query: { page: 1, pageSize: 100 },
 })
 const openCorrect = (row: any, bind = false) => {
+  if (!canWrite.value) return
   if (row.frozenCount + row.voidedCount > 0) {
     toast.add({ title: '本批次含 ' + (row.frozenCount + row.voidedCount) + ' 条已冻结/已作废的码，整批修正前请先在「详细」中处理（单行恢复/作废）', color: 'warning' })
     return
   }
   correctTarget.value = row
+  cancelCorrectPreview()
+  correctPreview.value = null
+  correctPreviewError.value = ''
+  correctConfirmed.value = false
+  correctRequestId.value = crypto.randomUUID()
   Object.assign(correctForm, { batchId: 0, produceDate: '', expireDate: '', qcResult: 'keep', qualityCertNo: '', batchNo: '', qcReportNo: '' })
   newBatchMode.value = bind
   showBindModal.value = bind
   showCorrectModal.value = !bind
+  if (isUsedChild(row)) void loadCorrectPreview()
 }
+watch(() => JSON.stringify(correctForm), () => { if (!correcting.value) correctRequestId.value = crypto.randomUUID() })
 const submitCorrect = async () => {
+  if (!canWrite.value || !correctTarget.value) return
+  const taskCorrection = isUsedChild(correctTarget.value)
+  if (taskCorrection && (correctPreviewLoading.value || !correctPreview.value?.canCorrect || correctPreviewError.value || !correctConfirmed.value)) {
+    toast.add({ title: '请先确认关联生产任务的完整修改范围', color: 'warning' }); return
+  }
   for (const [label, value] of [['生产日期', correctForm.produceDate], ['有效期至', correctForm.expireDate]]) {
     if (value && !isInputDate(value)) {
       toast.add({ title: label + '请输入有效日期，格式为 YYYY-MM-DD', color: 'warning' }); return
@@ -289,15 +456,16 @@ const submitCorrect = async () => {
     if (!correctForm.batchNo.trim() || !correctForm.produceDate) {
       toast.add({ title: '新建批次需填写生产批次号与生产日期', color: 'warning' }); return
     }
-  } else if (!correctForm.batchId && !correctForm.produceDate && !correctForm.expireDate && correctForm.qcResult === 'keep' && !correctForm.qualityCertNo) {
+  } else if (!correctForm.batchId && !correctForm.produceDate && !correctForm.expireDate && correctForm.qcResult === 'keep' && !correctForm.qualityCertNo && !(taskCorrection && correctForm.batchNo.trim())) {
     toast.add({ title: '请至少选择一个要修改的字段', color: 'warning' }); return
   }
   correcting.value = true
   try {
-    const res = await $fetch('/api/admin/codes/upload-batches/' + correctTarget.value.id + '/correct', {
+    const res = await $fetch<any>(batchApi(correctTarget.value, 'correct'), {
       method: 'POST',
       body: newBatchMode.value
         ? {
+            ...batchScope(correctTarget.value),
             batchNo: correctForm.batchNo.trim(),
             produceDate: correctForm.produceDate,
             qualityCertNo: correctForm.qualityCertNo.trim() || '见箱内质量合格证',
@@ -305,7 +473,10 @@ const submitCorrect = async () => {
             expireDate: correctForm.expireDate || undefined,
           }
         : {
-            batchId: correctForm.batchId || undefined,
+            ...batchScope(correctTarget.value),
+            requestId: taskCorrection ? correctRequestId.value : undefined,
+            batchNo: taskCorrection ? correctForm.batchNo.trim() || undefined : undefined,
+            batchId: taskCorrection ? undefined : correctForm.batchId || undefined,
             produceDate: correctForm.produceDate || undefined,
             expireDate: correctForm.expireDate || undefined,
             qcResult: correctForm.qcResult === 'keep' ? undefined : Number(correctForm.qcResult),
@@ -319,10 +490,10 @@ const submitCorrect = async () => {
       if (res.rebound > 0) parts.push('重新绑定批次 ' + res.rebound + ' 条')
       if (res.corrected > 0) parts.push('字段修正 ' + res.corrected + ' 条')
     }
-    toast.add({ title: (newBatchMode.value ? '绑定完成：' : '整批修正完成：') + (parts.join('，') || '无变更'), color: 'success' })
+    toast.add({ title: taskCorrection ? `关联生产任务已同步修改，共 ${exactQuantity(res.corrected ?? correctImpactCount.value)}` : (newBatchMode.value ? '绑定完成：' : '整批修正完成：') + (parts.join('，') || '无变更'), color: 'success' })
     showCorrectModal.value = false
     showBindModal.value = false
-    refresh()
+    refreshAllBatches()
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || '修正失败', color: 'error' })
   } finally {
@@ -345,12 +516,13 @@ const openDelete = (row: any) => {
   showDeleteModal.value = true
 }
 const submitDelete = async () => {
+  if (!canWrite.value || !deleteTarget.value) return
   deleting.value = true
   try {
-    const res = await $fetch('/api/admin/codes/upload-batches/' + deleteTarget.value.id, { method: 'DELETE' })
+    const res = await $fetch<any>(batchApi(deleteTarget.value), { method: 'DELETE', query: batchScope(deleteTarget.value) })
     toast.add({ title: '批次已删除（含追溯码 ' + res.deletedCodes + ' 条），数据不可恢复', color: 'success' })
     showDeleteModal.value = false
-    refresh()
+    refreshAllBatches()
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || '删除失败', color: 'error' })
   } finally {
@@ -363,6 +535,7 @@ const submitDelete = async () => {
 // 此前点过「入库留档」的批次可在此重新导出。范围与服务端一致：仅 file_name 以「生成入库」开头的留档批次。
 const STOCK_IN_PREFIX = '生成入库'
 const isStockedBatch = (row: any) => String(row?.file_name || '').startsWith(STOCK_IN_PREFIX)
+const canExportBatch = (row: any) => row?.canExport ?? (row?.kind === 'root' ? isStockedBatch(row) : true)
 const showExportModal = ref(false)
 const exportTarget = ref<any>(null)
 const exporting = ref(false)
@@ -382,7 +555,8 @@ const doExport = async (format: 'txt' | 'urls' | 'csv') => {
   if (!exportTarget.value || exporting.value) return
   exporting.value = true
   try {
-    const res = await fetch('/api/admin/codes/upload-batches/' + exportTarget.value.id + '/export?format=' + format, { credentials: 'include' })
+    const query = new URLSearchParams({ format, ...batchScope(exportTarget.value) })
+    const res = await fetch(batchApi(exportTarget.value, 'export') + '?' + query.toString(), { credentials: 'include' })
     if (!res.ok) {
       let msg = '导出失败'
       try { msg = (await res.json())?.statusMessage || msg } catch { /* 非 JSON 错误体 */ }
@@ -409,6 +583,7 @@ const doExport = async (format: 'txt' | 'urls' | 'csv') => {
 const showDetailModal = ref(false)
 const detailRow = ref<any>(null)
 const detailLoading = ref(false)
+const detailError = ref('')
 const detailRows = ref<any[]>([])
 const detailTotal = ref(0)
 const detailPage = ref(1)
@@ -426,38 +601,66 @@ const FLAG_OPTIONS = [
   { value: '1', label: '已冻结' },
   { value: '2', label: '已作废' },
 ]
-
+let detailRequest = 0
+let detailController: AbortController | undefined
+const cancelDetailRequest = () => {
+  detailRequest++
+  detailController?.abort()
+  detailController = undefined
+  detailLoading.value = false
+}
 const loadDetail = async () => {
-  if (!detailRow.value) return
+  if (!detailRow.value || !showDetailModal.value) return
+  cancelDetailRequest()
+  const request = ++detailRequest
+  const targetKey = batchKey(detailRow.value)
+  const requestedPage = detailPage.value
+  const controller = new AbortController()
+  detailController = controller
   detailLoading.value = true
+  detailError.value = ''
+  detailRows.value = []
   try {
-    const res = await $fetch('/api/admin/codes', {
+    const res = await $fetch<any>('/api/admin/codes', {
       query: {
-        uploadBatchId: detailRow.value.id,
+        ...(isUsedChild(detailRow.value) ? { usageBatchId: detailRow.value.id } : { uploadBatchId: batchRootId(detailRow.value) || undefined, ...batchScope(detailRow.value) }),
         keyword: dFilters.keyword || undefined,
         status: dFilters.status || undefined,
         abnormalFlag: dFilters.abnormalFlag || undefined,
-        page: detailPage.value,
+        page: requestedPage,
         pageSize: detailPageSize,
       },
+      signal: controller.signal,
     })
+    if (request !== detailRequest || !showDetailModal.value || targetKey !== batchKey(detailRow.value)) return
     detailRows.value = res.rows || []
     detailTotal.value = Number(res.total || 0)
+    const lastPage = Math.max(1, Math.ceil(detailTotal.value / detailPageSize))
+    if (requestedPage > lastPage) { detailPage.value = lastPage; void loadDetail() }
+  } catch (e: any) {
+    if (request === detailRequest && !controller.signal.aborted) detailError.value = e?.data?.statusMessage || '追溯码明细加载失败，请重试'
   } finally {
-    detailLoading.value = false
+    if (request === detailRequest) { detailLoading.value = false; detailController = undefined }
   }
 }
 const openDetail = (row: any) => {
+  cancelDetailRequest()
   detailRow.value = row
+  detailRows.value = []
+  detailTotal.value = 0
   detailPage.value = 1
   Object.assign(dFilters, { keyword: '', status: undefined, abnormalFlag: filters.abnormalFlag })
   showDetailModal.value = true
   loadDetail()
 }
+watch(showDetailModal, open => { if (!open) cancelDetailRequest() })
 // 首页异常指标查看全企业码明细，包括尚未归属上传批次的生成码。
 const codesRoute = useRoute()
 const openGlobalDetail = () => {
   if (!filters.abnormalFlag) return
+  cancelDetailRequest()
+  detailRows.value = []
+  detailTotal.value = 0
   detailRow.value = { id: undefined, file_name: filters.abnormalFlag === '1' ? '全部冻结码' : '全部作废码' }
   detailPage.value = 1
   Object.assign(dFilters, { keyword: '', status: undefined, abnormalFlag: filters.abnormalFlag })
@@ -503,7 +706,7 @@ const submitRowFlag = async () => {
     toast.add({ title: '已执行：' + ROW_FLAG_TITLE[rowFlagAction.value] + '成功', color: 'success' })
     showRowFlagModal.value = false
     loadDetail() // 刷新明细（行状态变化）
-    refresh()    // 同步刷新主列表汇总（冻结/作废计数变化）
+    refreshAllBatches()
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || '操作失败', color: 'error' })
   } finally {
@@ -524,6 +727,20 @@ const openRowEdit = (row: any) => {
   if (Number(row.abnormal_flag) !== 0) {
     toast.add({ title: '冻结码请先恢复正常；作废码不可修改', color: 'warning' }); return
   }
+  if (isUsedChild(detailRow.value)) {
+    const target = { ...detailRow.value }
+    showDetailModal.value = false
+    void nextTick(() => openCorrect(target))
+    return
+  }
+  if (row.usageBatchId) {
+    const target = { ...row, kind: 'used', id: Number(row.usageBatchId), parentUploadBatchId: batchRootId(detailRow.value), codeTotal: 1, normalCount: 1, frozenCount: 0, voidedCount: 0, file_name: `追溯码所属上传子批次 · ${row.code}` }
+    // 先关闭明细再打开任务编辑，避免两个独立弹窗的遮罩互相覆盖。
+    showDetailModal.value = false
+    void nextTick(() => openCorrect(target))
+    return
+  }
+  if (row.taskId) { toast.add({ title: `此码由生产任务 ${row.taskId} 管理，请在「生产任务与审核」中同步修改任务`, color: 'warning' }); return }
   rowEditTarget.value = row
   Object.assign(rowEditForm, { batchId: 0, produceDate: '', expireDate: '', qcResult: 'keep', qualityCertNo: '' })
   showRowEditModal.value = true
@@ -580,7 +797,7 @@ const submitRowDelete = async () => {
     // 当前页删空且非第一页时回退一页，避免停留在空页
     if (detailRows.value.length === 1 && detailPage.value > 1) detailPage.value--
     loadDetail() // 刷新当前明细表格
-    refresh()    // 同步刷新主列表汇总（码数量变化）
+    refreshAllBatches()
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || '删除失败', color: 'error' })
   } finally {
@@ -606,7 +823,7 @@ const flagBadge = (f: number) => {
     <div class="flex items-center justify-between">
       <div>
         <h1 class="b-page-title">码库管理</h1>
-        <p class="b-page-desc">按码文件批次查看总量、已用与剩余数量，使用记录展示生产任务、上传来源和时间</p>
+        <p class="b-page-desc">展开总批次，分别管理每次上传的已用子批次与剩余子批次</p>
       </div>
       <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetSearch">重置</UButton>
     </div>
@@ -623,7 +840,7 @@ const flagBadge = (f: number) => {
         </div>
         <div>
           <label class="b-label">关联产品</label>
-          <USelect v-model="filters.productId" :items="PRODUCT_OPTIONS" placeholder="全部产品" class="w-full" :content="{ class: 'min-w-60' }" />
+          <USelect v-model="filters.productId" :items="PRODUCT_OPTIONS" placeholder="全部产品" class="w-full" :content="{ class: 'min-w-72' }" :ui="{ value: 'whitespace-normal break-words text-left', itemLabel: 'whitespace-normal break-words' }" />
         </div>
         <div>
           <label class="b-label">生产批号</label>
@@ -655,105 +872,117 @@ const flagBadge = (f: number) => {
     <!-- 批次聚合列表 -->
     <div class="b-card b-card-clip">
       <div class="b-card-head">
-        <span class="b-card-title">上传批次列表</span>
+        <span class="b-card-title">总批次与子批次</span>
         <span class="b-card-extra">每页 {{ pageSize }} 行 · 共 {{ data?.total || 0 }} 个批次</span>
       </div>
 
       <div class="b-scroll-x">
-        <table class="b-table">
+        <table class="b-table" aria-label="总批次与子批次">
           <thead>
             <tr>
-              <th>批次名称（上传文件）</th>
+              <th>批次名称</th>
               <th>关联产品</th>
-              <th class="text-right">码总数量</th>
+              <th>包装规格</th>
+              <th class="text-right">码数量</th>
               <th>使用情况</th>
               <th>码状态汇总</th>
               <th>生产批号</th>
-              <th>上传时间</th>
+              <th>上传时间 / 账号</th>
               <th class="text-right">操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in data?.rows || []" :key="row.id">
-              <td>
-                <span class="max-w-72 inline-block truncate align-middle text-[13px] b-strong" :title="row.file_name">{{ row.file_name }}</span>
-              </td>
-              <td class="min-w-32">{{ row.product_name || '-' }}</td>
-              <td class="text-right font-medium b-strong" :title="exactQuantity(row.codeTotal)">{{ formatCodeQuantity(row.codeTotal) }}</td>
-              <td class="min-w-64">
-                <div class="flex flex-wrap items-center gap-2">
-                  <span class="b-tag whitespace-nowrap" :class="usageBadge(row).cls">{{ usageBadge(row).label }}</span>
-                  <span class="font-medium b-strong" :title="exactQuantity(remainingCount(row))">剩余 {{ formatCodeQuantity(remainingCount(row)) }}</span>
-                </div>
-                <p class="mt-1 text-xs text-[var(--b-text-muted)]" :title="exactQuantity(usedCount(row))">已用 {{ formatCodeQuantity(usedCount(row)) }}</p>
-                <p v-if="row.occupiedCount > 0" class="mt-1 text-xs text-[var(--b-text-muted)]">
-                  <span :title="exactQuantity(row.occupiedCount)">任务占用 {{ formatCodeQuantity(row.occupiedCount) }}</span>
-                  <span :title="exactQuantity(row.availableCount)"> · 当前可领 {{ formatCodeQuantity(row.availableCount) }}</span>
-                </p>
-                <p v-if="row.lastUsedAt" class="mt-1 text-xs text-[var(--b-text-muted)]">最近使用：{{ usageTime(row.lastUsedAt) }}</p>
-                <p v-if="row.productionRecordsAvailable === false" class="mt-1 max-w-64 text-xs text-[var(--b-text-muted)]">{{ row.unavailableReason || '生产使用记录暂不可用' }}</p>
-              </td>
-              <td>
-                <span
-                  class="b-tag"
-                  :class="SUMMARY_BADGE[row.summary] || 'b-tag-default'"
-                  :title="'正常 ' + row.normalCount + ' · 冻结 ' + row.frozenCount + ' · 作废 ' + row.voidedCount"
-                >{{ row.summary }}</span>
-                <span v-if="row.frozenCount + row.voidedCount > 0" class="b-card-extra ml-1.5 text-xs">
-                  （正常 {{ row.normalCount }} / 冻结 {{ row.frozenCount }} / 作废 {{ row.voidedCount }}）
-                </span>
-              </td>
-              <td>{{ row.batch_no || '-' }}</td>
-              <td class="whitespace-nowrap">{{ String(row.created_at).slice(0, 16) }}</td>
-              <td>
-                <div class="b-actions justify-end whitespace-nowrap">
-                  <UButton variant="link" color="neutral" size="xs" icon="i-lucide-eye" @click="openDetail(row)">详细</UButton>
-                  <span class="b-sep" />
-                  <UButton variant="link" color="neutral" size="xs" icon="i-lucide-history" @click="openUsage(row)">使用记录</UButton>
-                  <!-- 导出（2026-10-10）：仅「生成入库」留档批次——生成页未及时下载文件时的回捞出口 -->
-                  <template v-if="isStockedBatch(row)">
-                    <span class="b-sep" />
-                    <!-- 用图标按钮而非文字：操作列原有 5 个文字按钮，再加文字会把「新建批次并绑定」挤成竖排（实测） -->
-                    <UButton
-                      variant="link"
-                      color="neutral"
-                      size="xs"
-                      icon="i-lucide-download"
-                      title="导出本批次追溯码（仅「生成入库」留档批次）"
-                      aria-label="导出留档追溯码"
-                      @click="openExport(row)"
-                    />
+            <template v-for="row in visibleBatchRows" :key="batchKey(row)">
+              <tr v-if="row.kind === 'children-info'">
+                <td colspan="9" class="!bg-[var(--b-fill-weak)] !py-2 !pl-12">
+                  <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--b-text-muted)]">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span v-if="childStates[batchRootId(row)]?.loading" role="status" class="flex items-center gap-1"><UIcon name="i-lucide-loader-circle" class="h-3.5 w-3.5 animate-spin" />正在加载子批次</span>
+                      <template v-if="childStates[batchRootId(row)]?.error">
+                        <span role="alert" class="text-red-600">{{ childStates[batchRootId(row)]?.error }}</span>
+                        <UButton variant="link" color="neutral" size="xs" @click="loadChildren(batchRootId(row))">重试</UButton>
+                      </template>
+                      <span v-if="childStates[batchRootId(row)]?.result?.productionRecordsAvailable === false">{{ childStates[batchRootId(row)]?.result?.unavailableReason || '生产子批次暂不可用' }}</span>
+                      <span v-if="childStates[batchRootId(row)]?.result?.legacyBoundCount">历史已用 {{ formatCodeQuantity(childStates[batchRootId(row)]?.result?.legacyBoundCount || 0) }} 仅计入总批次汇总；子批次从新上传流程开始建立。</span>
+                      <span v-if="!childStates[batchRootId(row)]?.loading && !childStates[batchRootId(row)]?.error && childStates[batchRootId(row)]?.result?.total === 0 && !childStates[batchRootId(row)]?.result?.legacyBoundCount">尚无已用子批次，移动端完成本次上传后显示。</span>
+                    </div>
+                    <div v-if="childStates[batchRootId(row)]?.result?.total" class="flex items-center gap-2">
+                      <span>已用子批次 {{ childStates[batchRootId(row)]?.result?.total }} 批 · 第 {{ childStates[batchRootId(row)]?.page }} / {{ childTotalPages(batchRootId(row)) }} 页</span>
+                      <UButton variant="outline" color="neutral" size="xs" :disabled="childStates[batchRootId(row)]?.loading || (childStates[batchRootId(row)]?.page || 1) <= 1" @click="changeChildPage(batchRootId(row), (childStates[batchRootId(row)]?.page || 1) - 1)">上一页</UButton>
+                      <UButton variant="outline" color="neutral" size="xs" :disabled="childStates[batchRootId(row)]?.loading || (childStates[batchRootId(row)]?.page || 1) >= childTotalPages(batchRootId(row))" @click="changeChildPage(batchRootId(row), (childStates[batchRootId(row)]?.page || 1) + 1)">下一页</UButton>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <tr v-else :data-batch-kind="row.kind" :data-batch-key="batchKey(row)" :class="{ '!bg-[var(--b-fill-weak)]': row.kind !== 'root' }">
+                <td class="min-w-72">
+                  <div class="flex items-start gap-2" :class="{ 'pl-6': row.kind !== 'root' }">
+                    <UButton v-if="row.kind === 'root'" variant="link" color="neutral" size="xs" :icon="expandedBatches.has(Number(row.id)) ? 'i-lucide-chevron-down' : 'i-lucide-chevron-right'" :aria-label="(expandedBatches.has(Number(row.id)) ? '收起' : '展开') + '总批次 ' + row.file_name" :aria-expanded="expandedBatches.has(Number(row.id))" @click="toggleChildren(row)" />
+                    <UIcon v-else name="i-lucide-chevron-right" class="mt-1 h-4 w-4 shrink-0 text-[var(--b-text-muted)]" />
+                    <div>
+                      <span v-if="row.kind === 'root'" class="b-tag b-tag-default mb-1">总批次</span>
+                      <span v-else class="b-tag mb-1" :class="isRemainingChild(row) ? 'b-tag-info' : 'b-tag-success'">{{ isRemainingChild(row) ? '剩余子批次' : '已用 ' + formatCodeQuantity(row.codeTotal) }}</span>
+                      <p class="max-w-72 break-words text-[13px] b-strong" :title="row.file_name">{{ row.file_name }}</p>
+                      <p v-if="isUsedChild(row)" class="mt-1 text-xs text-[var(--b-text-muted)]">任务：{{ row.taskName || row.name || '名称未记录' }} · 编号 {{ row.taskId }}</p>
+                    </div>
+                  </div>
+                </td>
+                <td class="min-w-32">{{ row.product_name || '-' }}</td>
+                <td class="min-w-36"><span class="break-words" :class="{ 'text-[var(--b-text-muted)]': !row.specName }">{{ batchSpec(row) }}</span></td>
+                <td class="text-right whitespace-nowrap font-medium b-strong" :title="exactQuantity(row.codeTotal)">{{ formatCodeQuantity(row.codeTotal) }}</td>
+                <td class="min-w-52">
+                  <template v-if="isUsedChild(row)">
+                    <span class="b-tag" :class="row.uploadState === 'completed' ? 'b-tag-success' : 'b-tag-warning'">{{ row.uploadState === 'completed' ? '上传已完成' : row.uploadState === 'closing' ? '正在完成上传' : '上传中' }}</span>
+                    <p class="mt-1 text-xs text-[var(--b-text-muted)]">{{ row.sourceLabel || '移动端上传' }}</p>
+                    <p v-if="row.uploadState !== 'completed'" class="mt-1 text-xs text-[var(--b-text-muted)]">数量按成功上传更新，完成后固定</p>
                   </template>
-                  <span class="b-sep" />
-                  <UButton v-if="canWrite"
-                    variant="link"
-                    color="neutral"
-                    size="xs"
-                    icon="i-lucide-snowflake"
-                    :disabled="row.normalCount <= 0"
-                    :title="row.normalCount <= 0 ? (row.summary === '全部作废' ? '批次码已全部作废（终态）' : '批次码已全部冻结') : '整批冻结：本批次 ' + row.normalCount + ' 条正常码将全部冻结'"
-                    @click="openFreeze(row)"
-                  >冻结</UButton>
-                  <span class="b-sep" />
-                  <UButton v-if="canWrite" variant="link" color="neutral" size="xs" icon="i-lucide-link" :disabled="row.codeTotal <= row.boundCount" @click="openCorrect(row, true)">新建批次并绑定</UButton>
-                  <span class="b-sep" />
-                  <UButton v-if="canWrite" variant="link" color="neutral" size="xs" icon="i-lucide-wrench" @click="openCorrect(row)">修正</UButton>
-                  <span class="b-sep" />
-                  <!-- 删除：批次内存在已绑定码时置灰不可点，hover 提示原因（disabled 按钮自身不触发 title，由外层 span 承载） -->
-                  <span v-if="canWrite && !row.canDelete" :title="'该批次存在已绑定追溯码，无法删除（已绑定 ' + row.boundCount + ' 条）'">
-                    <UButton variant="link" color="error" size="xs" icon="i-lucide-trash-2" disabled>删除</UButton>
-                  </span>
-                  <UButton v-else-if="canWrite" variant="link" color="error" size="xs" icon="i-lucide-trash-2" @click="openDelete(row)">删除</UButton>
-                </div>
-              </td>
-            </tr>
+                  <template v-else>
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span v-if="row.kind === 'root'" class="b-tag whitespace-nowrap" :class="usageBadge(row).cls">{{ usageBadge(row).label }}</span>
+                      <span class="font-medium b-strong" :title="exactQuantity(remainingCount(row))">剩余 {{ formatCodeQuantity(remainingCount(row)) }}</span>
+                    </div>
+                    <p v-if="row.kind === 'root'" class="mt-1 text-xs text-[var(--b-text-muted)]" :title="exactQuantity(usedCount(row))">已用 {{ formatCodeQuantity(usedCount(row)) }}</p>
+                    <p v-if="row.occupiedCount > 0" class="mt-1 text-xs text-[var(--b-text-muted)]"><span :title="exactQuantity(row.occupiedCount)">任务占用 {{ formatCodeQuantity(row.occupiedCount) }}</span></p>
+                    <p v-if="isRemainingChild(row) || row.occupiedCount > 0" class="mt-1 text-xs text-[var(--b-text-muted)]"><span :title="exactQuantity(row.availableCount)">当前可领 {{ formatCodeQuantity(row.availableCount || 0) }}</span></p>
+                    <p v-if="isRemainingChild(row) && row.occupiedCount > 0" class="mt-1 max-w-52 text-xs text-[var(--b-text-muted)]">任务结束并审核通过后，未用码才可再次领取</p>
+                    <p v-if="row.lastUsedAt" class="mt-1 text-xs text-[var(--b-text-muted)]">最近使用：{{ usageTime(row.lastUsedAt) }}</p>
+                    <p v-if="row.productionRecordsAvailable === false" class="mt-1 max-w-64 text-xs text-[var(--b-text-muted)]">{{ row.unavailableReason || '生产使用记录暂不可用' }}</p>
+                  </template>
+                </td>
+                <td>
+                  <span class="b-tag" :class="SUMMARY_BADGE[row.summary] || 'b-tag-default'" :title="'正常 ' + row.normalCount + ' · 冻结 ' + row.frozenCount + ' · 作废 ' + row.voidedCount">{{ row.summary }}</span>
+                  <p v-if="row.frozenCount + row.voidedCount > 0" class="b-card-extra mt-1 text-xs">正常 {{ row.normalCount }} / 冻结 {{ row.frozenCount }} / 作废 {{ row.voidedCount }}</p>
+                </td>
+                <td>{{ row.batch_no || '-' }}</td>
+                <td class="min-w-44">
+                  <template v-if="isUsedChild(row)">
+                    <p>{{ usageTime(row.firstReceivedAt) }}</p>
+                    <p v-if="row.lastReceivedAt && row.lastReceivedAt !== row.firstReceivedAt" class="mt-1 text-xs text-[var(--b-text-muted)]">至 {{ usageTime(row.lastReceivedAt) }}</p>
+                    <p class="mt-1 text-xs">{{ uploaderText(row) }}</p>
+                  </template>
+                  <span v-else class="whitespace-nowrap">{{ String(row.created_at || '').slice(0, 16) }}</span>
+                </td>
+                <td>
+                  <div class="flex min-w-80 flex-wrap justify-end gap-x-3 gap-y-1">
+                    <UButton variant="link" color="neutral" size="xs" icon="i-lucide-eye" @click="openDetail(row)">详细</UButton>
+                    <UButton v-if="row.kind === 'root'" variant="link" color="neutral" size="xs" icon="i-lucide-history" @click="openUsage(row)">使用记录</UButton>
+                    <UButton v-if="canExportBatch(row)" variant="link" color="neutral" size="xs" icon="i-lucide-download" @click="openExport(row)">导出</UButton>
+                    <template v-if="canWrite">
+                      <UButton variant="link" color="neutral" size="xs" icon="i-lucide-snowflake" :disabled="row.normalCount <= 0" :title="batchScopeText(row)" @click="openFreeze(row)">冻结</UButton>
+                      <UButton variant="link" color="neutral" size="xs" :disabled="row.frozenCount <= 0" @click="openFreeze(row, 'restore')">恢复</UButton>
+                      <UButton variant="link" color="error" size="xs" :disabled="row.codeTotal <= row.voidedCount" @click="openFreeze(row, 'void')">作废</UButton>
+                      <UButton v-if="!isUsedChild(row)" variant="link" color="neutral" size="xs" :disabled="row.codeTotal <= row.boundCount" @click="openCorrect(row, true)">新建批次并绑定</UButton>
+                      <UButton variant="link" color="neutral" size="xs" :disabled="row.canCorrect === false" :title="isUsedChild(row) ? '同步修改整个关联生产任务及其在其他总批次下的码' : batchScopeText(row)" @click="openCorrect(row)">{{ isUsedChild(row) ? '编辑生产信息' : '修正' }}</UButton>
+                      <UButton v-if="isRemainingChild(row)" variant="link" color="neutral" size="xs" :disabled="Number(row.availableCount || 0) <= 0" @click="createRemainingTask(row)">新建生产任务</UButton>
+                      <span v-if="!row.canDelete" title="该批次存在已绑定追溯码，无法删除"><UButton variant="link" color="error" size="xs" icon="i-lucide-trash-2" disabled>删除</UButton></span>
+                      <UButton v-else variant="link" color="error" size="xs" icon="i-lucide-trash-2" @click="openDelete(row)">删除</UButton>
+                    </template>
+                  </div>
+                </td>
+              </tr>
+            </template>
             <tr v-if="!pending && !data?.rows?.length">
-              <td colspan="8" class="b-empty">
-                <div class="b-empty-inner">
-                  <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
-                  <span class="text-sm">暂无上传批次，请先在「生产采集」上传追溯码文件；或调整筛选条件后重试</span>
-                </div>
-              </td>
+              <td colspan="9" class="b-empty"><div class="b-empty-inner"><UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" /><span class="text-sm">暂无总批次，请先生成入库或上传码文件；也可调整筛选条件后重试</span></div></td>
             </tr>
           </tbody>
         </table>
@@ -878,38 +1107,39 @@ const flagBadge = (f: number) => {
       </template>
     </UModal>
 
-    <!-- 整批冻结确认对话框 -->
+    <!-- 异常标记先展示准确范围，父操作包含全部子批次。 -->
     <UModal v-model:open="showFreezeModal">
       <template #content>
         <div class="b-modal">
           <div class="b-modal-head">
             <div class="b-modal-icon">
-              <UIcon name="i-lucide-snowflake" class="h-4 w-4 text-amber-600" />
+              <UIcon :name="batchFlagAction === 'void' ? 'i-lucide-ban' : batchFlagAction === 'restore' ? 'i-lucide-rotate-ccw' : 'i-lucide-snowflake'" class="h-4 w-4" :class="batchFlagAction === 'void' ? 'text-red-600' : 'text-amber-600'" />
             </div>
             <div>
-              <h3 class="b-modal-title">整批冻结</h3>
+              <h3 class="b-modal-title">批次{{ batchFlagLabel }}</h3>
               <p class="b-modal-sub">{{ freezeTarget?.file_name }}</p>
             </div>
           </div>
-          <div class="b-modal-body">
+          <div class="b-modal-body space-y-3">
             <div class="b-note">
               <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
               <p class="b-note-text">
-                确认后将冻结本批次全部 <span class="font-medium b-strong">{{ freezeTarget?.normalCount }}</span> 条正常追溯码（共 {{ freezeTarget?.codeTotal }} 条）。
-                冻结后扫码显示「该追溯码暂不可用，请联系企业（生产厂家）」，可在明细中单行恢复正常；已作废码（{{ freezeTarget?.voidedCount }} 条）为终态不受影响。
+                操作范围：{{ batchScopeText(freezeTarget) }}。将{{ batchFlagLabel }} <span class="font-medium b-strong">{{ exactQuantity(batchFlagCount) }}</span>。
+                {{ batchFlagAction === 'void' ? '作废后不可恢复，请确认所有受影响子批次；扫码将显示已作废提示。' : batchFlagAction === 'freeze' ? '冻结后扫码显示暂不可用，可恢复正常；已作废码不受影响。' : '仅恢复本范围内已冻结的码；已作废码不受影响。' }}
               </p>
             </div>
+            <div v-if="batchFlagAction === 'void'"><label class="b-label-lg">作废原因 <span class="b-required">*</span></label><USelect v-model="batchFlagReason" :items="['印刷模糊', '无法识别', '窜货', '召回', '疑似假冒', '其他'].map(r => ({ value: r, label: r }))" placeholder="选择作废原因" class="w-full" /></div>
           </div>
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showFreezeModal = false">取消</UButton>
-            <UButton v-if="canWrite" color="neutral" variant="solid" :loading="freezing" @click="submitFreeze">确认冻结</UButton>
+            <UButton v-if="canWrite" :color="batchFlagAction === 'void' ? 'error' : 'neutral'" variant="solid" :loading="freezing" @click="submitFreeze">确认{{ batchFlagLabel }}</UButton>
           </div>
         </div>
       </template>
     </UModal>
 
     <!-- 整批修正对话框（表单复用批量修正工具字段，作用域=本批次全部码） -->
-    <UModal v-model:open="showCorrectModal">
+    <UModal v-model:open="showCorrectModal" :ui="{ content: 'sm:max-w-2xl' }">
       <template #content>
         <div class="b-modal">
           <div class="b-modal-head">
@@ -917,13 +1147,26 @@ const flagBadge = (f: number) => {
               <UIcon name="i-lucide-wrench" class="h-4 w-4 text-[var(--b-text-regular)]" />
             </div>
             <div>
-              <h3 class="b-modal-title">整批修正</h3>
-              <p class="b-modal-sub">作用域：本批次全部 {{ correctTarget?.codeTotal || 0 }} 条追溯码</p>
+              <h3 class="b-modal-title">{{ isUsedChild(correctTarget) ? '编辑关联生产任务' : '批次修正' }}</h3>
+              <p class="b-modal-sub">{{ isUsedChild(correctTarget) ? '同步整个关联任务，包括其他总批次下的码' : batchScopeText(correctTarget) }}</p>
             </div>
           </div>
-          <div class="b-modal-body">
-            <ProductionChangePreview :form="correctForm" :count="correctTarget?.codeTotal || 0" />
-            <div v-if="!newBatchMode">
+          <div class="b-modal-body max-h-[70vh] space-y-3 overflow-y-auto">
+            <template v-if="isUsedChild(correctTarget)">
+              <p v-if="correctPreviewLoading" role="status" class="b-help">正在确认关联生产任务的完整修改范围…</p>
+              <div v-if="correctPreviewError" role="alert" class="b-note"><p class="b-note-text flex-1">{{ correctPreviewError }}</p><UButton variant="link" color="neutral" size="xs" @click="loadCorrectPreview">重试</UButton></div>
+              <div v-if="correctPreview" class="b-note">
+                <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+                <div class="b-note-text">
+                  <p>关联任务：{{ correctPreview.task.name }}（编号 {{ correctPreview.task.id }}）。修改影响 {{ correctPreview.rootCount }} 个总批次、共 {{ exactQuantity(correctPreview.totalCodes) }}，其中已用 {{ exactQuantity(correctPreview.usedCodes) }}。</p>
+                  <p v-for="root in correctPreview.roots" :key="root.id" class="mt-1 break-words">{{ root.fileName }}：{{ exactQuantity(root.count) }}</p>
+                  <p v-if="!correctPreview.canCorrect" class="mt-1 text-red-600">{{ correctPreview.reason || '关联任务当前不可修改' }}</p>
+                </div>
+              </div>
+              <div><label class="b-label-lg">生产批号</label><UInput v-model="correctForm.batchNo" :placeholder="'不修改留空；当前：' + (correctTarget?.batch_no || '未记录')" /></div>
+            </template>
+            <ProductionChangePreview :form="correctForm" :count="correctImpactCount" />
+            <div v-if="!newBatchMode && !isUsedChild(correctTarget)">
               <label class="b-label-lg">重新绑定批次（仅"已生成"码生效，绑定后自动置为"已绑定"）</label>
               <USelect
                 v-model="correctForm.batchId"
@@ -933,7 +1176,7 @@ const flagBadge = (f: number) => {
                 :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
               />
             </div>
-            <div v-else class="space-y-3">
+            <div v-else-if="newBatchMode" class="space-y-3">
               <div>
                 <label class="b-label-lg">生产批次号 <span class="b-required">*</span></label>
                 <UInput v-model="correctForm.batchNo" placeholder="与产品标签喷码一致；批号已存在则自动归并" />
@@ -979,12 +1222,13 @@ const flagBadge = (f: number) => {
             </div>
             <div class="b-note">
               <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
-              <p class="b-note-text">已绑定码的生产日期/质检字段修改属合规更正，将记录强审计日志（不可撤销）；本批次含已冻结/作废码时需先在明细中处理</p>
+              <p class="b-note-text">已绑定码的生产日期/质检字段修改属合规更正，将记录强审计日志；{{ isUsedChild(correctTarget) ? '修改同步整个关联生产任务，包含已分配但尚未使用的码。' : '本批次含已冻结/作废码时需先在明细中处理。' }}</p>
             </div>
+            <UCheckbox v-if="isUsedChild(correctTarget)" v-model="correctConfirmed" :disabled="correctPreviewLoading || !correctPreview?.canCorrect || !!correctPreviewError" label="我已确认：同步修改整个关联生产任务及其在其他总批次下的码" />
           </div>
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showCorrectModal = false">取消</UButton>
-            <UButton v-if="canWrite" color="neutral" variant="solid" :loading="correcting" @click="submitCorrect">确认修正</UButton>
+            <UButton v-if="canWrite" color="neutral" variant="solid" :loading="correcting" :disabled="isUsedChild(correctTarget) && (correctPreviewLoading || !correctPreview?.canCorrect || !!correctPreviewError || !correctConfirmed)" @click="submitCorrect">{{ isUsedChild(correctTarget) ? '确认同步修改' : '确认修正' }}</UButton>
           </div>
         </div>
       </template>
@@ -999,7 +1243,7 @@ const flagBadge = (f: number) => {
             </div>
             <div>
               <h3 class="b-modal-title">新建批次并绑定</h3>
-              <p class="b-modal-sub">作用域：本批次全部 {{ correctTarget?.codeTotal || 0 }} 条追溯码</p>
+              <p class="b-modal-sub">{{ batchScopeText(correctTarget) }}</p>
             </div>
           </div>
           <div class="b-modal-body">
@@ -1080,7 +1324,7 @@ const flagBadge = (f: number) => {
               <UIcon name="i-lucide-trash-2" class="h-4 w-4 text-red-600" />
             </div>
             <div>
-              <h3 class="b-modal-title">删除上传批次</h3>
+              <h3 class="b-modal-title">删除{{ deleteTarget?.kind === 'root' ? '总批次' : '子批次' }}</h3>
               <p class="b-modal-sub max-w-xl truncate" :title="deleteTarget?.file_name">{{ deleteTarget?.file_name }}</p>
             </div>
           </div>
@@ -1088,7 +1332,7 @@ const flagBadge = (f: number) => {
             <div class="b-note">
               <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-500" />
               <p class="b-note-text">
-                确认删除该批次以及批次下全部追溯码数据（{{ deleteTarget?.codeTotal || 0 }} 条）？删除后数据不可恢复，请谨慎操作。
+                操作范围：{{ batchScopeText(deleteTarget) }}。确认删除本范围全部追溯码数据？删除后数据不可恢复，请谨慎操作；已绑定码不允许删除。
               </p>
             </div>
           </div>
@@ -1114,7 +1358,7 @@ const flagBadge = (f: number) => {
             </div>
           </div>
           <div class="b-modal-body space-y-3">
-            <p class="b-help">本批次共 {{ exportTarget?.codeTotal || 0 }} 条，命名规则与「追溯码生成」页导出一致。选择格式后立即下载。</p>
+            <p class="b-help">导出范围：{{ batchScopeText(exportTarget) }}。选择格式后立即下载。</p>
             <div class="flex flex-col gap-2">
               <UButton color="neutral" variant="outline" icon="i-lucide-file-text" :loading="exporting" @click="doExport('txt')">
                 码文件 TXT（每行一个 32 位追溯码）
@@ -1143,11 +1387,14 @@ const flagBadge = (f: number) => {
               <UIcon name="i-lucide-eye" class="h-4 w-4 text-[var(--b-text-regular)]" />
             </div>
             <div>
-              <h3 class="b-modal-title">{{ detailRow?.id ? '批次码明细' : '追溯码明细' }}</h3>
+              <h3 class="b-modal-title">{{ batchRootId(detailRow) ? '批次码明细' : '追溯码明细' }}</h3>
               <p class="b-modal-sub max-w-xl truncate" :title="detailRow?.file_name">{{ detailRow?.file_name }}</p>
+              <p v-if="batchRootId(detailRow)" class="b-help">{{ batchScopeText(detailRow) }} · 包装规格：{{ batchSpec(detailRow) }}</p>
             </div>
           </div>
           <div class="b-modal-body">
+            <p v-if="isUsedChild(detailRow)" class="b-help mb-3">此处修改生产信息将同步整个关联生产任务，确认弹窗会列出完整影响范围。</p>
+            <div v-if="detailError" role="alert" class="b-note mb-3"><p class="b-note-text flex-1">{{ detailError }}</p><UButton variant="link" color="neutral" size="xs" :loading="detailLoading" @click="loadDetail">重试</UButton></div>
             <!-- 明细筛选 -->
             <div class="mb-3 flex flex-wrap items-end gap-2">
               <div class="w-64">
@@ -1224,11 +1471,11 @@ const flagBadge = (f: number) => {
                       </div>
                     </td>
                   </tr>
-                  <tr v-if="!detailLoading && !detailRows.length">
+                  <tr v-if="!detailRows.length">
                     <td colspan="8" class="b-empty">
                       <div class="b-empty-inner">
-                        <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
-                        <span class="text-sm">本批次暂无符合筛选条件的追溯码</span>
+                        <UIcon :name="detailLoading ? 'i-lucide-loader-circle' : 'i-lucide-inbox'" class="b-empty-icon h-8 w-8" :class="{ 'animate-spin': detailLoading }" />
+                        <span class="text-sm">{{ detailLoading ? '正在加载追溯码' : detailError ? '追溯码明细未加载，请重试' : '本批次暂无符合筛选条件的追溯码' }}</span>
                       </div>
                     </td>
                   </tr>
@@ -1240,8 +1487,8 @@ const flagBadge = (f: number) => {
             <div v-if="detailTotal" class="b-pager">
               <span class="b-card-extra">共 {{ detailTotal }} 条 · 第 {{ detailPage }} / {{ detailTotalPages }} 页</span>
               <div class="flex items-center gap-2">
-                <UButton variant="outline" color="neutral" size="sm" :disabled="detailPage <= 1" @click="detailPage--; loadDetail()">上一页</UButton>
-                <UButton variant="outline" color="neutral" size="sm" :disabled="detailPage >= detailTotalPages" @click="detailPage++; loadDetail()">下一页</UButton>
+                <UButton variant="outline" color="neutral" size="sm" :disabled="detailLoading || detailPage <= 1" @click="detailPage--; loadDetail()">上一页</UButton>
+                <UButton variant="outline" color="neutral" size="sm" :disabled="detailLoading || detailPage >= detailTotalPages" @click="detailPage++; loadDetail()">下一页</UButton>
               </div>
             </div>
           </div>
