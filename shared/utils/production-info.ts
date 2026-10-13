@@ -12,11 +12,14 @@ export function productionDate(value: unknown): string {
 
 /** 展示和异常判断必须使用同一份最终生效的生产信息。 */
 export function effectiveProduction(code: Record<string, any>, batch: Record<string, any>) {
+  const rawQc = code.qc_result ?? batch.qc_result
+  const qc = [0, 1, '0', '1'].includes(rawQc) ? Number(rawQc) : null
   return {
-    batchNo: batch.batch_no,
+    batchNo: code.batch_no || batch.batch_no || '',
     produceDate: productionDate(code.produce_date) || productionDate(batch.produce_date),
     expireDate: productionDate(code.expire_date) || productionDate(batch.expire_date),
-    qcResult: Number(code.qc_result ?? batch.qc_result) === 1 ? '合格' : '不合格',
+    qcResult: qc === 1 ? '合格' : qc === 0 ? '不合格' : '',
+    qualityStatus: qc === null ? 'pending' as const : qc === 0 ? 'failed' as const : undefined,
     qualityCertNo: code.quality_cert_no || batch.quality_cert_no || '',
     qcReportNo: batch.qc_report_no || '',
   }

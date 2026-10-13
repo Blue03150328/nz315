@@ -38,6 +38,14 @@ try{
  });
  await check('模糊与表头筛选、员工详情和码明细模糊查询',async()=>{
   const list=ok(await req('/api/admin/production-lines?keyword='+encodeURIComponent(one.username)+'&lineName='+encodeURIComponent('二号线')+'&operatorId='+one.id+'&status=active',cookie));assert.equal(list.total,1);assert.equal(list.rows[0].id,task.id);assert.equal(list.rows[0].operators.length,2);assert.equal(list.rows[0].collected,2);
+  assert.equal(list.rows[0].product_name,'员工产线测试产品');assert.equal(list.rows[0].product_spec_name,'100毫升');assert.equal(list.rows[0].registration_no,reg);
+  const productSearch=ok(await req('/api/admin/production-lines?keyword='+encodeURIComponent(reg),cookie));assert.equal(productSearch.total,1);assert.equal(productSearch.rows[0].id,task.id);
+  const file=ok(await req('/api/admin/codes/upload-batches?uploadBatchId='+ur.insertId,cookie)).rows[0];assert.equal(file.boundCount,2);assert.equal(file.batch_no,context.batchNo);assert.equal(file.produce_date,context.produceDate);assert.equal(file.expire_date,context.expireDate);assert.equal(Number(file.batch_count),1);
+  assert.equal(ok(await req('/api/admin/codes/upload-batches?batchNo='+encodeURIComponent(context.batchNo),cookie)).total,1);
+  const produced=ok(await req('/api/admin/codes?uploadBatchId='+ur.insertId+'&status=2',cookie));assert.equal(produced.total,2);for(const row of produced.rows){assert.equal(row.batch_no,context.batchNo);assert.equal(row.produce_date,context.produceDate);assert.equal(row.expire_date,context.expireDate)}
+  const raw=ok(await req('/api/admin/codes?keyword='+codes[10],cookie)).rows[0];assert.equal(raw.status,1);assert.equal(raw.batch_no,null);assert.equal(raw.produce_date,null);
+  const trace=ok(await req('/api/trace?code='+codes[0]));assert.equal(trace.batch.batchNo,context.batchNo);assert.equal(trace.batch.produceDate,context.produceDate);assert.equal(trace.batch.expireDate,context.expireDate);assert.equal(trace.batch.qcResult,'');assert.equal(trace.batch.qualityStatus,'pending');
+  const used=ok(await req('/api/admin/production-tasks/'+task.id+'?state=used',cookie));assert.equal(used.filteredTotal,2);assert.equal(used.rows[0].batch_no,context.batchNo);assert.equal(used.rows[0].produce_date,context.produceDate);
   assert.equal(ok(await req('/api/admin/production-lines?keyword=nomatch'+tag,cookie)).total,0);
   assert.equal(ok(await req('/api/admin/production-tasks/'+task.id+'?keyword='+codes[0],cookie)).filteredTotal,1);
   assert.equal(ok(await req('/api/admin/production-tasks/'+task.id+'/worker-progress?userId='+one.id+'&state=exception',cookie)).total,1);
@@ -52,6 +60,19 @@ try{
   const [[states]]=await db.query("SELECT SUM(state='used') AS used,SUM(state='reserved') AS unscanned,SUM(state IN ('pending','released')) AS reviewed FROM production_task_code WHERE task_id=?",[task.id]);assert.equal(Number(states.used),2);assert.equal(Number(states.unscanned),1999);assert.equal(Number(states.reviewed),0);
   const progress=ok(await req('/api/admin/production-tasks/'+task.id+'/worker-progress',cookie));assert.ok(progress.rows.every(r=>r.stopped_at));
   assert.equal((await req('/api/device/worker-sessions',d1.secret,{runId:randomUUID(),sessionId:randomUUID(),context,grant:g1.grant,startedAt})).status,409);
+ });
+ await check('同文件混合批号分别展示，批次回退有效，未生产码保持空资料',async()=>{
+  const [[firstBatch]]=await db.query('SELECT batch_id FROM production_task WHERE id=?',[task.id]);
+  const [other]=await db.execute('INSERT INTO batch(enterprise_id,product_id,batch_no,produce_date,expire_date,qc_result) VALUES(?,?,?,?,?,NULL)',[ent,product,'MIX-'+tag,'2026-10-13','2027-10-13']);
+  const [file]=await db.execute("INSERT INTO upload_batch(enterprise_id,file_name,product_id,created_by,batch_no) VALUES(?,?,?,?, '过期文件快照')",[ent,'mixed-'+tag,product,admin.id]);
+  const values=Array.from({length:3},(_,i)=>head+String(i+9000).padStart(21,'0'));
+  await db.execute('INSERT INTO trace_code(enterprise_id,product_id,upload_batch_id,code,status,abnormal_flag,batch_id) VALUES(?,?,?,?,2,0,?)',[ent,product,file.insertId,values[0],firstBatch.batch_id]);
+  await db.execute('INSERT INTO trace_code(enterprise_id,product_id,upload_batch_id,code,status,abnormal_flag,batch_id) VALUES(?,?,?,?,2,0,?)',[ent,product,file.insertId,values[1],other.insertId]);
+  await db.execute('INSERT INTO trace_code(enterprise_id,product_id,upload_batch_id,code,status,abnormal_flag) VALUES(?,?,?,?,1,0)',[ent,product,file.insertId,values[2]]);
+  const row=ok(await req('/api/admin/codes/upload-batches?uploadBatchId='+file.insertId,cookie)).rows[0];assert.equal(row.boundCount,2);assert.equal(Number(row.batch_count),2);assert.equal(row.batch_no,null);assert.ok(row.batch_nos.includes(context.batchNo));assert.ok(row.batch_nos.includes('MIX-'+tag));assert.equal(row.produce_date,null);
+  const filtered=ok(await req('/api/admin/codes/upload-batches?batchNo='+encodeURIComponent('MIX-'+tag),cookie));assert.equal(filtered.total,1);assert.equal(filtered.rows[0].id,file.insertId);
+  const bound=ok(await req('/api/admin/codes?keyword='+values[0],cookie)).rows[0];assert.equal(bound.batch_no,context.batchNo);assert.equal(bound.produce_date,context.produceDate);assert.equal(bound.expire_date,context.expireDate);
+  const unbound=ok(await req('/api/admin/codes?keyword='+values[2],cookie)).rows[0];assert.equal(unbound.batch_no,null);assert.equal(unbound.produce_date,null);assert.equal(unbound.expire_date,null);
  });
  console.log('生产线接口隔离验收通过：'+checks+'组');
 }finally{await db.end()}
