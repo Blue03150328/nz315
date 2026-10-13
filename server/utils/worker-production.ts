@@ -11,7 +11,7 @@ import { headOf } from './code-head'
 import { collectionId, collectionCode } from '../../shared/utils/collection-input'
 import { workerContext, workerEvents } from '../../shared/utils/worker-input'
 import { ensureWorkerExternalBatch, projectWorkerExternalEvent } from './worker-external-management'
-import { projectWorkerCodeUsage } from '../../scripts/worker-code-usage.mjs'
+import { projectWorkerCodeUsage } from '#scripts/worker-code-usage.mjs'
 import { traceUrlClassification } from '../../shared/utils/internal-trace-url'
 const fail=(message:string,statusCode=409):never=>{throw createError({statusCode,statusMessage:message})}
 const hash=(x:any)=>createHash('sha256').update(typeof x==='string'?x:JSON.stringify(x)).digest('hex')

@@ -11,14 +11,16 @@ import { query } from '../../../utils/db'
 import { requireBackendUser } from '../../../utils/auth'
 import { usageBatchSchemaAvailable } from '../../../utils/usage-batch-schema'
 import { taskProduction } from '../../../utils/task-production'
+import { uploadCorrectionBlock } from '../../../utils/upload-correction-rules'
 
 const DEFAULT_PAGE_SIZE = 20
 
 // 数据库会话时区保存的 NOW() 收据换算为北京时间（与全库口径一致：见 code-batch-usage.ts）。
 const beijing = (field: string) => `DATE_FORMAT(TIMESTAMPADD(SECOND,28800-TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),NOW()),${field}),'%Y-%m-%d %H:%i:%s')`
-// 生产批号优先取任务快照（整任务更正后的口径），未更正时回退共享业务批次。
-const batchNoExpr = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cb.production_snapshot,'$.batch_no')),JSON_UNQUOTE(JSON_EXTRACT(t.production_snapshot,'$.batch_no')),b.batch_no)"
-const produceDateExpr = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cb.production_snapshot,'$.produce_date')),JSON_UNQUOTE(JSON_EXTRACT(t.production_snapshot,'$.produce_date')),b.produce_date)"
+// 生产资料优先取本次上传快照，历史记录回退任务及共享业务批次；混合值不冒用其他记录。
+const productionExpr = (field: string) => `CASE WHEN JSON_CONTAINS(cb.production_snapshot,JSON_QUOTE('${field}'),'$.mixed_fields') THEN NULL ELSE COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(cb.production_snapshot,'$.${field}')),'null'),NULLIF(JSON_UNQUOTE(JSON_EXTRACT(t.production_snapshot,'$.${field}')),'null'),b.${field}) END`
+const batchNoExpr = productionExpr('batch_no')
+const produceDateExpr = productionExpr('produce_date')
 
 // 汇总判定：全部作废 > 部分作废 > 全部冻结 > 部分冻结 > 正常
 function summaryOf(total: number, frozen: number, voided: number) {
@@ -85,6 +87,8 @@ export default defineEventHandler(async (event) => {
        ${batchNoExpr} AS batch_no, ${produceDateExpr} AS produce_date,
        ${beijing('u.completed_at')} AS completed_at,
        u.uploader_id, u.uploader_username, u.uploader_name, COALESCE(u.device_name_snapshot,s.device) AS device_name,
+       t.created_by AS task_created_by,t.status AS task_status,t.ended_at,u.state AS upload_state,u.source_kind,s.state AS legacy_session_state,
+       ws.state AS worker_session_state,ws.last_sequence,ws.final_sequence,wr.state AS run_state,
        COUNT(c.id) AS code_total,
        COALESCE(SUM(c.abnormal_flag = 1), 0) AS frozen_count,
        COALESCE(SUM(c.abnormal_flag = 2), 0) AS voided_count,
@@ -95,12 +99,15 @@ export default defineEventHandler(async (event) => {
      LEFT JOIN batch b ON b.id = t.batch_id
      LEFT JOIN product p ON p.id = COALESCE(cb.product_id,t.product_id)
      LEFT JOIN production_collection_session s ON s.id = u.session_id
+     LEFT JOIN worker_session ws ON ws.id = u.worker_session_id
+     LEFT JOIN worker_run wr ON wr.id = ws.run_id
      LEFT JOIN trace_code c ON c.usage_batch_id = cb.id AND c.upload_batch_id = cb.parent_upload_batch_id
      WHERE cb.id IN (${ids.map(() => '?').join(',')})
      GROUP BY cb.id, cb.parent_upload_batch_id, cb.upload_id, cb.task_id, cb.spec_name_snapshot,
        t.name, t.product_id, t.production_snapshot, cb.product_id,cb.production_snapshot,p.name,
        b.batch_no, b.produce_date, u.completed_at,
-       u.uploader_id, u.uploader_username, u.uploader_name, s.device,u.device_name_snapshot
+       u.uploader_id, u.uploader_username, u.uploader_name, s.device,u.device_name_snapshot,
+       t.created_by,t.status,t.ended_at,u.state,u.source_kind,s.state,ws.state,ws.last_sequence,ws.final_sequence,wr.state
      ORDER BY cb.id DESC`, ids) : []
 
   return {
@@ -110,7 +117,7 @@ export default defineEventHandler(async (event) => {
     productionRecordsAvailable: true,
     unavailableReason: null,
     rows: rows.map((r: any) => {
-      // 生产日期/批号统一走任务快照回退业务批次，与扫码结果页口径一致。
+      // 生产日期/批号使用本次上传快照，历史记录兼容任务与业务批次。
       const production = taskProduction(r, { batch_no: r.batch_no, produce_date: r.produce_date })
       const codeTotal = Number(r.code_total || 0)
       const frozenCount = Number(r.frozen_count || 0)
@@ -118,6 +125,7 @@ export default defineEventHandler(async (event) => {
       const uploaderUsername = text(r.uploader_username)
       const uploaderName = text(r.uploader_name)
       const deviceName = text(r.device_name)
+      const correctionReason = uploadCorrectionBlock(user, r)
       return {
         id: Number(r.id),
         uploadId: r.upload_id,
@@ -146,7 +154,8 @@ export default defineEventHandler(async (event) => {
         // 可冻结数（作废为终态，不计入）
         flagableCount: Math.max(0, codeTotal - voidedCount),
         // 修正生产信息：含冻结/作废码时先在明细内处理
-        canCorrect: !r.stock_product_id && codeTotal > 0 && frozenCount === 0 && voidedCount === 0,
+        canCorrect: !correctionReason,
+        correctionReason,
         canExport: codeTotal > 0,
       }
     }),

@@ -8,7 +8,7 @@ import { productionRequestId } from '../../shared/utils/production-task-input'
 import { refreshUploadSnapshots } from './upload-snapshot'
 import { headOf } from './code-head'
 import { openStockLineSession, stockLineEvent } from './stock-line-production'
-import { projectWorkerCodeUsage } from '../../scripts/worker-code-usage.mjs'
+import { projectWorkerCodeUsage } from '#scripts/worker-code-usage.mjs'
 import { collectionId, collectionCode } from '../../shared/utils/collection-input'
 function fail(message:string,statusCode=409):never{throw createError({statusCode,statusMessage:message})}
 const hash=(value:any)=>createHash('sha256').update(JSON.stringify(value)).digest('hex')

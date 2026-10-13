@@ -146,7 +146,7 @@ const submitFlag = async () => {
   }
 }
 
-// ============ 修正生产信息（同步整个关联生产任务） ============
+// ============ 修正生产信息（仅本次上传的固定码清单） ============
 const showCorrectModal = ref(false)
 const correcting = ref(false)
 const correctTarget = ref<any>(null)
@@ -158,6 +158,8 @@ interface CorrectPreview {
   roots: { id: number, fileName: string, count: number, usedCount: number }[]
   canCorrect: boolean
   reason: string | null
+  previewHash: string
+  production: Record<string, any>
 }
 const correctPreview = ref<CorrectPreview | null>(null)
 const correctPreviewLoading = ref(false)
@@ -185,7 +187,7 @@ const loadCorrectPreview = async () => {
     const result = await $fetch<CorrectPreview>(batchApi(correctTarget.value, 'correct'), { signal: controller.signal })
     if (request === correctPreviewRequest && showCorrectModal.value && targetId === Number(correctTarget.value?.id)) correctPreview.value = result
   } catch (e: any) {
-    if (request === correctPreviewRequest && !controller.signal.aborted) correctPreviewError.value = e?.data?.statusMessage || '关联任务修改范围加载失败，请重试'
+    if (request === correctPreviewRequest && !controller.signal.aborted) correctPreviewError.value = e?.data?.statusMessage || '本次上传修改范围加载失败，请重试'
   } finally {
     if (request === correctPreviewRequest) { correctPreviewLoading.value = false; correctPreviewController = undefined }
   }
@@ -193,7 +195,7 @@ const loadCorrectPreview = async () => {
 watch(showCorrectModal, open => { if (!open) cancelCorrectPreview() })
 const correctImpactCount = computed(() => Number(correctPreview.value?.totalCodes || correctTarget.value?.codeTotal || 0))
 // qcResult='keep' 为「不修改」哨兵值（reka-ui 禁止空字符串 value）
-const correctForm = reactive({ produceDate: '', expireDate: '', qcResult: 'keep', qualityCertNo: '', batchNo: '' })
+const correctForm = reactive({ produceDate: '', expireDate: '', qcResult: 'keep', qualityCertNo: '', batchNo: '', reason: '' })
 const openCorrect = (row: any) => {
   if (!canWrite.value) return
   if (Number(row.frozenCount || 0) + Number(row.voidedCount || 0) > 0) {
@@ -205,7 +207,7 @@ const openCorrect = (row: any) => {
   correctPreviewError.value = ''
   correctConfirmed.value = false
   correctRequestId.value = crypto.randomUUID()
-  Object.assign(correctForm, { produceDate: '', expireDate: '', qcResult: 'keep', qualityCertNo: '', batchNo: '' })
+  Object.assign(correctForm, { produceDate: '', expireDate: '', qcResult: 'keep', qualityCertNo: '', batchNo: '', reason: '' })
   showCorrectModal.value = true
   void loadCorrectPreview()
 }
@@ -213,7 +215,7 @@ watch(() => JSON.stringify(correctForm), () => { if (!correcting.value) correctR
 const submitCorrect = async () => {
   if (!canWrite.value || !correctTarget.value) return
   if (correctPreviewLoading.value || !correctPreview.value?.canCorrect || correctPreviewError.value || !correctConfirmed.value) {
-    toast.add({ title: '请先确认关联生产任务的完整修改范围', color: 'warning' }); return
+    toast.add({ title: '请先确认本次上传的修改范围', color: 'warning' }); return
   }
   for (const [label, value] of [['生产日期', correctForm.produceDate], ['有效期至', correctForm.expireDate]]) {
     if (value && !isInputDate(value)) {
@@ -234,9 +236,11 @@ const submitCorrect = async () => {
         expireDate: correctForm.expireDate || undefined,
         qcResult: correctForm.qcResult === 'keep' ? undefined : Number(correctForm.qcResult),
         qualityCertNo: correctForm.qualityCertNo || undefined,
+        reason: correctForm.reason.trim(),
+        previewHash: correctPreview.value.previewHash,
       },
     })
-    toast.add({ title: `关联生产任务已同步修改，共 ${formatCodeQuantity(correctImpactCount.value)}`, color: 'success' })
+    toast.add({ title: `本次上传已修正，共 ${formatCodeQuantity(correctImpactCount.value)}`, color: 'success' })
     showCorrectModal.value = false
     void refresh()
   } catch (e: any) {
@@ -505,7 +509,7 @@ const flagBadge = (f: number) => {
                   <UButton variant="link" color="neutral" size="xs" icon="i-lucide-eye" @click="openDetail(row)">详细</UButton>
                   <UButton v-if="row.canExport" variant="link" color="neutral" size="xs" icon="i-lucide-download" @click="openExport(row)">导出</UButton>
                   <template v-if="canWrite">
-                    <UButton variant="link" color="neutral" size="xs" icon="i-lucide-wrench" :disabled="row.canCorrect === false" @click="openCorrect(row)">修正生产信息</UButton>
+                    <UButton variant="link" color="neutral" size="xs" icon="i-lucide-wrench" :title="row.correctionReason || '仅修正本次上传的码'" :disabled="row.canCorrect === false" @click="openCorrect(row)">修正生产信息</UButton>
                     <UButton variant="link" color="neutral" size="xs" icon="i-lucide-snowflake" :disabled="row.normalCount <= 0" @click="openFlag(row, 'freeze')">冻结</UButton>
                     <UButton variant="link" color="neutral" size="xs" icon="i-lucide-rotate-ccw" :disabled="row.frozenCount <= 0" @click="openFlag(row, 'restore')">恢复</UButton>
                     <UButton variant="link" color="error" size="xs" icon="i-lucide-ban" :disabled="row.codeTotal <= row.voidedCount" @click="openFlag(row, 'void')">作废整批</UButton>
@@ -569,7 +573,7 @@ const flagBadge = (f: number) => {
       </template>
     </UModal>
 
-    <!-- 修正生产信息（同步整个关联生产任务） -->
+    <!-- 修正生产信息（仅当前上传记录） -->
     <UModal v-model:open="showCorrectModal" :ui="{ content: 'sm:max-w-2xl' }">
       <template #content>
         <div class="b-modal">
@@ -578,26 +582,26 @@ const flagBadge = (f: number) => {
               <UIcon name="i-lucide-wrench" class="h-4 w-4 text-[var(--b-text-regular)]" />
             </div>
             <div>
-              <h3 class="b-modal-title">编辑关联生产任务</h3>
-              <p class="b-modal-sub">同步整个关联任务，包括其他总批次下的码</p>
+              <h3 class="b-modal-title">修正本次上传的生产信息</h3>
+              <p class="b-modal-sub">只修正当前这条上传记录，其他上传记录保持原资料</p>
             </div>
           </div>
           <div class="b-modal-body max-h-[70vh] space-y-3 overflow-y-auto">
-            <p v-if="correctPreviewLoading" role="status" class="b-help">正在确认关联生产任务的完整修改范围…</p>
+            <p v-if="correctPreviewLoading" role="status" class="b-help">正在确认本次上传的码清单…</p>
             <div v-if="correctPreviewError" role="alert" class="b-note"><p class="b-note-text flex-1">{{ correctPreviewError }}</p><UButton variant="link" color="neutral" size="xs" @click="loadCorrectPreview">重试</UButton></div>
             <div v-if="correctPreview" class="b-note">
               <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
               <div class="b-note-text">
-                <p>关联任务：{{ correctPreview.task.name }}（编号 {{ correctPreview.task.id }}）。修改影响 {{ correctPreview.rootCount }} 个总批次、共 {{ formatCodeQuantity(correctPreview.totalCodes) }}，其中已用 {{ formatCodeQuantity(correctPreview.usedCodes) }}。</p>
-                <p v-for="root in correctPreview.roots" :key="root.id" class="mt-1 break-words">{{ root.fileName }}：{{ formatCodeQuantity(root.count) }}</p>
-                <p v-if="!correctPreview.canCorrect" class="mt-1 text-red-600">{{ correctPreview.reason || '关联任务当前不可修改' }}</p>
+                <p class="font-semibold">只修改这次上传的 {{ formatCodeQuantity(correctPreview.totalCodes) }} 码。</p>
+                <p>关联任务：{{ correctPreview.task.name }}（编号 {{ correctPreview.task.id }}）；其他上传记录保持原资料。</p>
+                <p v-if="!correctPreview.canCorrect" class="mt-1 text-red-600">{{ correctPreview.reason || '本次上传当前不可修改' }}</p>
               </div>
             </div>
             <div>
               <label class="b-label-lg">生产批号</label>
-              <UInput v-model="correctForm.batchNo" :placeholder="'不修改留空；当前：' + (correctTarget?.batchNo || '未记录')" />
+              <UInput v-model="correctForm.batchNo" :maxlength="64" :placeholder="'不修改留空；当前：' + (correctPreview?.production.batch_no || correctTarget?.batchNo || '未记录或存在多种值')" />
             </div>
-            <ProductionChangePreview :form="correctForm" :count="correctImpactCount" />
+            <ProductionChangePreview :form="correctForm" :count="correctImpactCount" :current="correctPreview?.production" scope-only />
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="b-label-lg">生产日期</label>
@@ -616,18 +620,19 @@ const flagBadge = (f: number) => {
               </div>
               <div>
                 <label class="b-label-lg">质量合格证号</label>
-                <UInput v-model="correctForm.qualityCertNo" placeholder="不修改留空" />
+                <UInput v-model="correctForm.qualityCertNo" :maxlength="64" placeholder="不修改留空" />
               </div>
             </div>
             <div class="b-note">
               <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
-              <p class="b-note-text">已绑定码的生产日期/质检字段修改属合规更正，将记录强审计日志；修改同步整个关联生产任务，包含已分配但尚未使用的码。</p>
+              <p class="b-note-text">修改会同步这次上传中各码的扫码展示，并记录操作人、时间、修改前后内容和具体码清单。</p>
             </div>
-            <UCheckbox v-model="correctConfirmed" :disabled="correctPreviewLoading || !correctPreview?.canCorrect || !!correctPreviewError" label="我已确认：同步修改整个关联生产任务及其在其他总批次下的码" />
+            <div><label class="b-label-lg">修改备注（选填）</label><UInput v-model="correctForm.reason" :maxlength="500" placeholder="例如：核对喷码后修正生产日期" /></div>
+            <UCheckbox v-model="correctConfirmed" :disabled="correctPreviewLoading || !correctPreview?.canCorrect || !!correctPreviewError" label="我已确认修改这次上传的码" />
           </div>
           <div class="b-modal-foot">
             <UButton variant="outline" color="neutral" @click="showCorrectModal = false">取消</UButton>
-            <UButton v-if="canWrite" color="neutral" variant="solid" :loading="correcting" :disabled="correctPreviewLoading || !correctPreview?.canCorrect || !!correctPreviewError || !correctConfirmed" @click="submitCorrect">确认同步修改</UButton>
+            <UButton v-if="canWrite" color="neutral" variant="solid" :loading="correcting" :disabled="correctPreviewLoading || !correctPreview?.canCorrect || !!correctPreviewError || !correctConfirmed" @click="submitCorrect">确认修改</UButton>
           </div>
         </div>
       </template>

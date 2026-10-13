@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const props = defineProps<{ form: Record<string, any>; count: number; current?: Record<string, any> | null }>()
+const props = defineProps<{ form: Record<string, any>; count: number; current?: Record<string, any> | null; scopeOnly?: boolean }>()
 const changes = computed(() => [
   { label: '生产日期', key: 'produceDate', old: 'produce_date' },
   { label: '有效期至', key: 'expireDate', old: 'expire_date' },
@@ -17,7 +17,7 @@ const changes = computed(() => [
 
 <template>
   <div class="b-note block">
-    <p class="b-note-text">本次影响 {{ count }} 条选定追溯码，范围外的码保持原值。未填写字段保持原值。绑定批次时先带入目标批次信息，再应用下列修正。</p>
+    <p class="b-note-text">本次影响 {{ count }} 条选定追溯码，范围外的码保持原值。未填写字段保持原值。<span v-if="!scopeOnly">绑定批次时先带入目标批次信息，再应用下列修正。</span></p>
     <ul v-if="changes.length" class="mt-2 space-y-1 text-sm">
       <li v-for="change in changes" :key="change.label">{{ change.label }}：{{ change.before }} → {{ change.after }}</li>
     </ul>

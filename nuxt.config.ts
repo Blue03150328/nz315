@@ -1,8 +1,11 @@
+import { fileURLToPath } from 'node:url'
+
 export default defineNuxtConfig({
   compatibilityDate: '2026-07-01',
   devtools: { enabled: false },
   modules: ['@nuxt/ui'],
   css: ['~/assets/css/main.css'],
+  alias: { '#scripts': fileURLToPath(new URL('./scripts', import.meta.url)) },
 
   // Nitro 内联 zxing，避免 Windows 下 CJS 子模块被外置为裸盘符路径，导致所有请求 500。
   nitro: {
