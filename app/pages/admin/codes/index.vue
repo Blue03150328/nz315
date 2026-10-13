@@ -76,10 +76,15 @@ const uploadTime = (value: string | null | undefined) => {
 // Keep-Alive 切走时停止刷新；恢复页面或窗口焦点后重新获取最新数据。
 let codesRefreshTimer: ReturnType<typeof setInterval> | undefined
 let codesPageActive = false
-const refreshVisibleCodes = () => {
-  if (!codesPageActive || document.visibilityState !== 'visible') return
-  if (!pending.value) void refresh()
-  if (showDetailModal.value && !detailLoading.value) void loadDetail()
+const refreshVisibleCodes = async () => {
+  if (!codesPageActive || document.visibilityState !== 'visible' || pending.value || detailLoading.value || showCorrectModal.value || showFlagModal.value || showRowFlagModal.value) return
+  await refresh()
+  if (!codesPageActive) return
+  if (showDetailModal.value) {
+    const latest = batchRows.value.find(row => Number(row.id) === Number(detailRow.value?.id))
+    if (latest) detailRow.value = latest
+    await loadDetail()
+  }
 }
 const startCodesRefresh = () => {
   codesPageActive = true
@@ -706,6 +711,7 @@ const flagBadge = (f: number) => {
                     <th>异常标记</th>
                     <th>生产日期</th>
                     <th>生产批号</th>
+                    <th>有效期至</th>
                     <th>码生成时间</th>
                     <th class="text-right">操作</th>
                   </tr>
@@ -721,6 +727,7 @@ const flagBadge = (f: number) => {
                     </td>
                     <td>{{ r.produce_date || '-' }}</td>
                     <td>{{ r.batch_no || '-' }}</td>
+                    <td>{{ r.expire_date || '-' }}</td>
                     <td>{{ String(r.created_at).slice(0, 16) }}</td>
                     <td>
                       <div v-if="canWrite && Number(r.abnormal_flag) === 0" class="b-actions justify-end">
@@ -737,7 +744,7 @@ const flagBadge = (f: number) => {
                     </td>
                   </tr>
                   <tr v-if="!detailRows.length">
-                    <td colspan="8" class="b-empty">
+                    <td colspan="9" class="b-empty">
                       <div class="b-empty-inner">
                         <UIcon :name="detailLoading ? 'i-lucide-loader-circle' : 'i-lucide-inbox'" class="b-empty-icon h-8 w-8" :class="{ 'animate-spin': detailLoading }" />
                         <span class="text-sm">{{ detailLoading ? '正在加载追溯码' : detailError ? '追溯码明细未加载，请重试' : '本批次暂无符合筛选条件的追溯码' }}</span>

@@ -1,8 +1,0 @@
-CREATE TABLE 数=17
-external_source_snapshot, enterprise, product_spec, product, product_original, batch, trace_code, user, operation_log, scan_log, risk_alert, external_verification, message, consumer, pesticide_reg, upload_batch, farm_bill
-scripts={
- "dev": "nuxt dev",
- "build": "nuxt build",
- "preview": "nuxt preview",
- "prepare": "nuxt prepare"
-}

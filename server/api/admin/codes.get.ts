@@ -25,7 +25,7 @@ export default defineEventHandler(async (event) => {
   if (!isPlatform) { conds.push('t.enterprise_id = ?'); params.push(fid) }
   if (q.keyword) {
     const kw = '%' + String(q.keyword).trim().slice(0, 64) + '%'
-    conds.push('(t.code LIKE ? OR t.batch_no LIKE ? OR p.name LIKE ?)')
+    conds.push("(t.code LIKE ? OR COALESCE(NULLIF(t.batch_no, ''), b.batch_no) LIKE ? OR p.name LIKE ?)")
     params.push(kw, kw, kw)
   }
   if (q.status) { conds.push('t.status = ?'); params.push(Number(q.status)) }
@@ -46,14 +46,16 @@ export default defineEventHandler(async (event) => {
   const offset = (page - 1) * pageSize
 
   const [cntRow] = await query<any[]>(
-    'SELECT COUNT(*) AS c FROM trace_code t LEFT JOIN product p ON t.product_id = p.id ' + whereSql, params)
+    'SELECT COUNT(*) AS c FROM trace_code t LEFT JOIN product p ON t.product_id = p.id LEFT JOIN batch b ON b.id = t.batch_id ' + whereSql, params)
   const rows = await query<any[]>(
     `SELECT t.id, t.code, t.status, t.abnormal_flag, t.abnormal_reason, t.product_id,
-       t.produce_date, t.batch_no, t.quality_cert_no, t.created_at, t.bound_at,
+       COALESCE(t.produce_date,b.produce_date) AS produce_date, COALESCE(t.expire_date,b.expire_date) AS expire_date,
+       COALESCE(NULLIF(t.batch_no,''),b.batch_no) AS batch_no, COALESCE(NULLIF(t.quality_cert_no,''),b.quality_cert_no) AS quality_cert_no,
+       COALESCE(t.qc_result,b.qc_result) AS qc_result,t.batch_id,t.created_at,t.bound_at,
        ${childrenAvailable ? 't.usage_batch_id' : 'NULL'} AS usageBatchId,
        ${productionAvailable ? '(SELECT a.task_id FROM production_task_code a WHERE a.active_code_id=t.id)' : 'NULL'} AS taskId,
        ${childrenAvailable ? 'ub.spec_name_snapshot' : 'NULL'} AS specName,p.name AS product_name
-     FROM trace_code t LEFT JOIN product p ON t.product_id = p.id LEFT JOIN upload_batch ub ON ub.id=t.upload_batch_id ` + whereSql +
+     FROM trace_code t LEFT JOIN product p ON t.product_id = p.id LEFT JOIN upload_batch ub ON ub.id=t.upload_batch_id LEFT JOIN batch b ON b.id=t.batch_id ` + whereSql +
     ' ORDER BY t.id DESC LIMIT ? OFFSET ?', [...params, pageSize, offset])
 
   return {

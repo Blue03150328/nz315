@@ -251,8 +251,8 @@ export async function reviewProductionTask(user: AuthUser, id: number, body: Rec
   })
 }
 export async function productionTasks(user: AuthUser, page = 1) {
-  const scope = user.device_id ? " WHERE t.enterprise_id=? AND BINARY t.line_name=BINARY ? AND t.workflow='legacy'" : user.role === 'platform_admin' ? '' : ' WHERE t.enterprise_id=?'
-  const params = user.device_id ? [user.enterprise_id, user.device_line] : scope ? [user.enterprise_id] : []
+  const scope = " WHERE t.status<>'deleted'" + (user.device_id ? " AND t.enterprise_id=? AND BINARY t.line_name=BINARY ? AND t.workflow='legacy'" : user.role === 'platform_admin' ? '' : ' AND t.enterprise_id=?')
+  const params = user.device_id ? [user.enterprise_id, user.device_line] : user.role === 'platform_admin' ? [] : [user.enterprise_id]
   const rows = await query<any[]>(`SELECT t.*, p.name AS product_name,b.batch_no,b.produce_date,b.expire_date,COALESCE(b.quality_cert_no,t.draft_quality_cert_no) AS quality_cert_no,COALESCE(b.qc_result,t.draft_qc_result) AS qc_result,
     (SELECT COUNT(*) FROM production_collection_session s WHERE s.task_id=t.id AND s.state='active') AS active_collection_count,
     (SELECT COUNT(*) FROM production_task_code d WHERE d.task_id=t.id) AS total,
@@ -272,8 +272,8 @@ export async function productionTaskDetail(user: AuthUser, id: number, state: st
   const args = ['reserved', 'used', 'pending', 'released'].includes(state) ? [id, state] : [id]
   const snapshotsAvailable = await taskProductionSnapshotsAvailable()
   if(keyword.trim()){cond+=' AND d.code LIKE ?';args.push('%'+keyword.trim().slice(0,100)+'%')}
-  const joins = ' FROM production_task_code d JOIN trace_code c ON c.id=d.code_id LEFT JOIN user op ON op.id=d.used_by LEFT JOIN production_task_code a ON a.active_code_id=c.id LEFT JOIN worker_pool_code wc ON wc.active_code_id=c.id LEFT JOIN worker_pool wp ON wp.id=wc.pool_id LEFT JOIN worker_run wr ON wr.pool_id=wp.id LEFT JOIN production_device wd ON wd.id=wp.device_id'
-  const rows = await query<any[]>(`SELECT d.*,op.name AS operator_name,a.task_id AS current_task_id,wr.id AS current_worker_run_id,wc.pool_id AS current_worker_pool_id,COALESCE(a.state,wc.state) AS current_state,COALESCE(ot.name,wd.name) AS current_task_name,COALESCE(ot.line_name,JSON_UNQUOTE(JSON_EXTRACT(wr.device_snapshot,'$.lineName')),wd.line_name) AS current_line_name,
+  const joins = ' FROM production_task_code d JOIN trace_code c ON c.id=d.code_id LEFT JOIN batch cb ON cb.id=c.batch_id LEFT JOIN user op ON op.id=d.used_by LEFT JOIN production_task_code a ON a.active_code_id=c.id LEFT JOIN worker_pool_code wc ON wc.active_code_id=c.id LEFT JOIN worker_pool wp ON wp.id=wc.pool_id LEFT JOIN worker_run wr ON wr.pool_id=wp.id LEFT JOIN production_device wd ON wd.id=wp.device_id'
+  const rows = await query<any[]>(`SELECT d.*,COALESCE(c.produce_date,cb.produce_date) AS produce_date,COALESCE(c.expire_date,cb.expire_date) AS expire_date,COALESCE(NULLIF(c.batch_no,''),cb.batch_no) AS batch_no,c.batch_id,COALESCE(c.qc_result,cb.qc_result) AS qc_result,COALESCE(NULLIF(c.quality_cert_no,''),cb.quality_cert_no) AS quality_cert_no,op.name AS operator_name,a.task_id AS current_task_id,wr.id AS current_worker_run_id,wc.pool_id AS current_worker_pool_id,COALESCE(a.state,wc.state) AS current_state,COALESCE(ot.name,wd.name) AS current_task_name,COALESCE(ot.line_name,JSON_UNQUOTE(JSON_EXTRACT(wr.device_snapshot,'$.lineName')),wd.line_name) AS current_line_name,
     CASE WHEN a.state='used' THEN COALESCE(NULLIF(a.used_line,''),'历史未记录') ELSE COALESCE(NULLIF(ot.line_name,''),JSON_UNQUOTE(JSON_EXTRACT(wr.device_snapshot,'$.lineName')),wd.line_name,ot.name) END AS actual_line_name,
     COALESCE(${snapshotsAvailable ? "JSON_UNQUOTE(JSON_EXTRACT(ot.production_snapshot,'$.batch_no'))," : ''}ob.batch_no,JSON_UNQUOTE(JSON_EXTRACT(COALESCE(wr.effective_context,wr.context_json),'$.batchNo'))) AS current_batch_no,COALESCE(a.used_at,we.captured_at) AS current_used_at,COALESCE(a.device,JSON_UNQUOTE(JSON_EXTRACT(wr.device_snapshot,'$.name')),wd.name) AS current_device,
     (d.state='released' AND (${freeProductionCode})) AS available_now` + joins +

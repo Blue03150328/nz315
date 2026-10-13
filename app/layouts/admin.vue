@@ -207,7 +207,7 @@ const onLogout = async () => {
       </div>
       <!-- 内容区：放宽容器适配 PC 大屏（企业后台信息密度）；
            左右内边距与 --b-content-px（main.css）保持一致，批量操作条吸底靠该变量全宽出血，改一处即可 -->
-      <main class="mx-auto max-w-[1600px] px-4 py-6 lg:px-8 lg:py-8">
+      <main :class="route.path === '/admin/production-tasks' ? 'w-full max-w-none px-4 py-6 lg:px-5' : 'mx-auto max-w-[1600px] px-4 py-6 lg:px-8 lg:py-8'">
         <!-- 只读账号提示条（2026-09-19）：写入口已按角色全部隐藏，此处统一说明，避免用户以为"功能丢了" -->
         <div v-if="!canWrite" class="mb-4 rounded-lg border border-border bg-warning-soft px-4 py-2.5 text-sm text-default">
           当前为<strong>只读账号</strong>，仅可查看数据，新增/修改/删除等操作入口已隐藏。如需写权限，请联系厂家主账号或平台管理员开通。

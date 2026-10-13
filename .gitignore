@@ -83,3 +83,11 @@ docker.env.*
 *.sqlite-wal
 *.sqlite-shm
 .tools/
+
+# 本机内部记忆、临时会话、二维码样本及旧交付件不进入正式源码。
+.workbuddy/memory/
+tmp/
+二维码存放/
+文件存放处/
+/*.tar.gz
+/*.zip

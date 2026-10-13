@@ -25,3 +25,15 @@ test('已用码更正的批号优先，共享业务批次和其他任务的码�
   assert.equal(effectiveProduction({}, shared).batchNo, '原生产批号')
   assert.equal(shared.batch_no, '原生产批号')
 })
+test('已采集待质检保留日期和批号，未知质检不能显示不合格', () => {
+  const batch = { batch_no: 'B01', produce_date: '2026-10-12', expire_date: '2027-10-12', qc_result: null }
+  const info = effectiveProduction({}, batch)
+  assert.equal(info.batchNo, 'B01')
+  assert.equal(info.produceDate, '2026-10-12')
+  assert.equal(info.expireDate, '2027-10-12')
+  assert.equal(info.qcResult, '')
+  assert.equal(info.qualityStatus, 'pending')
+  assert.equal(effectiveProduction({ qc_result: 0 }, batch).qcResult, '不合格')
+  assert.equal(effectiveProduction({ qc_result: 1 }, batch).qcResult, '合格')
+  assert.equal(effectiveProduction({ batch_no: 'B02' }, batch).batchNo, 'B02')
+})
