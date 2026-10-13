@@ -1,4 +1,4 @@
-import fs from 'node:fs';import assert from 'node:assert/strict';import {parseEnv} from 'node:util';import {createRequire} from 'node:module';import {randomUUID,randomBytes,createHmac} from 'node:crypto';
+import fs from 'node:fs';import assert from 'node:assert/strict';import {parseEnv} from 'node:util';import {createRequire} from 'node:module';import {randomUUID,randomBytes,createHmac,createHash} from 'node:crypto';
 const require=createRequire(new URL('../package.json',import.meta.url)),mysql=require('mysql2/promise'),bcrypt=require('bcryptjs'),env=parseEnv(fs.readFileSync(process.env.NZ315_TEST_ENV||'.env','utf8')),test={name:process.env.NZ315_TEST_DB};
 assert.equal(env.DB_HOST,'127.0.0.1');assert.match(test.name,/^pda_worker_test_\d+$/);
 const db=await mysql.createConnection({host:env.DB_HOST,port:Number(env.DB_PORT||3306),user:env.DB_USER,password:env.DB_PASSWORD,database:test.name,dateStrings:true}),base=process.env.NZ315_TEST_URL||'http://127.0.0.1:38124',tag=String(Date.now()).slice(-10),password=randomBytes(12).toString('hex');let checks=0;
@@ -22,6 +22,7 @@ try{
   const detail=ok(await req('/api/admin/production-tasks/'+task.id,cookie));assert.equal(detail.task.workflow,'line-team');assert.equal(detail.task.batch_id,null);assert.equal(detail.task.quality_cert_no,null);assert.equal(detail.task.qc_result,null);
   assert.equal((await req('/api/admin/production-lines',cookie,{...create,name:'duplicate',requestId:randomUUID()})).status,409);
  });
+ await check('旧任务创建响应丢失的提交标识可按原哈希安全重试',async()=>{const legacyHash=createHash('sha256').update(JSON.stringify({name:create.name,lineName:create.lineName,sourceId:create.sourceUploadBatchId,operatorIds:[...new Set(create.operatorIds)].sort()})).digest('hex');await db.execute('UPDATE production_task SET request_hash=? WHERE id=?',[legacyHash,task.id]);assert.equal(ok(await req('/api/admin/production-lines',cookie,create)).id,task.id);});
  const context={mode:'production',lineWorkflow:true,taskId:task.id,productId:product,batchNo:'TEAM-'+tag,produceDate:'2026-10-12',expireDate:'2027-10-12'},run1=randomUUID(),s1=randomUUID(),run2=randomUUID(),s2=randomUUID(),startedAt=new Date().toISOString();
  await check('工人任务成员权限，设备不固定员工，缓存关联人员且拒绝未安排人员',async()=>{
   const outsider=await account('production_operator',ent,'unassigned'),g3=ok(await req('/api/device/operator/login',d1.secret,{username:outsider.username,password}));

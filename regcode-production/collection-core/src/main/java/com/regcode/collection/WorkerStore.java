@@ -44,7 +44,17 @@ public final class WorkerStore {
  public synchronized JSONObject start(JSONObject context,JSONObject profile,long now)throws Exception{
   return db.transaction(()->{
    String mode=context.getString("mode"),pool=null;JSONObject r;
-   if("production".equals(mode)&&context.optBoolean("lineWorkflow")){
+   if("production".equals(mode)&&context.optBoolean("stockWorkflow")){
+    JSONObject cache=new JSONObject(meta("cache","{}"));if(cache.optLong("expiresAt")<now)throw new Exception("已入库产品缓存已过期，请联网更新");if(cache.optInt("stockVersion")<1)throw new Exception("产品码缓存正在升级，请联网等待完整下载后开始");
+    boolean stocked=false;JSONArray products=catalog("products");for(int i=0;i<products.length();i++)if(products.getJSONObject(i).getLong("id")==context.getLong("productId"))stocked=true;
+    if(!stocked)throw new Exception("请选择本厂已入库产品");
+    JSONObject selected=null;JSONArray tasks=catalog("pools");for(int i=0;i<tasks.length();i++){JSONObject t=tasks.getJSONObject(i);if(t.optLong("task_id")!=context.getLong("taskId"))continue;JSONArray people=t.optJSONArray("memberIds");boolean assigned=people==null;for(int j=0;people!=null&&j<people.length();j++)if(people.getLong(j)==profile.getJSONObject("identity").getLong("id"))assigned=true;if(assigned)selected=t;}
+    if(selected==null)throw new Exception("请选择已安排你参与的生产线");
+    r=null;for(JSONObject row:db.rows("SELECT id,context FROM ww_run WHERE mode='production' AND state='open' ORDER BY rowid DESC")){JSONObject c=new JSONObject(row.getString("context"));if(!c.optBoolean("stockWorkflow")||c.optLong("productId")!=context.getLong("productId")||c.optLong("taskId")!=context.getLong("taskId")||db.rows("SELECT id FROM ww_session WHERE run_id=? AND user_id=? LIMIT 1",row.getString("id"),profile.getJSONObject("identity").getLong("id")).isEmpty())continue;for(String k:new String[]{"batchNo","produceDate","expireDate"})if(!c.getString(k).equals(context.getString(k)))throw new Exception("原批未结束，请继续原批，不能改生产资料");r=run(row.getString("id"));break;}
+    if(r==null){String id=UUID.randomUUID().toString();JSONObject c=new JSONObject(context.toString()).put("lineName",selected.getString("line_name")).put("taskName",selected.getString("task_name"));db.exec("INSERT INTO ww_run(id,pool_id,mode,context) VALUES(?,NULL,?,?)",id,mode,c.toString());
+     JSONArray codes=catalog("codes");for(int i=0;i<codes.length();i++){JSONObject code=codes.getJSONObject(i);String owner=code.optString("owner_kind","");if(!code.getString("pool_id").startsWith("stock:")||code.optLong("product_id")!=c.getLong("productId")||!"reserved".equals(code.optString("state"))||(!owner.isEmpty()&&!("legacy".equals(owner)&&Long.toString(c.getLong("taskId")).equals(code.optString("owner_id")))))continue;db.exec("INSERT OR IGNORE INTO ww_allowed(run_id,code) VALUES(?,?)",id,code.getString("code"));}r=run(id);
+    }
+   }else if("production".equals(mode)&&context.optBoolean("lineWorkflow")){
     JSONObject info=new JSONObject(meta("cache","{}"));if(info.optLong("expiresAt")<now)throw new Exception("产品及任务码缓存已过期，请联网更新");
     List<JSONObject> existing=db.rows("SELECT id,context FROM ww_run WHERE mode='production' AND state='open' ORDER BY rowid DESC");r=null;
     for(JSONObject row:existing){JSONObject old=new JSONObject(row.getString("context"));if(db.rows("SELECT id FROM ww_session WHERE run_id=? AND user_id=? LIMIT 1",row.getString("id"),profile.getJSONObject("identity").getLong("id")).isEmpty())continue;if(old.optBoolean("lineWorkflow")&&old.optLong("productId")==context.getLong("productId")){for(String k:new String[]{"batchNo","produceDate","expireDate"})if(!old.getString(k).equals(context.getString(k)))throw new Exception("此产品原批尚未结束，请继续原批，不能修改生产资料");r=run(row.getString("id"));break;}}
@@ -87,7 +97,7 @@ public final class WorkerStore {
    JSONObject r=currentRun(),s=currentSession(profile.getJSONObject("identity").getLong("id"));if(r==null||s==null||!"open".equals(r.getString("state")))throw new Exception("请先开始本批采集");
    if(!s.getString("grant_id").equals(profile.getString("grantId")))throw new Exception("工人授权已更换，请重新进入本批");
    String code=QueueStore.codeOf(raw),kind="valid",reason="",key=code!=null?"code:"+code:"raw:"+raw.trim();
-   if("production".equals(r.getString("mode"))&&r.getJSONObject("context").optBoolean("lineWorkflow")&&code!=null){
+   if("production".equals(r.getString("mode"))&&r.getJSONObject("context").optBoolean("lineWorkflow")&&!r.getJSONObject("context").optBoolean("stockWorkflow")&&code!=null){
     JSONObject c=r.getJSONObject("context");List<JSONObject> matches=db.rows("SELECT * FROM ww_line_code WHERE run_id=? AND code=?",r.getString("id"),code);
     if(!matches.isEmpty()){
      JSONObject match=matches.get(0),task=new JSONObject(match.getString("task_json"));
@@ -99,7 +109,7 @@ public final class WorkerStore {
     }
    }
    if(!"valid".equals(kind)){}
-   else if("production".equals(r.getString("mode"))&&(code==null||db.rows("SELECT code FROM ww_allowed WHERE run_id=? AND code=?",r.getString("id"),code).isEmpty())){kind="invalid";reason="缺位、多候选、未领用到本任务或其他产品的码";}
+   else if("production".equals(r.getString("mode"))&&(code==null||db.rows("SELECT code FROM ww_allowed WHERE run_id=? AND code=?",r.getString("id"),code).isEmpty())){kind="invalid";reason=r.getJSONObject("context").optBoolean("stockWorkflow")?"缺位、多候选、未入库、非所选产品或已占用的码":"缺位、多候选、未领用到本任务或其他产品的码";}
    else if(r.getJSONObject("context").optBoolean("lineWorkflow")&&r.getJSONObject("context").optLong("taskId")>0&&!db.rows("SELECT event_id FROM ww_line_usage WHERE code=? AND task_id=? LIMIT 1",code,r.getJSONObject("context").getLong("taskId")).isEmpty()){kind="duplicate";reason="此任务在本设备已采集过该码，保留重复记录";}
    else if(!db.rows("SELECT id FROM ww_event WHERE run_id=? AND dedup=? AND kind='valid' LIMIT 1",r.getString("id"),key).isEmpty()){kind="duplicate";reason="重复扫码，保留记录但不重复计数";}
    JSONObject event=new JSONObject().put("eventId",UUID.randomUUID().toString()).put("sequence",s.getInt("next_seq")).put("rawCode",raw).put("code",code==null?JSONObject.NULL:code).put("kind",kind).put("reason",reason).put("capturedAt",new java.time.format.DateTimeFormatterBuilder().appendInstant(3).toFormatter().format(Instant.ofEpochMilli(now)));

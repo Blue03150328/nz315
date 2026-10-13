@@ -17,8 +17,8 @@ const DEFAULT_PAGE_SIZE = 20
 // 数据库会话时区保存的 NOW() 收据换算为北京时间（与全库口径一致：见 code-batch-usage.ts）。
 const beijing = (field: string) => `DATE_FORMAT(TIMESTAMPADD(SECOND,28800-TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),NOW()),${field}),'%Y-%m-%d %H:%i:%s')`
 // 生产批号优先取任务快照（整任务更正后的口径），未更正时回退共享业务批次。
-const batchNoExpr = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.production_snapshot,'$.batch_no')),b.batch_no)"
-const produceDateExpr = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(t.production_snapshot,'$.produce_date')),b.produce_date)"
+const batchNoExpr = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cb.production_snapshot,'$.batch_no')),JSON_UNQUOTE(JSON_EXTRACT(t.production_snapshot,'$.batch_no')),b.batch_no)"
+const produceDateExpr = "COALESCE(JSON_UNQUOTE(JSON_EXTRACT(cb.production_snapshot,'$.produce_date')),JSON_UNQUOTE(JSON_EXTRACT(t.production_snapshot,'$.produce_date')),b.produce_date)"
 
 // 汇总判定：全部作废 > 部分作废 > 全部冻结 > 部分冻结 > 正常
 function summaryOf(total: number, frozen: number, voided: number) {
@@ -52,7 +52,7 @@ export default defineEventHandler(async (event) => {
   const params: any[] = []
   if (user.role !== 'platform_admin') { conds.push('ub.enterprise_id = ?'); params.push(user.enterprise_id) }
   // 筛选：关联产品 / 生产批号 / 上传来源 / 上传时间范围
-  if (q.productId) { conds.push('t.product_id = ?'); params.push(Number(q.productId)) }
+  if (q.productId) { conds.push('COALESCE(cb.product_id,t.product_id) = ?'); params.push(Number(q.productId)) }
   if (q.batchNo) { conds.push(`${batchNoExpr} LIKE ?`); params.push('%' + String(q.batchNo).trim().slice(0, 64) + '%') }
   if (q.uploader) {
     conds.push("COALESCE(NULLIF(u.uploader_username,''),NULLIF(u.uploader_name,''),NULLIF(s.device,'')) LIKE ?")
@@ -67,7 +67,7 @@ export default defineEventHandler(async (event) => {
     JOIN production_collection_upload u ON u.id = cb.upload_id AND u.state = 'completed'
     JOIN production_task t ON t.id = cb.task_id
     LEFT JOIN batch b ON b.id = t.batch_id
-    LEFT JOIN product p ON p.id = t.product_id
+    LEFT JOIN product p ON p.id = COALESCE(cb.product_id,t.product_id)
     LEFT JOIN upload_batch ub ON ub.id = cb.parent_upload_batch_id
     LEFT JOIN production_collection_session s ON s.id = u.session_id`
   const whereSql = 'WHERE ' + conds.join(' AND ')
@@ -80,7 +80,7 @@ export default defineEventHandler(async (event) => {
   const ids = selected.map(row => Number(row.id))
   const rows = ids.length ? await query<any[]>(
     `SELECT cb.id, cb.parent_upload_batch_id, cb.upload_id, cb.task_id, cb.spec_name_snapshot,
-       t.name AS task_name, t.product_id, t.production_snapshot,
+       t.name AS task_name, COALESCE(cb.product_id,t.product_id) AS product_id, COALESCE(cb.production_snapshot,t.production_snapshot) AS production_snapshot, cb.product_id AS stock_product_id,
        p.name AS product_name,
        ${batchNoExpr} AS batch_no, ${produceDateExpr} AS produce_date,
        ${beijing('u.completed_at')} AS completed_at,
@@ -93,12 +93,12 @@ export default defineEventHandler(async (event) => {
      JOIN production_collection_upload u ON u.id = cb.upload_id
      JOIN production_task t ON t.id = cb.task_id
      LEFT JOIN batch b ON b.id = t.batch_id
-     LEFT JOIN product p ON p.id = t.product_id
+     LEFT JOIN product p ON p.id = COALESCE(cb.product_id,t.product_id)
      LEFT JOIN production_collection_session s ON s.id = u.session_id
      LEFT JOIN trace_code c ON c.usage_batch_id = cb.id AND c.upload_batch_id = cb.parent_upload_batch_id
      WHERE cb.id IN (${ids.map(() => '?').join(',')})
      GROUP BY cb.id, cb.parent_upload_batch_id, cb.upload_id, cb.task_id, cb.spec_name_snapshot,
-       t.name, t.product_id, t.production_snapshot, p.name,
+       t.name, t.product_id, t.production_snapshot, cb.product_id,cb.production_snapshot,p.name,
        b.batch_no, b.produce_date, u.completed_at,
        u.uploader_id, u.uploader_username, u.uploader_name, s.device,u.device_name_snapshot
      ORDER BY cb.id DESC`, ids) : []
@@ -146,7 +146,7 @@ export default defineEventHandler(async (event) => {
         // 可冻结数（作废为终态，不计入）
         flagableCount: Math.max(0, codeTotal - voidedCount),
         // 修正生产信息：含冻结/作废码时先在明细内处理
-        canCorrect: codeTotal > 0 && frozenCount === 0 && voidedCount === 0,
+        canCorrect: !r.stock_product_id && codeTotal > 0 && frozenCount === 0 && voidedCount === 0,
         canExport: codeTotal > 0,
       }
     }),

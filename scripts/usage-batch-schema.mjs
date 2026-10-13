@@ -1,4 +1,5 @@
 // 固定上传边界与已用子批次，仅增结构；不创建或重分类任何历史子批次。
+import { migrateStockLineSchema } from './stock-line-schema.mjs'
 export const usageBatchDDL = [
   `CREATE TABLE IF NOT EXISTS production_collection_upload (
     id CHAR(36) PRIMARY KEY, session_id CHAR(36) NOT NULL, task_id BIGINT NOT NULL,
@@ -27,6 +28,7 @@ export const usageBatchDDL = [
 
 export async function migrateUsageBatchSchema(db) {
   for (const ddl of usageBatchDDL) await db.query(ddl)
+  await migrateStockLineSchema(db)
   const [sessionColumn] = await db.query("SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='production_collection_upload' AND COLUMN_NAME='session_id'")
   if (sessionColumn[0]?.IS_NULLABLE === 'NO') await db.query('ALTER TABLE production_collection_upload MODIFY session_id CHAR(36) NULL')
   for (const [table, column, type] of [

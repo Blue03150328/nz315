@@ -1,0 +1,55 @@
+import { createHash } from 'node:crypto'
+import { headOf } from './code-head'
+const fail=(message:string,statusCode=409):never=>{throw createError({statusCode,statusMessage:message})}
+const json=(value:any)=>typeof value==='string'?JSON.parse(value):value
+const hash=(value:any)=>createHash('sha256').update(JSON.stringify(value)).digest('hex')
+
+/** 任务只确定生产线和人员；产品及生产批次固定在本次工人采集中。 */
+export async function openStockLineSession(conn:any,device:any,body:any,context:any,g:any){
+ const [[p]]=await conn.query('SELECT * FROM product WHERE id=? FOR UPDATE',[context.productId])
+ if(!p||Number(p.enterprise_id)!==Number(device.enterprise_id)||Number(p.status)!==1)fail('请选择本厂启用的已入库产品',403)
+ const [[stock]]=await conn.query('SELECT id FROM trace_code WHERE enterprise_id=? AND product_id=? AND upload_batch_id IS NOT NULL LIMIT 1',[device.enterprise_id,p.id]);if(!stock)fail('该产品尚未入库',409)
+ const [[task]]=await conn.query('SELECT * FROM production_task WHERE id=? FOR UPDATE',[context.taskId])
+ if(!task||task.workflow!=='line-team'||Number(task.enterprise_id)!==Number(device.enterprise_id))fail('生产线任务不存在或不属于本厂',403)
+ const [[prior]]=await conn.query('SELECT * FROM worker_run WHERE id=? FOR UPDATE',[body.runId]),[[s]]=await conn.query('SELECT * FROM worker_session WHERE id=?',[body.sessionId])
+ if(s){if(!prior||prior.device_id!==device.device_id||prior.context_hash!==hash(context)||s.run_id!==body.runId||s.grant_id!==g.id)fail('原采集身份或资料不一致');return {ok:true,runId:body.runId,sessionId:body.sessionId,identity:json(g.identity_json)}}
+ if(task.status!=='active')fail('生产线任务已结束，不能开始新采集')
+ const [[member]]=await conn.query('SELECT UNIX_TIMESTAMP(added_at)*1000 AS added_ms,UNIX_TIMESTAMP(removed_at)*1000 AS removed_ms,removed_at FROM production_task_member WHERE task_id=? AND user_id=?',[task.id,g.user_id])
+ const at=Date.parse(body.startedAt);if(!member||at<Number(member.added_ms)-60000||(member.removed_at&&at>Number(member.removed_ms)))fail('当前工人未安排在此生产线上',403)
+ if(prior&&(prior.device_id!==device.device_id||prior.context_hash!==hash(context)||prior.state!=='active'))fail('原批次身份或资料不一致')
+ if(!prior){
+  const [[old]]=await conn.query('SELECT * FROM batch WHERE product_id=? AND batch_no=? FOR UPDATE',[p.id,context.batchNo]);let batchId=old?.id,conflict=false
+  if(old)conflict=String(old.produce_date).slice(0,10)!==context.produceDate||String(old.expire_date).slice(0,10)!==context.expireDate||old.qc_result===0
+  else {const [b]=await conn.execute('INSERT INTO batch(enterprise_id,product_id,batch_no,produce_date,expire_date,qc_result,quality_cert_no,quantity) VALUES(?,?,?,?,?,NULL,NULL,0)',[device.enterprise_id,p.id,context.batchNo,context.produceDate,context.expireDate]);batchId=b.insertId}
+  await conn.execute(`INSERT INTO worker_run(id,device_id,enterprise_id,task_id,product_id,batch_id,mode,context_json,context_hash,review_needed,device_snapshot,product_snapshot)
+   VALUES(?,?,?,?,?,?,'production',?,?,?,?,?)`,[body.runId,device.device_id,device.enterprise_id,task.id,p.id,batchId,JSON.stringify(context),hash(context),conflict||g.changed?1:0,
+   JSON.stringify({id:device.device_id,name:device.name,lineName:task.line_name,enterpriseName:device.enterprise_name}),JSON.stringify({id:p.id,name:p.name})])
+ }
+ await conn.execute('INSERT INTO worker_session(id,run_id,device_id,user_id,grant_id,identity_json,started_at,started_ms) VALUES(?,?,?,?,?,?,?,?)',[body.sessionId,body.runId,device.device_id,g.user_id,g.id,JSON.stringify({...json(g.identity_json),lineName:task.line_name}),new Date(at),at])
+ await conn.execute("INSERT INTO worker_audit(enterprise_id,actor_id,device_id,run_id,action,detail) VALUES(?,?,?,?,'join_stock_line',?)",[task.enterprise_id,g.user_id,device.device_id,body.runId,JSON.stringify({taskId:task.id,productId:p.id,context})])
+ return {ok:true,runId:body.runId,sessionId:body.sessionId,identity:json(g.identity_json)}
+}
+
+/** 校验真实入库码并即时归入生产线；占用、绑定和工人事件由调用方同事务提交。 */
+export async function stockLineEvent(conn:any,device:any,run:any,s:any,event:any,within:boolean,g:any,bind:any){
+ const [[task]]=await conn.query('SELECT * FROM production_task WHERE id=? FOR UPDATE',[run.task_id]),[[batch]]=await conn.query('SELECT * FROM batch WHERE id=? FOR UPDATE',[run.batch_id]);const context=json(run.context_json)
+ let reason='';if(!within)reason='采集时间超出工人授权范围'
+ else if(!task||task.status!=='active')reason='生产线任务已结束，记录保留'
+ else if(Number(g.us)!==1||Number(g.uv)!==Number(g.user_version)||g.ur!=='production_operator'||Number(g.ue)!==Number(run.enterprise_id))reason='员工权限已变更，待核对'
+ else if(!batch||batch.product_id!==run.product_id||batch.batch_no!==context.batchNo||String(batch.produce_date).slice(0,10)!==context.produceDate||String(batch.expire_date).slice(0,10)!==context.expireDate||batch.qc_result===0)reason='同产品同批号生产资料不一致，待核对'
+ if(reason)return {result:'exception',reason}
+ if(!g.manualReview){const [[member]]=await conn.query('SELECT UNIX_TIMESTAMP(added_at)*1000 AS added_ms,UNIX_TIMESTAMP(removed_at)*1000 AS removed_ms FROM production_task_member WHERE task_id=? AND user_id=?',[task.id,s.user_id]);const at=Date.parse(event.capturedAt);if(!member||at<Number(member.added_ms)-60000||(member.removed_ms&&at>Number(member.removed_ms)))return {result:'exception',reason:'工人未参与此生产线或已被移出，原始记录保留'}}
+ const [[code]]=event.code?await conn.query('SELECT * FROM trace_code WHERE code=? FOR UPDATE',[event.code]):[[]]
+ if(!code||Number(code.enterprise_id)!==Number(run.enterprise_id)||Number(code.product_id)!==Number(run.product_id)||!code.upload_batch_id)return {result:'exception',reason:'缺位、多候选、未入库或不是所选产品的码'}
+ const [[detail]]=await conn.query('SELECT * FROM production_task_code WHERE code_id=? AND task_id=? FOR UPDATE',[code.id,task.id])
+ if(detail?.state==='used')return Number(code.batch_id)===Number(run.batch_id)?{result:'duplicate',reason:'此码已在本批采集，不重复计数'}:{result:'exception',reason:'此码已用于其他生产批次，不能覆盖原资料'}
+ if(code.status!==1||code.abnormal_flag!==0||code.batch_id||code.bound_at||code.produce_date||code.expire_date||code.batch_no||code.quality_cert_no||code.qc_result!==null)return {result:'exception',reason:'此码已有生产资料或处于异常状态，不能覆盖'}
+ const [[owner]]=await conn.query('SELECT * FROM production_code_reservation WHERE code_id=?',[code.id])
+ if(owner&&(owner.owner_kind!=='legacy'||Number(owner.owner_id)!==Number(task.id)))return {result:'exception',reason:'此码已被其他任务或旧设备码池占用'}
+ if(event.kind!=='valid')return {result:'exception',reason:'本机判定为异常，原文保留'}
+ const [[product]]=await conn.query('SELECT p.*,s.spec_code FROM product p LEFT JOIN product_spec s ON s.id=p.spec_id WHERE p.id=?',[run.product_id])
+ if(!product||product.status!==1||!String(code.code).startsWith(headOf(product)))return {result:'exception',reason:'码结构与所选产品、规格不一致'}
+ if(!detail)await conn.execute('INSERT INTO production_task_code(task_id,code_id,active_code_id,code) VALUES(?,?,?,?)',[task.id,code.id,code.id,code.code])
+ await bind(conn,{...task,product_id:run.product_id},batch,detail||{code_id:code.id,active_code_id:code.id,state:'reserved'},Number(s.user_id),device.name||'')
+ return {result:'saved',reason:''}
+}

@@ -58,15 +58,16 @@ export async function workerCache(device:AuthUser,params:any){
  let snapshot:any
  if(params.id){[snapshot]=await query<any[]>('SELECT * FROM worker_cache WHERE id=? AND device_id=? AND expires_at>?',[String(params.id),device.device_id,Date.now()]);if(!snapshot)fail('缓存快照已过期，请重新下载',410)}
  else {
-  const products=await query<any[]>('SELECT p.id,p.name,p.registration_no,p.shelf_life,p.spec_id,s.spec_name FROM product p LEFT JOIN product_spec s ON s.id=p.spec_id WHERE p.enterprise_id=? AND p.status=1 ORDER BY p.id',[device.enterprise_id])
+  const stocked=params.workflow==='line'?' AND EXISTS(SELECT 1 FROM trace_code stock WHERE stock.enterprise_id=p.enterprise_id AND stock.product_id=p.id AND stock.upload_batch_id IS NOT NULL)':''
+  const products=await query<any[]>('SELECT p.id,p.name,p.registration_no,p.shelf_life,p.spec_id,s.spec_name FROM product p LEFT JOIN product_spec s ON s.id=p.spec_id WHERE p.enterprise_id=? AND p.status=1'+stocked+' ORDER BY p.id',[device.enterprise_id])
   const pools=await query<any[]>("SELECT id,product_id,state FROM worker_pool WHERE device_id=? AND state IN ('ready','active') ORDER BY created_at",[device.device_id])
   const codes=await query<any[]>("SELECT c.pool_id,c.code,c.state,p.product_id FROM worker_pool_code c JOIN worker_pool p ON p.id=c.pool_id WHERE p.device_id=? AND p.state IN ('ready','active') ORDER BY p.id,c.code_id",[device.device_id])
   if(params.workflow==='line'){const line=await lineCache(device);pools.splice(0,pools.length,...line.pools);codes.splice(0,codes.length,...line.codes)}
-  snapshot={id:randomUUID(),created_at:Date.now(),expires_at:Date.now()+72*3600000,data_json:{products,pools,codes}}
+  snapshot={id:randomUUID(),created_at:Date.now(),expires_at:Date.now()+72*3600000,data_json:{products,pools,codes,stockVersion:params.workflow==='line'?1:0}}
   await execute('INSERT INTO worker_cache(id,device_id,created_at,expires_at,data_json) VALUES(?,?,?,?,?)',[snapshot.id,device.device_id,snapshot.created_at,snapshot.expires_at,JSON.stringify(snapshot.data_json)])
  }
  const data=json(snapshot.data_json),kind=['products','pools','codes'].includes(params.kind)?params.kind:'products',offset=Math.max(0,Number(params.offset)||0),limit=kind==='codes'?1000:200,rows=data[kind].slice(offset,offset+limit)
- return {ok:true,id:snapshot.id,createdAt:Number(snapshot.created_at),expiresAt:Number(snapshot.expires_at),serverTime:Date.now(),kind,rows,total:data[kind].length,next:offset+rows.length<data[kind].length?offset+rows.length:null,hash:hash(data)}
+ return {ok:true,id:snapshot.id,createdAt:Number(snapshot.created_at),expiresAt:Number(snapshot.expires_at),serverTime:Date.now(),stockVersion:Number(data.stockVersion||0),kind,rows,total:data[kind].length,next:offset+rows.length<data[kind].length?offset+rows.length:null,hash:hash(data)}
 }
 export async function assignWorkerPool(user:AuthUser,body:any){
  deviceManager(user);const deviceId=Number(body.deviceId),productId=Number(body.productId),quantity=Number(body.quantity),requestId=collectionId(body.requestId)

@@ -45,7 +45,7 @@ public final class WorkerEngine {
   return snapshot();
  }
  public void logout()throws Exception{capturing=false;JSONObject p=vault.current();if(p!=null&&store.currentSession(p.getJSONObject("identity").getLong("id"))!=null)throw new Exception("请先结束本机采集，再退出登录");vault.logout();requestSync();}
- public JSONObject start(JSONObject context)throws Exception{vault.check(now());if(blocked)throw new Exception("设备已停用或认证失效");JSONObject r=store.start(context,vault.current(),now());startService();return r;}
+ public JSONObject start(JSONObject context)throws Exception{vault.check(now());if(blocked)throw new Exception("设备已停用或认证失效");JSONObject r=store.start(context,vault.current(),now());if(context.optBoolean("stockWorkflow"))requestSync();startService();return r;}
  public void resume(String id)throws Exception{vault.check(now());if(blocked)throw new Exception("设备已停用");store.resume(id,vault.current(),now());startService();}
  public void captureEnabled(boolean value){capturing=value;}
  public JSONObject capture(String raw)throws Exception{if(!capturing||blocked)throw new Exception("扫码已暂停，请先开始采集");vault.check(now());return store.capture(raw,vault.current(),now());}
@@ -88,7 +88,7 @@ public final class WorkerEngine {
   JSONObject d=dc.getJSONObject("device");store.putMeta("deviceLabel",new JSONObject().put("id",d.get("id")).put("name",d.get("name")).put("lineName",d.get("line_name")).put("enterpriseName",d.get("enterprise_name")).toString());
   if(vault.current()!=null){JSONObject check=client.request("POST","/api/device/operator/check",new JSONObject().put("grant",vault.current().getString("grant")).toString());if(check.optInt("status")==401||check.optInt("status")==403){capturing=false;vault.revokeCurrent();throw new Exception("工人授权已失效，请重新登录，已有记录保留");}vault.refresh(body(check).getLong("expiresAt"));}
   String id="";JSONObject info=new JSONObject();
-  for(String kind:new String[]{"products","pools","codes"}){int offset=0;while(true){String path="/api/device/worker-cache?workflow=line&kind="+kind+"&offset="+offset+(id.isEmpty()?"":"&id="+id);JSONObject page=body(client.request("GET",path,"{}"));if(id.isEmpty()){id=page.getString("id");info.put("id",id).put("createdAt",page.getLong("createdAt")).put("expiresAt",page.getLong("expiresAt"));serverTime(page.getLong("serverTime"));}else if(!id.equals(page.getString("id")))throw new Exception("缓存快照版本不一致");store.stage(id,kind,page.getJSONArray("rows"));info.put(kind,page.getInt("total"));if(page.isNull("next"))break;offset=page.getInt("next");}}
+  for(String kind:new String[]{"products","pools","codes"}){int offset=0;while(true){String path="/api/device/worker-cache?workflow=line&kind="+kind+"&offset="+offset+(id.isEmpty()?"":"&id="+id);JSONObject page=body(client.request("GET",path,"{}"));if(id.isEmpty()){id=page.getString("id");info.put("id",id).put("stockVersion",page.optInt("stockVersion")).put("createdAt",page.getLong("createdAt")).put("expiresAt",page.getLong("expiresAt"));serverTime(page.getLong("serverTime"));}else if(!id.equals(page.getString("id")))throw new Exception("缓存快照版本不一致");store.stage(id,kind,page.getJSONArray("rows"));info.put(kind,page.getInt("total"));if(page.isNull("next"))break;offset=page.getInt("next");}}
   store.commitCache(info);blocked=false;
  }
  public String exportProduction(String run)throws Exception{

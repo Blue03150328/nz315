@@ -36,6 +36,7 @@ export async function usageBatchCorrectionPreview(user: AuthUser, childId: numbe
 export async function correctUsageBatchProduction(user: AuthUser, childId: number, body: any) {
   await requireUsageBatchSchema()
   const { row } = await resolveCodeScope(user, { usageBatchId: childId })
+  if(row.stock_product_id)fail('此生产线包含独立产品批次，请在码明细中更正对应码，不能整条线覆盖生产资料',400)
   let requestId: string, fields: Record<string, string | number>
   try { requestId = productionRequestId(body); fields = productionPatch(body) } catch (error) { fail((error as Error).message, 400) }
   if (body.batchNo !== undefined && body.batchNo !== '') {

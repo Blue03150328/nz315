@@ -4,7 +4,7 @@ export function workerContext(body: any) {
  if(body.mode==='external')return {mode:'external' as const,name:String(body.name||'外码采集').slice(0,100)}
  const productId=Number(body.productId),batchNo=String(body.batchNo||'').trim(),produceDate=String(body.produceDate||''),expireDate=String(body.expireDate||'')
  if(body.mode!=='production'||!Number.isSafeInteger(productId)||productId<=0||!batchNo||batchNo.length>64||!isInputDate(produceDate)||!isInputDate(expireDate)||expireDate<produceDate)throw Error('请选择产品，填写有效生产日期、有效期和瓶盖批号')
- if(body.lineWorkflow===true){const taskId=Number(body.taskId);if(!Number.isSafeInteger(taskId)||taskId<0)throw Error('任务编号无效');return {mode:'production' as const,productId,batchNo,produceDate,expireDate,lineWorkflow:true as const,taskId}}
+ if(body.lineWorkflow===true){const taskId=Number(body.taskId);if(!Number.isSafeInteger(taskId)||taskId<0||(body.stockWorkflow===true&&taskId===0))throw Error('请选择有效生产线任务');return {mode:'production' as const,productId,batchNo,produceDate,expireDate,lineWorkflow:true as const,taskId,...(body.stockWorkflow===true?{stockWorkflow:true as const}:{})}}
  return {mode:'production' as const,productId,batchNo,produceDate,expireDate,poolId:collectionId(body.poolId)}
 }
 export function workerEvents(body:any) {

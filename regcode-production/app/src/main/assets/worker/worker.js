@@ -9,7 +9,7 @@
   const d=q.device||{},person=q.identity||{};
   $('companyLabel').textContent=person.enterpriseName||d.enterpriseName||'农资315 · 生产采集';
   $('deviceLabel').textContent=q.identity?[person.name,'工号 '+person.username].filter(Boolean).join(' · '):(d.name||'设备身份待联网确认');
-  const pools=assignedPools().filter(p=>!productId||p.product_id===Number(productId)),lines=[...new Set(pools.map(p=>p.line_name).filter(Boolean))];
+  const pools=assignedPools(),lines=[...new Set(pools.map(p=>p.line_name).filter(Boolean))];
   $('lineLabel').textContent=context&&context.lineName?context.lineName:lines.length?lines.join(' / '):'生产线待确认';
   $('lineLabel').hidden=!q.identity;
  }
@@ -33,20 +33,22 @@
  async function logout(){try{await call('logout');login();}catch(error){toast(error.message);}}
  function assignedPools(){return (q.pools||[]).filter(p=>q.identity&&(!Array.isArray(p.memberIds)||p.memberIds.includes(q.identity.id)));}
 
+ function taskChoice(){const rows=assignedPools();return rows.length>1?'<label><span>生产线</span><select id="task"><option value="">请选择生产线</option>'+rows.map(t=>'<option value="'+t.task_id+'">'+esc(t.line_name+' · '+t.task_name)+'</option>').join('')+'</select></label>':'';}
  function prepare(){
-  read();show('prepare',heading('生产准备','back','right')+'<div class="card"><label><span>选择产品</span><select id="product"></select></label><p id="productHint" class="muted"></p>'+field('produceDate','生产日期','date',new Date().toLocaleDateString('sv-SE'))+field('expireDate','有效期至','date','')+field('batchNo','生产批号','text','')+'<button id="start" class="primary">确认资料，进入扫码</button></div>');
-  click('back',home);products();$('product').onchange=productChanged;
+  read();show('prepare',heading('生产准备','back','right')+'<div class="card"><label><span>选择产品</span><select id="product"></select></label><p id="productHint" class="muted"></p>'+taskChoice()+field('produceDate','生产日期','date',new Date().toLocaleDateString('sv-SE'))+field('expireDate','有效期至','date','')+field('batchNo','生产批号','text','')+'<button id="start" class="primary">确认资料，进入扫码</button></div>');
+  click('back',home);products();$('product').onchange=productChanged;if($('task'))$('task').onchange=productChanged;
   if(q.run&&q.run.mode==='production'){$('product').value=String(q.run.context.productId);productChanged();}
-  click('start',async()=>{const id=Number($('product').value),p=(q.products||[]).find(p=>p.id===id),pool=assignedPools().find(p=>p.product_id===id&&['ready','active'].includes(p.state));if(!p||!pool){toast('此产品没有安排你参与的任务，或任务尚未缓存');return;}const data={mode:'production',productId:id,lineWorkflow:true,taskId:0,productName:p.name,specName:p.spec_name,batchNo:$('batchNo').value.trim(),produceDate:$('produceDate').value,expireDate:$('expireDate').value};if(!data.batchNo||!data.produceDate||!data.expireDate||data.expireDate<data.produceDate){toast('请核对批号、生产日期和有效期');return;}if(!await confirm(p.name+' · '+(p.spec_name||'')+'\n批号 '+data.batchNo+'\n生产 '+data.produceDate+'，有效期至 '+data.expireDate))return;try{await call('start',data);scan();}catch(error){toast(error.message);}});
+  click('start',async()=>{const id=Number($('product').value),p=(q.products||[]).find(p=>Number(p.id)===id);if(!p){toast('请选择本厂已入库产品');return;}const old=(q.openRuns||[]).find(r=>r.mode==='production'&&r.context.productId===id),taskId=old?old.context.taskId:Number($('task')?$('task').value:assignedPools()[0]&&assignedPools()[0].task_id);if(!taskId&&!old){toast('请先安排生产线任务，或选择你参与的生产线');return;}const data=old?{...old.context}:{mode:'production',productId:id,lineWorkflow:true,stockWorkflow:true,taskId,productName:p.name,specName:p.spec_name,batchNo:$('batchNo').value.trim(),produceDate:$('produceDate').value,expireDate:$('expireDate').value};if(!data.batchNo||!data.produceDate||!data.expireDate||data.expireDate<data.produceDate){toast('请核对批号、生产日期和有效期');return;}if(!await confirm(p.name+' · '+(p.spec_name||'')+'\n批号 '+data.batchNo+'\n生产 '+data.produceDate+'，有效期至 '+data.expireDate))return;try{await call('start',data);scan();}catch(error){toast(error.message);}});
  }
 
- function products(){const old=$('product').value,rows=(q.products||[]).filter(p=>assignedPools().some(t=>t.product_id===p.id));$('product').innerHTML='<option value="">请选择产品</option>'+rows.map(p=>'<option value="'+p.id+'">'+esc(p.name+' · '+(p.spec_name||'')+' · '+p.registration_no)+'</option>').join('');if(rows.some(p=>String(p.id)===old))$('product').value=old;productChanged();}
+ function products(){const old=$('product').value,rows=q.products||[];$('product').innerHTML='<option value="">请选择已入库产品</option>'+rows.map(p=>'<option value="'+p.id+'">'+esc(p.name+' · '+(p.spec_name||'')+' · '+p.registration_no)+'</option>').join('');if(rows.some(p=>String(p.id)===old))$('product').value=old;productChanged();}
 
  function productChanged(){
-  const id=Number($('product').value),old=(q.openRuns||[]).find(r=>r.context.productId===id),pool=assignedPools().find(p=>p.product_id===id);
-  $('productHint').textContent=old?'继续原批，生产资料保持不变':id&&!pool?'暂无可参与的任务':'';$('productHint').hidden=!$('productHint').textContent;
-  header(old&&old.context,id);
-  for(const key of ['produceDate','expireDate','batchNo']){$(key).disabled=!!old;if(old)$(key).value=old.context[key];else {const matches=assignedPools().filter(p=>p.product_id===id);if(matches.length===1&&matches[0].context&&matches[0].context[key])$(key).value=matches[0].context[key];else if(key!=='produceDate')$(key).value='';}}
+  const id=Number($('product').value),old=(q.openRuns||[]).find(r=>r.mode==='production'&&Number(r.context.productId)===id),task=assignedPools().find(t=>Number(t.task_id)===Number($('task')?$('task').value:assignedPools()[0]&&assignedPools()[0].task_id));
+  $('productHint').textContent=old?'继续原批，生产资料保持不变':'';$('productHint').hidden=!$('productHint').textContent;
+  if($('task')){$('task').disabled=!!old;if(old)$('task').value=String(old.context.taskId);}
+  header(old&&old.context||task&&{lineName:task.line_name},id);
+  for(const key of ['produceDate','expireDate','batchNo']){$(key).disabled=!!old;if(old)$(key).value=old.context[key];else if(key!=='produceDate')$(key).value='';}
  }
 
  function scan(){
@@ -89,7 +91,7 @@
  function cacheUpdate(){
   read();const rows=q.products||[],cache=q.cache||{};$('cacheSummary').textContent='本厂已缓存 '+rows.length+' 个产品 · 最近更新 '+(cache.createdAt?timeLabel(cache.createdAt):'尚未完成下载');
   const snapshot=cache.id||'empty';if($('cachedList').dataset.snapshot===snapshot)return;$('cachedList').dataset.snapshot=snapshot;
-  $('cachedList').innerHTML=rows.length?rows.map(p=>'<div class="card"><h2>'+esc(p.name)+'</h2><p>规格 '+esc(p.spec_name||'—')+'<br>登记证号 '+esc(p.registration_no||'—')+'</p><p class="muted">'+(assignedPools().some(t=>t.product_id===p.id)?'已安排你参与生产':'暂无你参与的生产任务')+'</p></div>').join(''):'<p>暂无完整产品缓存，请联网等待下载。</p>';
+  $('cachedList').innerHTML=rows.length?rows.map(p=>'<div class="card"><h2>'+esc(p.name)+'</h2><p>规格 '+esc(p.spec_name||'—')+'<br>登记证号 '+esc(p.registration_no||'—')+'</p><p class="muted">'+'已入库，可在生产准备选择'+'</p></div>').join(''):'<p>暂无完整产品缓存，请联网等待下载。</p>';
  }
 
  window.PDAScanAdapter={onScan:raw=>collect(String(raw))};document.addEventListener('keydown',e=>{if(page!=='scan'||!scanning||!foreground||busy||!$('scanInput'))return;if(e.key.length===1&&!e.ctrlKey&&!e.altKey&&!e.metaKey&&e.target!==$('scanInput')){e.preventDefault();$('scanInput').focus();$('scanInput').value+=e.key;}},true);

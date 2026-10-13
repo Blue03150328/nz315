@@ -257,14 +257,14 @@ export async function productionTasks(user: AuthUser, page = 1) {
     (SELECT COUNT(*) FROM production_collection_session s WHERE s.task_id=t.id AND s.state='active') AS active_collection_count,
     (SELECT COUNT(*) FROM production_task_code d WHERE d.task_id=t.id) AS total,
     (SELECT COUNT(*) FROM production_task_code d WHERE d.task_id=t.id AND d.state='used') AS used_count
-    FROM production_task t JOIN product p ON p.id=t.product_id LEFT JOIN batch b ON b.id=t.batch_id` + scope + ' ORDER BY t.id DESC LIMIT 30 OFFSET ?', [...params, (page - 1) * 30])
+    FROM production_task t LEFT JOIN product p ON p.id=t.product_id LEFT JOIN batch b ON b.id=t.batch_id` + scope + ' ORDER BY t.id DESC LIMIT 30 OFFSET ?', [...params, (page - 1) * 30])
   const [[count]] = await getPool().query<any[]>('SELECT COUNT(*) AS n FROM production_task t' + scope, params)
   const usage = await productionUsage(getPool(), rows.map(t => Number(t.id)))
   return { rows: rows.map(t => ({ ...applyTaskProduction(t), ...usage.get(Number(t.id)) })), total: Number(count.n), page }
 }
 export async function productionTaskDetail(user: AuthUser, id: number, state: string, page: number, keyword='') {
   if (!Number.isSafeInteger(id) || id <= 0) fail('任务编号无效', 400)
-  const [task] = await query<any[]>("SELECT t.*,p.name AS product_name,b.batch_no,b.produce_date,b.expire_date,COALESCE(b.quality_cert_no,t.draft_quality_cert_no) AS quality_cert_no,COALESCE(b.qc_result,t.draft_qc_result) AS qc_result,(SELECT COUNT(*) FROM production_collection_session s WHERE s.task_id=t.id AND s.state='active') AS active_collection_count FROM production_task t JOIN product p ON p.id=t.product_id LEFT JOIN batch b ON b.id=t.batch_id WHERE t.id=?", [id])
+  const [task] = await query<any[]>("SELECT t.*,p.name AS product_name,b.batch_no,b.produce_date,b.expire_date,COALESCE(b.quality_cert_no,t.draft_quality_cert_no) AS quality_cert_no,COALESCE(b.qc_result,t.draft_qc_result) AS qc_result,(SELECT COUNT(*) FROM production_collection_session s WHERE s.task_id=t.id AND s.state='active') AS active_collection_count FROM production_task t LEFT JOIN product p ON p.id=t.product_id LEFT JOIN batch b ON b.id=t.batch_id WHERE t.id=?", [id])
   if (!task) fail('任务不存在', 404)
   inScope(user, task)
   const counts = await query<any[]>('SELECT state,COUNT(*) AS count FROM production_task_code WHERE task_id=? GROUP BY state', [id])
@@ -272,8 +272,8 @@ export async function productionTaskDetail(user: AuthUser, id: number, state: st
   const args = ['reserved', 'used', 'pending', 'released'].includes(state) ? [id, state] : [id]
   const snapshotsAvailable = await taskProductionSnapshotsAvailable()
   if(keyword.trim()){cond+=' AND d.code LIKE ?';args.push('%'+keyword.trim().slice(0,100)+'%')}
-  const joins = ' FROM production_task_code d JOIN trace_code c ON c.id=d.code_id LEFT JOIN batch cb ON cb.id=c.batch_id LEFT JOIN user op ON op.id=d.used_by LEFT JOIN production_task_code a ON a.active_code_id=c.id LEFT JOIN worker_pool_code wc ON wc.active_code_id=c.id LEFT JOIN worker_pool wp ON wp.id=wc.pool_id LEFT JOIN worker_run wr ON wr.pool_id=wp.id LEFT JOIN production_device wd ON wd.id=wp.device_id'
-  const rows = await query<any[]>(`SELECT d.*,COALESCE(c.produce_date,cb.produce_date) AS produce_date,COALESCE(c.expire_date,cb.expire_date) AS expire_date,COALESCE(NULLIF(c.batch_no,''),cb.batch_no) AS batch_no,c.batch_id,COALESCE(c.qc_result,cb.qc_result) AS qc_result,COALESCE(NULLIF(c.quality_cert_no,''),cb.quality_cert_no) AS quality_cert_no,op.name AS operator_name,a.task_id AS current_task_id,wr.id AS current_worker_run_id,wc.pool_id AS current_worker_pool_id,COALESCE(a.state,wc.state) AS current_state,COALESCE(ot.name,wd.name) AS current_task_name,COALESCE(ot.line_name,JSON_UNQUOTE(JSON_EXTRACT(wr.device_snapshot,'$.lineName')),wd.line_name) AS current_line_name,
+  const joins = ' FROM production_task_code d JOIN trace_code c ON c.id=d.code_id LEFT JOIN product cp ON cp.id=c.product_id LEFT JOIN batch cb ON cb.id=c.batch_id LEFT JOIN user op ON op.id=d.used_by LEFT JOIN production_task_code a ON a.active_code_id=c.id LEFT JOIN worker_pool_code wc ON wc.active_code_id=c.id LEFT JOIN worker_pool wp ON wp.id=wc.pool_id LEFT JOIN worker_run wr ON wr.pool_id=wp.id LEFT JOIN production_device wd ON wd.id=wp.device_id'
+  const rows = await query<any[]>(`SELECT d.*,c.product_id,cp.name AS product_name,COALESCE(c.produce_date,cb.produce_date) AS produce_date,COALESCE(c.expire_date,cb.expire_date) AS expire_date,COALESCE(NULLIF(c.batch_no,''),cb.batch_no) AS batch_no,c.batch_id,COALESCE(c.qc_result,cb.qc_result) AS qc_result,COALESCE(NULLIF(c.quality_cert_no,''),cb.quality_cert_no) AS quality_cert_no,op.name AS operator_name,a.task_id AS current_task_id,wr.id AS current_worker_run_id,wc.pool_id AS current_worker_pool_id,COALESCE(a.state,wc.state) AS current_state,COALESCE(ot.name,wd.name) AS current_task_name,COALESCE(ot.line_name,JSON_UNQUOTE(JSON_EXTRACT(wr.device_snapshot,'$.lineName')),wd.line_name) AS current_line_name,
     CASE WHEN a.state='used' THEN COALESCE(NULLIF(a.used_line,''),'历史未记录') ELSE COALESCE(NULLIF(ot.line_name,''),JSON_UNQUOTE(JSON_EXTRACT(wr.device_snapshot,'$.lineName')),wd.line_name,ot.name) END AS actual_line_name,
     COALESCE(${snapshotsAvailable ? "JSON_UNQUOTE(JSON_EXTRACT(ot.production_snapshot,'$.batch_no'))," : ''}ob.batch_no,JSON_UNQUOTE(JSON_EXTRACT(COALESCE(wr.effective_context,wr.context_json),'$.batchNo'))) AS current_batch_no,COALESCE(a.used_at,we.captured_at) AS current_used_at,COALESCE(a.device,JSON_UNQUOTE(JSON_EXTRACT(wr.device_snapshot,'$.name')),wd.name) AS current_device,
     (d.state='released' AND (${freeProductionCode})) AS available_now` + joins +
@@ -301,7 +301,7 @@ export async function productionSources(user: AuthUser, productId: number, sourc
   if (productId) { scope += ' AND t.product_id=?'; params.push(productId) }
   // 未选产品时也可先选余码任务；先排除无可领码的任务，避免分页遮住较早的余码。
   const tasks = await query<any[]>(`SELECT t.id,t.name,t.line_name,t.product_id,t.enterprise_id,${snapshotsAvailable ? 't.production_snapshot' : 'NULL AS production_snapshot'},p.name AS product_name,e.name AS enterprise_name,b.batch_no
-    FROM production_task t JOIN product p ON p.id=t.product_id JOIN enterprise e ON e.id=t.enterprise_id LEFT JOIN batch b ON b.id=t.batch_id
+    FROM production_task t LEFT JOIN product p ON p.id=t.product_id JOIN enterprise e ON e.id=t.enterprise_id LEFT JOIN batch b ON b.id=t.batch_id
     WHERE t.status='approved' AND p.status=1${scope} AND EXISTS (
       SELECT 1 FROM production_task_code d JOIN trace_code c ON c.id=d.code_id LEFT JOIN production_task_code a ON a.active_code_id=c.id
       WHERE d.task_id=t.id AND d.state='released' AND ${freeProductionCode}) ORDER BY t.id DESC LIMIT 100`, params)

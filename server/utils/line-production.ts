@@ -7,6 +7,8 @@ import { productionAllocationInput } from '../../shared/utils/production-allocat
 import { productionRequestId } from '../../shared/utils/production-task-input'
 import { refreshUploadSnapshots } from './upload-snapshot'
 import { headOf } from './code-head'
+import { openStockLineSession, stockLineEvent } from './stock-line-production'
+import { projectWorkerCodeUsage } from '../../scripts/worker-code-usage.mjs'
 import { collectionId, collectionCode } from '../../shared/utils/collection-input'
 function fail(message:string,statusCode=409):never{throw createError({statusCode,statusMessage:message})}
 const hash=(value:any)=>createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -59,15 +61,18 @@ export async function editLineTask(user:AuthUser,id:number,body:any){
  })
 }
 export async function lineCache(device:AuthUser){
- const tasks=await query<any[]>("SELECT t.*,b.batch_no,b.produce_date,b.expire_date,(SELECT COUNT(*) FROM production_task_code d WHERE d.task_id=t.id) AS total,(SELECT COUNT(*) FROM production_task_code d WHERE d.task_id=t.id AND d.state='used') AS collected FROM production_task t LEFT JOIN batch b ON b.id=t.batch_id JOIN product p ON p.id=t.product_id WHERE t.enterprise_id=? AND t.status='active' AND t.workflow='line-team' AND p.status=1 ORDER BY t.id",[device.enterprise_id])
+ const tasks=await query<any[]>("SELECT t.*,b.batch_no,b.produce_date,b.expire_date,(SELECT COUNT(*) FROM production_task_code d WHERE d.task_id=t.id) AS total,(SELECT COUNT(*) FROM production_task_code d WHERE d.task_id=t.id AND d.state='used') AS collected FROM production_task t LEFT JOIN batch b ON b.id=t.batch_id LEFT JOIN product p ON p.id=t.product_id WHERE t.enterprise_id=? AND t.status='active' AND t.workflow='line-team' AND (t.product_id IS NULL OR p.status=1) ORDER BY t.id",[device.enterprise_id])
  const pools=tasks.map(t=>({workflow:t.workflow,id:taskPoolId(t.id),product_id:t.product_id,state:'ready',task_id:t.id,task_name:t.name,line_name:t.line_name,context:t.batch_id?{batchNo:t.batch_no,produceDate:String(t.produce_date).slice(0,10),expireDate:String(t.expire_date).slice(0,10)}:null}))
  const assigned=await query<any[]>('SELECT task_id,user_id FROM production_task_member WHERE removed_at IS NULL')
  for(const pool of pools)(pool as any).memberIds=pool.workflow==='line-team'?assigned.filter(m=>Number(m.task_id)===Number(pool.task_id)).map(m=>Number(m.user_id)):null
  const codes=await query<any[]>("SELECT d.task_id,d.code,d.state,t.product_id FROM production_task_code d JOIN production_task t ON t.id=d.task_id WHERE t.enterprise_id=? AND t.status='active' AND d.active_code_id IS NOT NULL ORDER BY t.id,d.code_id",[device.enterprise_id])
- return {pools,codes:codes.map(c=>({...c,pool_id:taskPoolId(c.task_id)}))}
+ const stock=await query<any[]>(`SELECT c.code,c.product_id,c.status,c.abnormal_flag,r.owner_kind,r.owner_id FROM trace_code c
+  LEFT JOIN production_code_reservation r ON r.code_id=c.id WHERE c.enterprise_id=? AND c.upload_batch_id IS NOT NULL ORDER BY c.id`,[device.enterprise_id])
+ return {pools,codes:[...codes.map(c=>({...c,pool_id:taskPoolId(c.task_id)})),...stock.map(c=>({...c,pool_id:'stock:'+c.product_id,state:Number(c.status)===1&&!Number(c.abnormal_flag)?'reserved':'unavailable'}))]}
 }
 /** 由首码缓存匹配到具体任务；服务端重新核对公司、产品及不可变生产资料。 */
 export async function openLineSession(conn:any,device:AuthUser,body:any,context:any,g:any){
+ if(context.stockWorkflow)return openStockLineSession(conn,device,body,context,g)
  const runId=collectionId(body.runId),sessionId=collectionId(body.sessionId)
  await conn.query('SELECT id FROM product WHERE id=? FOR UPDATE',[context.productId])
  if(context.taskId===0){
@@ -105,6 +110,7 @@ export async function openLineSession(conn:any,device:AuthUser,body:any,context:
  return {ok:true,runId,sessionId,identity:json(g.identity_json)}
 }
 export async function lineEvent(conn:any,device:AuthUser,run:any,s:any,event:any,within:boolean,g:any){
+ if(json(run.context_json).stockWorkflow)return stockLineEvent(conn,device,run,s,event,within,g,bindTeamCode)
  const [[task]]=await conn.query('SELECT * FROM production_task WHERE id=? FOR UPDATE',[run.task_id]);scope(device,task)
  let result='exception',reason=''
  const c=json(run.context_json),[[batch]]=task.batch_id?await conn.query('SELECT * FROM batch WHERE id=?',[task.batch_id]):[[]]
@@ -152,16 +158,22 @@ export async function resolveLineException(user:AuthUser,taskId:number,body:any)
  if(!['bind','unused'].includes(action)||!reason||reason.length>500)fail('请选择已投产或未投产，并填写核对依据',400)
  return transaction(async conn=>{
   const [[seed]]=await conn.query<any[]>('SELECT * FROM production_task WHERE id=?',[taskId]);scope(user,seed)
-  await conn.query('SELECT id FROM product WHERE id=? FOR UPDATE',[seed.product_id])
+  const [[eventSeed]]=await conn.query<any[]>('SELECT r.product_id FROM worker_event e JOIN worker_session s ON s.id=e.session_id JOIN worker_run r ON r.id=s.run_id WHERE e.id=? AND r.task_id=?',[id,taskId])
+  await conn.query('SELECT id FROM product WHERE id=? FOR UPDATE',[eventSeed?.product_id||seed.product_id])
   const [[task]]=await conn.query<any[]>('SELECT * FROM production_task WHERE id=? FOR UPDATE',[taskId])
-  const [[e]]=await conn.query<any[]>('SELECT e.*,s.user_id,r.device_snapshot FROM worker_event e JOIN worker_session s ON s.id=e.session_id JOIN worker_run r ON r.id=s.run_id WHERE e.id=? AND r.task_id=? FOR UPDATE',[id,taskId])
+  const [[e]]=await conn.query<any[]>('SELECT e.*,s.user_id,r.device_snapshot,r.context_json,r.batch_id,r.product_id,r.enterprise_id,r.id AS run_id FROM worker_event e JOIN worker_session s ON s.id=e.session_id JOIN worker_run r ON r.id=s.run_id WHERE e.id=? AND r.task_id=? FOR UPDATE',[id,taskId])
   if(!e||e.result_state!=='exception')fail('该异常记录不存在或无需核对',404)
   if(e.resolution_state)return {ok:true,duplicate:true,state:e.resolution_state}
   if(task.status!=='active')fail('任务已结束，不能更改生产归属')
   let state='unused'
   if(action==='bind'){
-   if(!task.batch_id||!e.code)fail('没有可核对的任务生产资料或完整码')
-   if(task.workflow==='line-team'){
+   if(!e.code)fail('没有可核对的完整码')
+   if(json(e.context_json).stockWorkflow){
+    // 管理员仅核对历史采集授权；产品、批次、码占用校验仍然执行。
+    const result=await stockLineEvent(conn,{name:json(e.device_snapshot)?.name||'管理员核对'},{...e,id:e.run_id,task_id:taskId},{user_id:e.user_id},{code:e.code,kind:'valid'},true,{manualReview:true,us:1,uv:0,user_version:0,ur:'production_operator',ue:task.enterprise_id},bindTeamCode)
+    if(result.result==='exception')fail(result.reason);state=result.result==='duplicate'?'duplicate':'bound'
+   }else if(task.workflow==='line-team'){
+    if(!task.batch_id)fail('没有可核对的任务生产资料')
     const [[batch]]=await conn.query<any[]>('SELECT * FROM batch WHERE id=?',[task.batch_id]),[[detail]]=await conn.query<any[]>('SELECT * FROM production_task_code WHERE task_id=? AND code=?',[taskId,e.code])
     if(!detail)fail('此码不属于当前任务，不能改为本任务生产')
     if(detail.state==='used')state='duplicate'
@@ -172,6 +184,7 @@ export async function resolveLineException(user:AuthUser,taskId:number,body:any)
    }
   }
   await conn.execute('UPDATE worker_event SET resolution_state=?,resolution_reason=?,resolved_by=?,resolved_at=NOW() WHERE id=?',[state,reason,user.id,id])
+  if(state==='bound')await projectWorkerCodeUsage(conn,e.session_id)
   await conn.execute("INSERT INTO worker_audit(enterprise_id,actor_id,run_id,action,detail) VALUES(?,?,NULL,'resolve_line_exception',?)",[task.enterprise_id,user.id,JSON.stringify({eventId:id,taskId,action,state,reason,originalWorkerId:e.user_id})])
   return {ok:true,state}
  })

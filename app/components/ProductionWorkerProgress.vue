@@ -1,7 +1,7 @@
 <script setup lang="ts">
 const props=defineProps<{taskId:number}>()
 const {canManageUsers}=useUser(),toast=useToast()
-async function resolve(event:any,action:string){const reason=prompt(action==='bind'?'确认此件已投产，按当前任务生产资料绑定。请填写核对依据：':'确认此件未投入生产，可以作为余码审核。请填写核对依据：');if(!reason?.trim())return;try{await $fetch(`/api/admin/production-tasks/${props.taskId}/worker-exceptions`,{method:'POST',body:{eventId:event.id,action,reason}});await refresh()}catch(e:any){toast.add({title:e?.data?.statusMessage||'核对未确认，请重试',color:'error'})}}
+async function resolve(event:any,action:string){const reason=prompt(action==='bind'?'确认此件已投产，按该工人本次产品和生产资料绑定。请填写核对依据：':'确认此件未投入生产，保留原文和核对记录。请填写核对依据：');if(!reason?.trim())return;try{await $fetch(`/api/admin/production-tasks/${props.taskId}/worker-exceptions`,{method:'POST',body:{eventId:event.id,action,reason}});await refresh()}catch(e:any){toast.add({title:e?.data?.statusMessage||'核对未确认，请重试',color:'error'})}}
 const userId=ref(0),page=ref(1),state=ref('')
 const {data,pending,error,refresh}=await useFetch<any>(()=>`/api/admin/production-tasks/${props.taskId}/worker-progress`,{query:{userId,page,state}})
 watch([userId,state],()=>{page.value=1})

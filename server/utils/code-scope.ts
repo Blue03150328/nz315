@@ -22,7 +22,7 @@ export async function resolveCodeScope(user: AuthUser, selection: CodeScope) {
   const conditions = user.role === 'platform_admin' ? '' : ' AND ub.enterprise_id=?'
   const values = user.role === 'platform_admin' ? [] : [user.enterprise_id]
   const [row] = selection.usageBatchId
-    ? await query<any[]>('SELECT ub.*,cb.id AS child_id,cb.task_id FROM code_usage_batch cb JOIN upload_batch ub ON ub.id=cb.parent_upload_batch_id WHERE cb.id=?' + conditions, [validScopeId(selection.usageBatchId), ...values])
+    ? await query<any[]>('SELECT ub.*,cb.id AS child_id,cb.task_id,cb.product_id AS stock_product_id FROM code_usage_batch cb JOIN upload_batch ub ON ub.id=cb.parent_upload_batch_id WHERE cb.id=?' + conditions, [validScopeId(selection.usageBatchId), ...values])
     : await query<any[]>('SELECT ub.* FROM upload_batch ub WHERE ub.id=?' + conditions, [validScopeId(selection.uploadBatchId), ...values])
   if (!row) throw createError({ statusCode: 404, statusMessage: '码批次不存在或不属于本企业' })
   if (selection.usageBatchId && selection.uploadBatchId && Number(row.id) !== Number(selection.uploadBatchId)) throw createError({ statusCode: 404, statusMessage: '子批次不属于指定的总批次' })
