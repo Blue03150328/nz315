@@ -11,6 +11,7 @@ import { headOf } from './code-head'
 import { productionAllocationInput } from '../../shared/utils/production-allocation-input'
 import { freeProductionCode, productionUsage, selectProductionAllocation, recordProductionAllocation } from './production-allocation'
 import { lockProductionDevice, assertDeviceTask } from './production-device-auth'
+import { taskProduction, applyTaskProduction, taskProductionSnapshotsAvailable } from './task-production'
 
 const fail = (message: string, statusCode = 409): never => { throw createError({ statusCode, statusMessage: message }) }
 export const productionReviewer = (user: AuthUser) => ['platform_admin', 'enterprise_admin'].includes(user.role)
@@ -66,7 +67,7 @@ export async function appendProductionTask(user: AuthUser, id: number, body: Rec
     if (task.status !== 'active') fail('结束的任务不能追加领用，请新建下一批任务')
     const [[product]] = await conn.query<any[]>('SELECT p.*,s.spec_code FROM product p LEFT JOIN product_spec s ON s.id=p.spec_id WHERE p.id=?', [task.product_id])
     if (!product || Number(product.status) !== 1) fail('产品已停用，不能追加领用')
-    const allocation = await selectProductionAllocation(conn, product, input!)
+    const allocation = await selectProductionAllocation(conn, product, input!, id)
     const result = { id, added: allocation.rows.length }
     const eventId = await recordTaskChange(conn, id, user, 'append', requestId!, hash, { sourceTaskId: allocation.sourceTaskId, count: allocation.rows.length, codes: allocation.rows.map(c => c.code), result })
     await recordProductionAllocation(conn, id, allocation.rows, eventId, allocation.sourceTaskId)
@@ -90,7 +91,8 @@ export async function editProductionTask(user: AuthUser, id: number, body: Recor
     if (body.productId !== undefined && Number(body.productId) !== Number(task.product_id)) fail('任务产品不能更换，其他产品请新建任务', 400)
     const [[batch]] = await conn.query<any[]>('SELECT * FROM batch WHERE id=? FOR UPDATE', [task.batch_id])
     const [[captureCount]] = await conn.query<any[]>("SELECT COUNT(*) AS n FROM production_collection_session WHERE task_id=? AND state='active'", [id])
-    const before = { name: task.name, lineName: task.line_name || task.name, batchNo: batch.batch_no, produceDate: String(batch.produce_date).slice(0, 10), expireDate: String(batch.expire_date).slice(0, 10), qualityCertNo: batch.quality_cert_no, qcResult: Number(batch.qc_result) }
+    const effective = taskProduction(task, batch)
+    const before = { name: task.name, lineName: task.line_name || task.name, batchNo: effective.batch_no, produceDate: String(effective.produce_date).slice(0, 10), expireDate: String(effective.expire_date).slice(0, 10), qualityCertNo: effective.quality_cert_no, qcResult: Number(effective.qc_result) }
     let after: ReturnType<typeof productionTaskMetadata>
     try { after = productionTaskMetadata({ ...before, ...patch, productId: Number(task.product_id) }) } catch (e) { fail((e as Error).message, 400) }
     const changedProduction = ['batchNo', 'produceDate', 'expireDate', 'qualityCertNo', 'qcResult'].some(k => (before as any)[k] !== (after! as any)[k])
@@ -117,7 +119,7 @@ export async function editProductionTask(user: AuthUser, id: number, body: Recor
       if (task.status !== 'active') fail('结束的任务不能追加领用，请新建下一批任务')
       const [[product]] = await conn.query<any[]>('SELECT p.*,s.spec_code FROM product p LEFT JOIN product_spec s ON s.id=p.spec_id WHERE p.id=?', [task.product_id])
       if (!product || Number(product.status) !== 1) fail('产品已停用，不能追加领用')
-      allocation = await selectProductionAllocation(conn, product, extra)
+      allocation = await selectProductionAllocation(conn, product, extra, id)
     }
     await conn.execute('UPDATE production_task SET name=?,line_name=?,batch_id=? WHERE id=?', [after!.name, after!.lineName, batchId, id])
     const result = { id, batchId, added: allocation?.rows.length || 0 }
@@ -170,8 +172,9 @@ export async function bindProductionInTransaction(conn: PoolConnection, user: Au
   const device = String(body.device || '').trim()
   if (!/^\d{32}$/.test(code) || !device || device.length > 100) fail('请提供有效追溯码和设备名称', 400)
     const task = locked || await lockedTask(conn, user, id)
-    const [[batch]] = await conn.query<any[]>('SELECT * FROM batch WHERE id = ? FOR UPDATE', [task.batch_id])
-    if (!batch) fail('任务生产批次不存在')
+    const [[storedBatch]] = await conn.query<any[]>('SELECT * FROM batch WHERE id = ? FOR UPDATE', [task.batch_id])
+    if (!storedBatch) fail('任务生产批次不存在')
+    const batch = taskProduction(task, storedBatch)
     const [[tc]] = await conn.query<any[]>('SELECT * FROM trace_code WHERE code = ? FOR UPDATE', [code])
     const [[detail]] = tc ? await conn.query<any[]>('SELECT * FROM production_task_code WHERE task_id = ? AND code_id = ? FOR UPDATE', [id, tc.id]) : [[]]
     if (!detail || Number(tc.enterprise_id) !== Number(task.enterprise_id) || Number(tc.product_id) !== Number(task.product_id)) fail('此码不在本任务领用清单内', 400)
@@ -257,7 +260,7 @@ export async function productionTasks(user: AuthUser, page = 1) {
     FROM production_task t JOIN product p ON p.id=t.product_id LEFT JOIN batch b ON b.id=t.batch_id` + scope + ' ORDER BY t.id DESC LIMIT 30 OFFSET ?', [...params, (page - 1) * 30])
   const [[count]] = await getPool().query<any[]>('SELECT COUNT(*) AS n FROM production_task t' + scope, params)
   const usage = await productionUsage(getPool(), rows.map(t => Number(t.id)))
-  return { rows: rows.map(t => ({ ...t, ...usage.get(Number(t.id)) })), total: Number(count.n), page }
+  return { rows: rows.map(t => ({ ...applyTaskProduction(t), ...usage.get(Number(t.id)) })), total: Number(count.n), page }
 }
 export async function productionTaskDetail(user: AuthUser, id: number, state: string, page: number, keyword='') {
   if (!Number.isSafeInteger(id) || id <= 0) fail('任务编号无效', 400)
@@ -267,21 +270,25 @@ export async function productionTaskDetail(user: AuthUser, id: number, state: st
   const counts = await query<any[]>('SELECT state,COUNT(*) AS count FROM production_task_code WHERE task_id=? GROUP BY state', [id])
   let cond = state === 'available' ? ` AND d.state='released' AND (${freeProductionCode})` : state === 'transferred' ? " AND d.state='released' AND ((a.task_id IS NOT NULL AND a.task_id<>d.task_id) OR wc.pool_id IS NOT NULL)" : ['reserved', 'used', 'pending', 'released'].includes(state) ? ' AND d.state=?' : ''
   const args = ['reserved', 'used', 'pending', 'released'].includes(state) ? [id, state] : [id]
+  const snapshotsAvailable = await taskProductionSnapshotsAvailable()
   if(keyword.trim()){cond+=' AND d.code LIKE ?';args.push('%'+keyword.trim().slice(0,100)+'%')}
   const joins = ' FROM production_task_code d JOIN trace_code c ON c.id=d.code_id LEFT JOIN batch cb ON cb.id=c.batch_id LEFT JOIN user op ON op.id=d.used_by LEFT JOIN production_task_code a ON a.active_code_id=c.id LEFT JOIN worker_pool_code wc ON wc.active_code_id=c.id LEFT JOIN worker_pool wp ON wp.id=wc.pool_id LEFT JOIN worker_run wr ON wr.pool_id=wp.id LEFT JOIN production_device wd ON wd.id=wp.device_id'
   const rows = await query<any[]>(`SELECT d.*,COALESCE(c.produce_date,cb.produce_date) AS produce_date,COALESCE(c.expire_date,cb.expire_date) AS expire_date,COALESCE(NULLIF(c.batch_no,''),cb.batch_no) AS batch_no,c.batch_id,COALESCE(c.qc_result,cb.qc_result) AS qc_result,COALESCE(NULLIF(c.quality_cert_no,''),cb.quality_cert_no) AS quality_cert_no,op.name AS operator_name,a.task_id AS current_task_id,wr.id AS current_worker_run_id,wc.pool_id AS current_worker_pool_id,COALESCE(a.state,wc.state) AS current_state,COALESCE(ot.name,wd.name) AS current_task_name,COALESCE(ot.line_name,JSON_UNQUOTE(JSON_EXTRACT(wr.device_snapshot,'$.lineName')),wd.line_name) AS current_line_name,
     CASE WHEN a.state='used' THEN COALESCE(NULLIF(a.used_line,''),'历史未记录') ELSE COALESCE(NULLIF(ot.line_name,''),JSON_UNQUOTE(JSON_EXTRACT(wr.device_snapshot,'$.lineName')),wd.line_name,ot.name) END AS actual_line_name,
-    COALESCE(ob.batch_no,JSON_UNQUOTE(JSON_EXTRACT(COALESCE(wr.effective_context,wr.context_json),'$.batchNo'))) AS current_batch_no,COALESCE(a.used_at,we.captured_at) AS current_used_at,COALESCE(a.device,JSON_UNQUOTE(JSON_EXTRACT(wr.device_snapshot,'$.name')),wd.name) AS current_device,
+    COALESCE(${snapshotsAvailable ? "JSON_UNQUOTE(JSON_EXTRACT(ot.production_snapshot,'$.batch_no'))," : ''}ob.batch_no,JSON_UNQUOTE(JSON_EXTRACT(COALESCE(wr.effective_context,wr.context_json),'$.batchNo'))) AS current_batch_no,COALESCE(a.used_at,we.captured_at) AS current_used_at,COALESCE(a.device,JSON_UNQUOTE(JSON_EXTRACT(wr.device_snapshot,'$.name')),wd.name) AS current_device,
     (d.state='released' AND (${freeProductionCode})) AS available_now` + joins +
     ' LEFT JOIN production_task ot ON ot.id=a.task_id LEFT JOIN batch ob ON ob.id=ot.batch_id LEFT JOIN worker_event we ON we.id=wc.event_id WHERE d.task_id=?' + cond + ' ORDER BY d.code_id LIMIT 100 OFFSET ?', [...args, (page - 1) * 100])
   const [filtered] = await query<any[]>('SELECT COUNT(*) AS n' + joins + ' WHERE d.task_id=?' + cond, args)
   const reviews = await query<any[]>('SELECT r.*,u.name AS reviewer_name FROM production_task_review r LEFT JOIN `user` u ON u.id=r.reviewer_id WHERE task_id=? ORDER BY r.id', [id])
   const usage = await productionUsage(getPool(), [id])
   const changes = await query<any[]>("SELECT r.id,r.action,JSON_REMOVE(r.detail,'$.codes') AS detail,r.created_at,u.name AS actor_name FROM production_task_change r LEFT JOIN `user` u ON u.id=r.actor_id WHERE task_id=? ORDER BY r.id DESC LIMIT 30", [id])
-  return { task: { ...task, ...usage.get(id) }, counts, rows, reviews, changes, page, filteredTotal: Number(filtered.n) }
+  return { task: { ...applyTaskProduction(task), ...usage.get(id) }, counts, rows, reviews, changes, page, filteredTotal: Number(filtered.n) }
 }
-export async function productionSources(user: AuthUser, productId: number) {
+export async function productionSources(user: AuthUser, productId: number, sourceUploadBatchId = 0) {
   if (!Number.isSafeInteger(productId) || productId < 0) fail('产品编号无效', 400)
+  if (!Number.isSafeInteger(sourceUploadBatchId) || sourceUploadBatchId < 0) fail('来源码批次编号无效', 400)
+  if (sourceUploadBatchId && !productId) fail('指定来源码批次时须同时选择产品', 400)
+  const snapshotsAvailable = await taskProductionSnapshotsAvailable()
   let product: any
   if (productId) {
     [product] = await query<any[]>('SELECT id,enterprise_id FROM product WHERE id=?', [productId])
@@ -293,20 +300,24 @@ export async function productionSources(user: AuthUser, productId: number) {
   if (user.role !== 'platform_admin') { scope += ' AND t.enterprise_id=?'; params.push(user.enterprise_id) }
   if (productId) { scope += ' AND t.product_id=?'; params.push(productId) }
   // 未选产品时也可先选余码任务；先排除无可领码的任务，避免分页遮住较早的余码。
-  const tasks = await query<any[]>(`SELECT t.id,t.name,t.line_name,t.product_id,t.enterprise_id,p.name AS product_name,e.name AS enterprise_name,b.batch_no
+  const tasks = await query<any[]>(`SELECT t.id,t.name,t.line_name,t.product_id,t.enterprise_id,${snapshotsAvailable ? 't.production_snapshot' : 'NULL AS production_snapshot'},p.name AS product_name,e.name AS enterprise_name,b.batch_no
     FROM production_task t JOIN product p ON p.id=t.product_id JOIN enterprise e ON e.id=t.enterprise_id LEFT JOIN batch b ON b.id=t.batch_id
     WHERE t.status='approved' AND p.status=1${scope} AND EXISTS (
       SELECT 1 FROM production_task_code d JOIN trace_code c ON c.id=d.code_id LEFT JOIN production_task_code a ON a.active_code_id=c.id
       WHERE d.task_id=t.id AND d.state='released' AND ${freeProductionCode}) ORDER BY t.id DESC LIMIT 100`, params)
   const usage = await productionUsage(getPool(), tasks.map(t => Number(t.id)))
-  const availableTasks = tasks.map(t => ({ ...t, ...usage.get(Number(t.id)) })).filter(t => t.available_count > 0)
+  const availableTasks = tasks.map(t => ({ ...applyTaskProduction(t), ...usage.get(Number(t.id)) })).filter(t => t.available_count > 0)
   if (!productId) {
     const uploads=await query<any[]>(`SELECT u.id,u.file_name,u.product_id,p.name AS product_name,COUNT(*) AS available_count FROM upload_batch u JOIN product p ON p.id=u.product_id JOIN trace_code c ON c.upload_batch_id=u.id LEFT JOIN production_task_code a ON a.active_code_id=c.id WHERE ${freeProductionCode} AND p.status=1${user.role==='platform_admin'?'':' AND u.enterprise_id=?'} GROUP BY u.id,u.file_name,u.product_id,p.name ORDER BY u.id DESC LIMIT 100`,user.role==='platform_admin'?[]:[user.enterprise_id])
     return {tasks:availableTasks,uploads,activeTasks:[]}
   }
+  if (sourceUploadBatchId) {
+    const [source] = await query<any[]>('SELECT id FROM upload_batch WHERE id=? AND product_id=? AND enterprise_id=?', [sourceUploadBatchId, productId, product.enterprise_id])
+    if (!source) fail('来源码批次不存在或与产品企业不一致', 404)
+  }
   const uploads = await query<any[]>(`SELECT u.id,u.file_name,COUNT(*) AS available_count FROM upload_batch u JOIN trace_code c ON c.upload_batch_id=u.id
     LEFT JOIN production_task_code a ON a.active_code_id=c.id WHERE u.product_id=? AND u.enterprise_id=? AND ${freeProductionCode}
-    GROUP BY u.id,u.file_name ORDER BY u.id DESC LIMIT 100`, [productId, product.enterprise_id])
+    ${sourceUploadBatchId ? 'AND u.id=?' : ''} GROUP BY u.id,u.file_name ORDER BY u.id DESC LIMIT 100`, [productId, product.enterprise_id, ...(sourceUploadBatchId ? [sourceUploadBatchId] : [])])
   const activeTasks = await query<any[]>("SELECT id,name,line_name,created_by FROM production_task WHERE product_id=? AND status='active'" + (productionReviewer(user) ? '' : ' AND created_by=?') + ' ORDER BY id DESC LIMIT 100', productionReviewer(user) ? [productId] : [productId, user.id])
   return { tasks: availableTasks, uploads, activeTasks }
 }
@@ -317,9 +328,10 @@ export async function productionCodeHistory(user: AuthUser, id: number, codeId: 
   inScope(user, task)
   const [detail] = await query<any[]>('SELECT code FROM production_task_code WHERE task_id=? AND code_id=?', [id, codeId])
   if (!detail) fail('此码不在任务中', 404)
-  const rows = await query<any[]>(`SELECT d.task_id,d.state,d.used_line,d.used_at,d.released_at,d.device,d.source_task_id,t.name,t.line_name,b.batch_no,u.name AS operator_name,
+  const snapshotsAvailable = await taskProductionSnapshotsAvailable()
+  const rows = await query<any[]>(`SELECT d.task_id,d.state,d.used_line,d.used_at,d.released_at,d.device,d.source_task_id,t.name,t.line_name,${snapshotsAvailable ? 't.production_snapshot' : 'NULL AS production_snapshot'},b.batch_no,u.name AS operator_name,
     COALESCE(e.created_at,t.created_at) AS allocated_at FROM production_task_code d JOIN production_task t ON t.id=d.task_id
     LEFT JOIN batch b ON b.id=t.batch_id LEFT JOIN production_task_change e ON e.id=d.allocation_id LEFT JOIN user u ON u.id=d.used_by
     WHERE d.code_id=? AND t.enterprise_id=? ORDER BY d.allocation_id DESC,d.task_id DESC LIMIT 100`, [codeId, task.enterprise_id])
-  return { code: detail.code, rows }
+  return { code: detail.code, rows: rows.map(applyTaskProduction) }
 }

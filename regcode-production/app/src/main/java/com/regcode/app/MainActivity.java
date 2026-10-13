@@ -27,6 +27,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.io.OutputStream;
 import com.regcode.collection.QueueStore;
+import com.regcode.collection.ExternalQueueStore;
 
 /** 基于来件的WebView和PDA广播接入，页面收口为联网生产扫码。 */
 public class MainActivity extends Activity {
@@ -36,6 +37,8 @@ public class MainActivity extends Activity {
     private ProductionClient client;
     private QueueStore queue;
     private CollectionSync sync;
+    private ExternalQueueStore externalQueue;
+    private ExternalCollectionSync externalSync;
     private DeviceCredentials deviceCredentials;
     private volatile boolean capturing;
     private volatile boolean foreground;
@@ -49,6 +52,7 @@ public class MainActivity extends Activity {
     private boolean workerBackup;
     private String pendingExport;
     private static final int WORKER_TEXT=316;
+    private final Object collectionModeLock = new Object();
 
     private final BroadcastReceiver scanReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -70,9 +74,9 @@ public class MainActivity extends Activity {
                     }
                 }
                 if (code == null && action != null && action.equals(preferences.getString("action", ""))) code = intent.getStringExtra(preferences.getString("extra", "scannerdata"));
-                if (code != null && !code.trim().isEmpty() && code.length() <= 4096) {
+                if (code != null && !code.trim().isEmpty()) {
                     // 原始码经过JSON编码，禁止用字符串拼接把二维码文本当成脚本执行。
-                    evaluate("window.PDAScanAdapter&&window.PDAScanAdapter.onScan(" + JSONObject.quote(code.trim()) + "," + JSONObject.quote(action) + ")");
+                    evaluate("window.PDAScanAdapter&&window.PDAScanAdapter.onScan(" + JSONObject.quote(scanPayload(code)) + "," + JSONObject.quote(action) + ")");
                 }
             } catch (RuntimeException ignored) { notifyText("扫码广播数据格式不正确，请核对设备输出设置"); }
         }
@@ -88,9 +92,9 @@ public class MainActivity extends Activity {
         catch (Exception ignored) { client.configure("https://www.nz315.cn"); }
         deviceCredentials=new DeviceCredentials(preferences);
         restoreDeviceCredential();
-        try { queue=new QueueStore(new QueueDatabase(this));sync=new CollectionSync(queue,client); }
+        try { queue=new QueueStore(new QueueDatabase(this));sync=new CollectionSync(queue,client);externalQueue=new ExternalQueueStore(new QueueDatabase(this,"external-outbox.sqlite"));externalSync=new ExternalCollectionSync(externalQueue,client);restoreDeviceCredential();if(client.deviceMode())externalSync.authenticated(true); }
         catch(Exception error){android.util.Log.e("NZ315PDA","本机扫码数据库初始化失败",error);notifyText("本机扫码数据库无法打开，请检查存储；禁止继续采集");}
-        try{workerEngine=WorkerEngine.get(this);if(queue!=null&&queue.current()!=null)page="file:///android_asset/www/index.html";}catch(Exception error){android.util.Log.e("NZ315PDA","工人采集队列初始化失败",error);}
+        try{workerEngine=WorkerEngine.get(this);if(legacyPending())page="file:///android_asset/www/index.html";}catch(Exception error){page="file:///android_asset/www/index.html";android.util.Log.e("NZ315PDA","工人采集队列初始化失败",error);}
         try { tone = new ToneGenerator(AudioManager.STREAM_NOTIFICATION, 65); }
         catch (RuntimeException ignored) { tone = null; }
         webView = new WebView(this);
@@ -115,7 +119,7 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() { super.onResume(); foreground = true; registerScanner(); evaluate("window.App&&window.App.lifecycle(true)"); }
     @Override protected void onPause() { foreground = false; capturing=false;if(workerEngine!=null)workerEngine.captureEnabled(false); unregisterScanner(); evaluate("window.App&&window.App.lifecycle(false)"); super.onPause(); }
-    @Override protected void onDestroy() { unregisterScanner(); if(sync!=null)sync.stop(); executor.shutdownNow(); if (tone != null) tone.release(); if (webView != null) { webView.removeJavascriptInterface("Native"); webView.destroy(); webView = null; } super.onDestroy(); }
+    @Override protected void onDestroy() { unregisterScanner(); if(sync!=null)sync.stop();if(externalSync!=null)externalSync.stop(); executor.shutdownNow(); if (tone != null) tone.release(); if (webView != null) { webView.removeJavascriptInterface("Native");webView.removeJavascriptInterface("WorkerNative"); webView.destroy(); webView = null; } super.onDestroy(); }
     @Override @SuppressWarnings("deprecation") public void onBackPressed() { evaluate("window.App&&window.App.back()"); }
     @Override @SuppressWarnings("deprecation") protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
@@ -124,10 +128,13 @@ public class MainActivity extends Activity {
         choosingBackup=false;
         if(resultCode!=RESULT_OK || data==null || data.getData()==null){notifyText("已取消导出，本机记录仍保留");return;}
         android.net.Uri destination=data.getData();
+        final boolean exportWorker=workerBackup;
+        final long exportUser=workerBackupUser;
+        workerBackup=false;
         executor.execute(()->{
             try(OutputStream output=getContentResolver().openOutputStream(destination,"wt")){
                 if(output==null)throw new IllegalStateException("无法打开备份文件");
-                if(workerBackup)workerEngine.backup(output,workerBackupUser);else queue.writeBackup(output);output.flush();
+                if(exportWorker)workerEngine.backup(output,exportUser);else queue.writeBackup(output,externalQueue);output.flush();
                 notifyText("备份已导出，包含完整采集记录和上传收据；本机记录保留");
             }catch(Exception error){notifyText("备份导出失败，请重新选择保存位置；本机记录保留");}
         });
@@ -147,9 +154,17 @@ public class MainActivity extends Activity {
     private void evaluate(String script) { runOnUiThread(() -> { if (webView != null && !isFinishing() && !isDestroyed()) webView.evaluateJavascript(script, null); }); }
     private void notifyText(String message) { runOnUiThread(() -> Toast.makeText(this, message, Toast.LENGTH_SHORT).show()); }
     private String deviceName() { String value = Build.MANUFACTURER + " " + Build.MODEL + " / " + preferences.getString("deviceId", ""); return value.substring(0, Math.min(100, value.length())); }
+    private String scanPayload(String raw){if(!preferences.getBoolean("stripTerminator",true))return raw;int end=raw.length();while(end>0&&(raw.charAt(end-1)=='\r'||raw.charAt(end-1)=='\n'))end--;return raw.substring(0,end);}
+    // 导航允许查看与备份两套历史；新采集和换归属必须先排空另一套队列。
+    private boolean legacyPending() throws Exception {if(queue==null||externalQueue==null)throw new IllegalStateException("原采集数据库不可用，请先检查存储并保留备份");return queue.current()!=null||externalQueue.nextBatch()!=null;}
+    private void requireLegacyFinished() throws Exception {if(legacyPending())throw new IllegalArgumentException("请先在外部采集与旧记录中完成原采集及全部补传，再开始个人账号采集");}
+    private void requireWorkerFinished() throws Exception {if(workerEngine==null)throw new IllegalStateException("工人采集数据库不可用，请先检查存储");if(workerEngine.store.hasUnconfirmedWork())throw new IllegalArgumentException("请先结束个人账号采集并取得全部云端确认，再开始旧模式采集或更换设备归属");}
+    private void openPage(String target){runOnUiThread(()->{capturing=false;if(workerEngine!=null)workerEngine.captureEnabled(false);page=target;webView.loadUrl(page);});}
     private void restoreDeviceCredential(){try{if(queue!=null&&queue.current()!=null&&queue.current().getJSONObject("context").optLong("deviceId")==0){client.accountMode();return;}JSONObject data=deviceCredentials.read();if(data!=null&&preferences.getString("server",BuildConfig.DEFAULT_SERVER).equals(data.optString("server")))client.deviceCredential(data.getString("credential"));}catch(Exception ignored){/* Keystore丢失时不假定设备已获授权。 */}}
     private JSONObject activateDevice(JSONObject input) throws Exception {
-        if(queue==null||queue.current()!=null)throw new IllegalArgumentException("本机有未结束采集，请先使用原认证方式同步并结束后再激活");
+        synchronized(collectionModeLock){
+        if(legacyPending())throw new IllegalArgumentException("本机有未结束采集，请先使用原认证方式同步并结束后再激活");
+        requireWorkerFinished();
         String code=input.optString("activationCode").trim();
         if(code.isEmpty()){JSONObject pending=deviceCredentials.read();if(pending!=null)code=pending.optString("activationCode");}
         if(!code.startsWith("NZ315-DEVICE:")||code.length()>2048)throw new IllegalArgumentException("请扫描后台生成的设备激活二维码");
@@ -162,15 +177,18 @@ public class MainActivity extends Activity {
             .put("instanceId",preferences.getString("deviceId","")).put("model",Build.MANUFACTURER+" "+Build.MODEL)
             .put("androidId",android.provider.Settings.Secure.getString(getContentResolver(),android.provider.Settings.Secure.ANDROID_ID));
         JSONObject result=client.request("POST","/api/device/activate",body.toString());
-        if(result.optInt("status")==200){deviceCredentials.ready();client.deviceCredential(credentials.getString("credential"));}
+        if(result.optInt("status")==200){deviceCredentials.ready();client.deviceCredential(credentials.getString("credential"));workerEngine.credentials();}
         return result;
+        }
     }
 
     public final class ProductionBridge {
-        @JavascriptInterface public void openWorkerApp(){runOnUiThread(()->{page="file:///android_asset/worker/index.html";webView.loadUrl(page);});}
+        @JavascriptInterface public void openWorkerApp(){openPage("file:///android_asset/worker/index.html");}
+        @JavascriptInterface public void openLegacyApp(){openPage("file:///android_asset/www/index.html");}
         @JavascriptInterface public String settings() {
             try { return new JSONObject().put("server", preferences.getString("server", BuildConfig.DEFAULT_SERVER)).put("mode", preferences.getString("mode", "auto"))
                     .put("action", preferences.getString("action", "")).put("extra", preferences.getString("extra", "scannerdata"))
+                    .put("stripTerminator",preferences.getBoolean("stripTerminator",true))
                     .put("device", deviceName()).toString(); }
             catch (Exception ignored) { return "{}"; }
         }
@@ -180,20 +198,26 @@ public class MainActivity extends Activity {
         }
         // 地址必须先持久化，防止断电后待核对码被带到另一服务器；调用在JS桥线程执行。
         @JavascriptInterface @SuppressLint("ApplySharedPref") public String configure(String input) {
+            synchronized(collectionModeLock){
             try {
                 JSONObject data = new JSONObject(input);
                 String target=data.getString("server").replaceAll("/+$", "");
                 if(queue==null)throw new IllegalStateException("本机数据库不可用");
                 JSONObject existing=queue.current();
                 if (existing!=null && !target.equals(existing.getString("server"))) throw new IllegalArgumentException("本机采集尚未结束，请先在原服务器完成同步");
+                JSONObject external=externalQueue==null?null:externalQueue.nextBatch();
+                if(external!=null&&!target.equals(external.getString("server")))throw new IllegalArgumentException("本机外部采集尚未同步完成，请保留原服务器连接");
+                if(!target.equals(preferences.getString("server",BuildConfig.DEFAULT_SERVER)))requireWorkerFinished();
                 String mode = data.optString("mode", "auto"), action = data.optString("action"), extra = data.optString("extra", "scannerdata");
                 if (!(mode.equals("auto") || mode.equals("broadcast") || mode.equals("keyboard")) || action.length() > 150 || extra.length() > 100 || extra.isEmpty()) throw new IllegalArgumentException("扫码设置格式不正确");
-                client.configure(target);if(sync!=null)sync.authenticated(false);
-                if (!preferences.edit().putString("server", data.getString("server").replaceAll("/+$", "")).putString("mode", mode).putString("action", action).putString("extra", extra).commit()) throw new IllegalStateException("设备未能保存连接设置");
+                client.configure(target);if(sync!=null)sync.authenticated(false);if(externalSync!=null)externalSync.authenticated(false);
+                if (!preferences.edit().putString("server", data.getString("server").replaceAll("/+$", "")).putString("mode", mode).putString("action", action).putString("extra", extra).putBoolean("stripTerminator",data.optBoolean("stripTerminator",true)).commit()) throw new IllegalStateException("设备未能保存连接设置");
                 restoreDeviceCredential();
+                if(workerEngine!=null)workerEngine.credentials();
                 runOnUiThread(() -> { unregisterScanner(); if (foreground) registerScanner(); });
                 return "";
             } catch (Exception error) { return error instanceof IllegalArgumentException ? error.getMessage() : "请检查服务器地址与扫码设置"; }
+            }
         }
         @JavascriptInterface public String requestId() { return UUID.randomUUID().toString(); }
         private String failure(Exception error){try{return new JSONObject().put("ok",false).put("error",error.getMessage()==null?"本机数据操作失败，请暂停检查存储":error.getMessage()).toString();}catch(Exception ignored){return "{\"ok\":false,\"error\":\"本机存储不可用\"}";}}
@@ -203,27 +227,49 @@ public class MainActivity extends Activity {
         }
         @JavascriptInterface public String prepare(long taskId,String userJson) {
             capturing=false;
-            try { JSONObject user=new JSONObject(userJson);if(sync.blocked())throw new Exception("设备已停用，请联系管理员");queue.prepare(preferences.getString("server",BuildConfig.DEFAULT_SERVER),taskId,new JSONObject().put("device",deviceName()).put("userId",user.getLong("id")).put("deviceId",client.deviceMode()?user.optLong("device_id"):0));return queue(); }
+            synchronized(collectionModeLock){
+            try { requireWorkerFinished();JSONObject user=new JSONObject(userJson);if(externalQueue!=null&&externalQueue.nextBatch()!=null)throw new Exception("请先完成外部采集及全部补传，再开始内部生产");if(sync.blocked())throw new Exception("设备已停用，请联系管理员");queue.prepare(preferences.getString("server",BuildConfig.DEFAULT_SERVER),taskId,new JSONObject().put("device",deviceName()).put("userId",user.getLong("id")).put("deviceId",client.deviceMode()?user.optLong("device_id"):0));return queue(); }
             catch(Exception error){return failure(error);}
+            }
         }
         @JavascriptInterface public String collect(String raw) {
-            try { if(sync.blocked() || (queue.current()!=null && queue.current().getJSONObject("context").optLong("deviceId")>0 && !client.deviceMode()))throw new Exception("设备已停用或认证失效，已停止采集；本机记录保留");if(!foreground || !capturing)throw new Exception("扫码已暂停，请先点击开始采集");return new JSONObject().put("ok",true).put("event",queue.capture(raw)).toString(); }
+            synchronized(collectionModeLock){
+            try { requireWorkerFinished();if(sync.blocked() || (queue.current()!=null && queue.current().getJSONObject("context").optLong("deviceId")>0 && !client.deviceMode()))throw new Exception("设备已停用或认证失效，已停止采集；本机记录保留");if(!foreground || !capturing)throw new Exception("扫码已暂停，请先点击开始采集");return new JSONObject().put("ok",true).put("event",queue.capture(raw)).toString(); }
             catch(Exception error){capturing=false;return failure(error);}
+            }
         }
         @JavascriptInterface public void capturing(boolean value){capturing=value && foreground;}
         @JavascriptInterface public String finishCollection(boolean endTask) {
             capturing=false;try{queue.close(endTask);return queue();}catch(Exception error){return failure(error);}
         }
-        @JavascriptInterface public void resumeUpload(){if(sync!=null)sync.authenticated(true);}
+        @JavascriptInterface public String finishUpload(){
+            try{JSONObject finished=queue.finishUpload();if(finished!=null)sync.uploadNow();return new JSONObject(queue()).put("finishRequested",finished!=null).toString();}
+            catch(Exception error){return failure(error);}
+        }
+        @JavascriptInterface public String externalQueue(){try{if(externalQueue==null||externalSync==null)throw new Exception("本机外部数据库不可用");return externalQueue.snapshot().put("ok",true).put("syncMessage",externalSync.message()).toString();}catch(Exception error){return failure(error);}}
+        @JavascriptInterface public String prepareExternal(String workerNo){
+            capturing=false;
+            synchronized(collectionModeLock){
+            try{requireWorkerFinished();if(queue==null||queue.current()!=null)throw new Exception("请先完成本机内部生产采集和同步");JSONObject credential=deviceCredentials.read();String server=preferences.getString("server",BuildConfig.DEFAULT_SERVER);if(credential==null||!credential.optBoolean("registered")||!server.equals(credential.optString("server")))throw new Exception("请先激活并验证设备；缓存凭证丢失时原记录仅保留备份");restoreDeviceCredential();if(!client.deviceMode())throw new Exception("请先恢复原设备认证");externalQueue.prepare(server,workerNo);externalSync.authenticated(true);return externalQueue();}catch(Exception error){return failure(error);}
+            }
+        }
+        @JavascriptInterface public String collectExternal(String raw){
+            synchronized(collectionModeLock){
+            try{requireWorkerFinished();if(!foreground||!capturing)throw new Exception("扫码已暂停，请先开始外部采集");JSONObject credential=deviceCredentials.read();if(!client.deviceMode()||credential==null||!credential.optBoolean("registered")||!preferences.getString("server",BuildConfig.DEFAULT_SERVER).equals(credential.optString("server")))throw new Exception("设备凭证不可用，已停止采集；本机记录保留");return new JSONObject().put("ok",true).put("event",externalQueue.capture(scanPayload(raw))).toString();}catch(Exception error){capturing=false;return failure(error);}
+            }
+        }
+        @JavascriptInterface public String finishExternal(){try{JSONObject finished=externalQueue.finish();if(finished!=null)externalSync.uploadNow();return new JSONObject(externalQueue()).put("finishRequested",finished!=null).toString();}catch(Exception error){return failure(error);}}
+        @JavascriptInterface public String uploadExternal(){try{return new JSONObject().put("ok",externalSync.uploadNow()).put("message",externalSync.message()).toString();}catch(Exception error){return failure(error);}}
+        @JavascriptInterface public void resumeUpload(){if(sync!=null)sync.authenticated(true);if(externalSync!=null&&client.deviceMode())externalSync.authenticated(true);}
         @JavascriptInterface public String uploadNow(){
             try{if(sync==null)throw new Exception("本机数据库不可用");return new JSONObject().put("ok",sync.uploadNow()).put("loginRequired",sync.loginRequired()).put("message",sync.message()).toString();}
             catch(Exception error){return failure(error);}
         }
         @JavascriptInterface @SuppressWarnings("deprecation") public void exportBackup(){
-            workerBackup=false;
             runOnUiThread(()->{
                 if(queue==null){notifyText("本机数据库不可用，无法导出");return;}
                 if(choosingBackup)return;
+                workerBackup=false;
                 Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json")
                     .putExtra(Intent.EXTRA_TITLE,"nz315-production-backup-"+System.currentTimeMillis()+".json");
                 try{choosingBackup=true;startActivityForResult(intent,BACKUP_DOCUMENT);}
@@ -237,16 +283,17 @@ public class MainActivity extends Activity {
                 try{
                     if("/api/device/activate".equals(path))result=activateDevice(new JSONObject(requestBody));
                     else{
-                        if("/api/auth/login".equals(path)){if(queue.current()!=null&&queue.current().getJSONObject("context").optLong("deviceId")>0)throw new IllegalArgumentException("本机是设备认证采集，请先恢复原设备认证完成同步");client.accountMode();}
+                        if("/api/auth/login".equals(path)){if((queue.current()!=null&&queue.current().getJSONObject("context").optLong("deviceId")>0)||(externalQueue!=null&&externalQueue.nextBatch()!=null))throw new IllegalArgumentException("本机是设备认证采集，请先恢复原设备认证完成同步");client.accountMode();}
                         if("/api/device/context".equals(path))restoreDeviceCredential();
-                        if("/api/device/context".equals(path)&&"POST".equals(method)){JSONObject snapshot=queue.snapshot();requestBody=new JSONObject().put("pending",snapshot.optJSONObject("counts")==null?0:snapshot.getJSONObject("counts").optInt("waiting")).toString();}
+                        if("/api/device/context".equals(path)&&"POST".equals(method)){JSONObject snapshot=queue.snapshot();int pending=snapshot.optJSONObject("counts")==null?0:snapshot.getJSONObject("counts").optInt("waiting");if(externalQueue!=null)pending+=externalQueue.snapshot().getJSONObject("queueCounts").optInt("waiting");requestBody=new JSONObject().put("pending",pending).toString();}
                         result=client.request(method,path,requestBody);
-                        if("/api/device/context".equals(path)&&result.optInt("status")==200){deviceCredentials.ready();if(sync!=null)sync.authenticated(true);}
+                        if("/api/device/context".equals(path)&&result.optInt("status")==200){deviceCredentials.ready();if(externalQueue!=null)externalQueue.trust(preferences.getString("server",BuildConfig.DEFAULT_SERVER),result.getJSONObject("body"));if(sync!=null)sync.authenticated(true);if(externalSync!=null)externalSync.authenticated(true);}
                     }
                 }catch(Exception error){try{result=new JSONObject().put("status",0).put("error",error instanceof IllegalArgumentException?error.getMessage():"设备凭证未能保存，请暂停操作后重试");}catch(Exception impossible){return;}}
                 if(sync!=null){if(result.optInt("status")==401)sync.authenticated(false);
                     else if("/api/auth/login".equals(path) && result.optInt("status")==200 && client.hasSession())sync.authenticated(true);}
                 if(client.deviceMode()&&sync!=null&&(result.optInt("status")==401||result.optInt("status")==403)){sync.deviceBlocked();capturing=false;}
+                if(client.deviceMode()&&externalSync!=null&&(result.optInt("status")==401||result.optInt("status")==403)){externalSync.deviceBlocked();capturing=false;}
                 evaluate("window.NzApi&&window.NzApi.receive(" + JSONObject.quote(id) + "," + result + ")");
             });
         }
@@ -265,15 +312,15 @@ public class MainActivity extends Activity {
     public final class WorkerBridge {
         @JavascriptInterface public String snapshot(){try{return workerEngine.snapshot().toString();}catch(Exception e){return new ProductionBridge().failure(e);}}
         @JavascriptInterface public void scanning(boolean value){capturing=value&&foreground;if(workerEngine!=null)workerEngine.captureEnabled(capturing);}
-        @JavascriptInterface public String collect(String raw){try{if(!foreground||!capturing)throw new Exception("扫码已暂停");return new JSONObject().put("ok",true).put("event",workerEngine.capture(raw)).toString();}catch(Exception e){capturing=false;return new ProductionBridge().failure(e);}}
+        @JavascriptInterface public String collect(String raw){synchronized(collectionModeLock){try{requireLegacyFinished();if(!foreground||!capturing)throw new Exception("扫码已暂停");return new JSONObject().put("ok",true).put("event",workerEngine.capture(raw)).toString();}catch(Exception e){capturing=false;workerEngine.captureEnabled(false);return new ProductionBridge().failure(e);}}}
         @JavascriptInterface public void upload(){workerEngine.requestSync();}
         @JavascriptInterface public void call(String id,String action,String input){workerEngine.async(()->{
             JSONObject result;
             try{JSONObject body=new JSONObject(input);
                 switch(action){
                     case "login": result=workerEngine.login(body.getString("username"),body.getString("password"));break;
-                    case "start": result=new JSONObject().put("ok",true).put("run",workerEngine.start(body));break;
-                    case "resume": workerEngine.resume(body.getString("runId"));result=workerEngine.snapshot();break;
+                    case "start": synchronized(collectionModeLock){requireLegacyFinished();result=new JSONObject().put("ok",true).put("run",workerEngine.start(body));}break;
+                    case "resume": synchronized(collectionModeLock){requireLegacyFinished();workerEngine.resume(body.getString("runId"));result=workerEngine.snapshot();}break;
                     case "logout":
                     case "handover": workerEngine.logout();result=workerEngine.snapshot();break;
                     case "finishInfo": result=workerEngine.finishInfo();break;
@@ -284,7 +331,7 @@ public class MainActivity extends Activity {
             }catch(Exception e){try{result=new JSONObject(new ProductionBridge().failure(e));}catch(Exception ignored){return;}}
             evaluate("window.WorkerApi&&window.WorkerApi.receive("+JSONObject.quote(id)+","+result+")");
         });}
-        @JavascriptInterface public void backup(){try{workerBackupUser=workerEngine.userId();workerBackup=true;runOnUiThread(()->openDocument(BACKUP_DOCUMENT,"application/json","nz315-worker-backup-"+System.currentTimeMillis()+".json"));}catch(Exception e){notifyText(e.getMessage());}}
+        @JavascriptInterface public void backup(){try{final long user=workerEngine.userId();runOnUiThread(()->{if(choosingBackup)return;workerBackupUser=user;workerBackup=true;openDocument(BACKUP_DOCUMENT,"application/json","nz315-worker-backup-"+System.currentTimeMillis()+".json");});}catch(Exception e){notifyText(e.getMessage());}}
         @JavascriptInterface public void txt(String runId){workerEngine.async(()->{try{JSONObject current=workerEngine.snapshot();boolean production=false;JSONArray history=current.getJSONArray("history");for(int i=0;i<history.length();i++){JSONObject row=history.getJSONObject(i);if(runId.equals(row.getString("id"))&&"production".equals(row.getString("mode")))production=true;}pendingExport=production?workerEngine.exportProduction(runId):workerEngine.download(runId);runOnUiThread(()->openDocument(WORKER_TEXT,"text/plain","nz315-records-"+runId+".txt"));}catch(Exception e){notifyText(e.getMessage());}});}
     }
     @SuppressWarnings("deprecation") private void openDocument(int request,String type,String name){if(choosingBackup)return;try{choosingBackup=true;startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(type).putExtra(Intent.EXTRA_TITLE,name),request);}catch(RuntimeException e){choosingBackup=false;notifyText("文件保存界面不可用，本机记录保留");}}

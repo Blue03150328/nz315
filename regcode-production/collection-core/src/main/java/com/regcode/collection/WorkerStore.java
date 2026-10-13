@@ -36,6 +36,8 @@ public final class WorkerStore {
  }
  private JSONObject run(String id)throws Exception{List<JSONObject> r=db.rows("SELECT * FROM ww_run WHERE id=?",id);if(r.isEmpty())return null;JSONObject v=r.get(0);v.put("context",new JSONObject(v.getString("context")));return v;}
  public synchronized JSONObject currentRun()throws Exception{return run(meta("currentRun",""));}
+ // 即使事件已收齐，未结束原批或缺整批结束收据时仍不可换服务器及重新激活。
+ public synchronized boolean hasUnconfirmedWork()throws Exception{return !db.rows("SELECT id FROM ww_run WHERE state='open' OR cloud_done=0 LIMIT 1").isEmpty();}
  public synchronized JSONObject currentSession(long userId)throws Exception{
   List<JSONObject> r=db.rows("SELECT * FROM ww_session WHERE run_id=? AND user_id=? AND state='active' ORDER BY rowid DESC LIMIT 1",meta("currentRun",""),userId);return r.isEmpty()?null:r.get(0);
  }

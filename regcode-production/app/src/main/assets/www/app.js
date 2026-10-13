@@ -4,7 +4,7 @@
   const escape = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const number = value => Number(value || 0), date = value => String(value || '').slice(0, 10);
   const labels = { active: '生产中', pending: '待审核', rejected: '审核退回', approved: '已结束' };
-  const state = { page: 'login', user: null, deviceMode: false, busy: false, foreground: true, scanning: false, confirming: false, tasks: [], taskPage: 1, total: 0, tab: 'active', detail: null, queue: null, product: null, products: [], sources: null, search: '', productPage: 1, productTotal: 0 };
+  const state = { page: 'login', user: null, deviceMode: false, busy: false, foreground: true, scanning: false, confirming: false, tasks: [], taskPage: 1, total: 0, tab: 'active', detail: null, queue: null, external: null, product: null, products: [], sources: null, search: '', productPage: 1, productTotal: 0 };
   let settings = {}, noticeTimer, productTimer, searchVersion = 0;
   const calls = new Map();
   const storage = {
@@ -18,7 +18,7 @@
   function creation() { return storage.get('pendingCreation'); }
   function creationForUser() { const item = creation(); return item && item.server === settings.server && number(item.userId) === number(state.user && state.user.id) ? item : null; }
   function blockedNavigation() { if (state.busy) { toast('正在等待服务器，请稍候'); return true; } return false; }
-  function selectPage(page, html) { if(window.Native)Native.capturing(false); state.page = page; state.scanning = false; $('main').className = page === 'scan' ? 'scan-page' : ''; $('main').innerHTML = html; if (page !== 'scan') $('receipt').hidden = true; window.scrollTo(0, 0); }
+  function selectPage(page, html) { if(window.Native)Native.capturing(false); state.page = page; state.scanning = false; $('main').className = ['scan','external'].includes(page) ? 'scan-page' : ''; $('main').innerHTML = html; if (!['scan','external'].includes(page)) $('receipt').hidden = true;if(!['scan','external','create'].includes(page)&&typeof Native.openWorkerApp==='function'){$('main').insertAdjacentHTML('beforeend','<button id="workerEntry" class="secondary wide">进入个人账号采集与记录</button>');click('workerEntry',()=>Native.openWorkerApp());} window.scrollTo(0, 0); }
   function on(id, event, callback) { const node = $(id); if (node) node.addEventListener(event, callback); }
   function click(id, callback) { on(id, 'click', () => { if (!blockedNavigation()) callback(); }); }
   function field(id, label, value, type, placeholder) { return '<label class="field"><span>' + label + '</span><input id="' + id + '" type="' + (type || 'text') + '" value="' + escape(value || '') + '" placeholder="' + escape(placeholder || '') + '"' + (type === 'password' ? ' autocomplete="current-password"' : '') + '></label>'; }
@@ -79,6 +79,7 @@
     const item = creationForUser();
     selectPage('tasks', '<div class="heading"><div><div class="eyebrow">' + escape(state.user.name || state.user.username) + '</div><h1>生产任务</h1></div><button id="refreshTasks" class="iconbutton" data-busy>刷新</button></div>' + (item ? '<div class="card"><h3>上次领用尚未确认</h3><p class="muted">资料和提交标识已保留，请先核对该任务。</p><button class="secondary wide" id="resumeCreation" data-busy>核对上次领用</button></div>' : '') + (writable() && !state.deviceMode ? '<button class="primary wide" id="newTask" data-busy>' + (item ? '继续核对领用' : '＋ 新建生产任务') + '</button><div style="height:20px"></div>' : '<div class="tips">生产任务由管理员在后台建立，选择本次任务开始扫码。</div>') + '<div class="pillbar"><button id="activeTab" class="' + (state.tab === 'active' ? 'selected' : '') + '">进行中</button><button id="historyTab" class="' + (state.tab === 'history' ? 'selected' : '') + '">已结束</button></div><div id="taskRows"></div><button id="moreTasks" class="secondary wide" data-busy>加载更多任务</button><p class="devicehint">实际用量以服务器确认的生产扫码为准。</p>');
     click('newTask', showCreate); click('resumeCreation', showCreate); click('refreshTasks', () => tasks());
+    if(state.deviceMode){const external=document.createElement('button');external.id='externalEntry';external.className='primary wide';external.textContent='外部二维码采集';$('taskRows').before(external);click('externalEntry',externalSetup);}
     click('activeTab', () => { state.tab = 'active'; taskList(); }); click('historyTab', () => { state.tab = 'history'; taskList(); });
     click('moreTasks', () => tasks(true));
     const rows = state.tasks.filter(task => (task.status === 'active') === (state.tab === 'active'));
@@ -206,6 +207,19 @@
     if(!session){if(state.user)tasks();else login();return;}
     const c=session.context, open=session.phase==='open';
     selectPage('scan','<div class="heading"><div><div class="eyebrow">'+escape(c.lineName || '本机采集')+'</div><h1>'+escape(c.name || '准备领用清单')+'</h1></div><button id="scanBack" class="iconbutton">返回</button></div><div class="card"><h3>'+escape(c.productName || '')+'</h3><p class="muted">生产批号 '+escape(c.batchNo || '正在联网确认…')+'</p><div class="stats"><div><strong id="localCount">0</strong><small>本机有效采集</small></div><div><strong id="cloudCount">0</strong><small>云端已绑定</small></div><div><strong id="waitingCount">0</strong><small>待同步记录</small></div></div><div id="syncStatus" class="tips"></div><div class="actions sync-actions"><button id="uploadCloud" class="primary">上传云端</button><button id="backupRecords" class="secondary">导出备份</button></div><p class="devicehint">上传时可继续扫码；上传成功也保留本机记录。</p><details><summary>本批生产资料</summary>'+[['生产日期',date(c.produceDate)],['有效期至',date(c.expireDate)],['质量合格证号',c.qualityCertNo],['质检结果',c.qcResult===1?'合格':'-']].map(r=>'<div class="detail-line"><span>'+r[0]+'</span><strong>'+escape(r[1] || '-')+'</strong></div>').join('')+'</details></div>'+(open?'<div class="card scan-panel"><div class="scan-art" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><h2 id="scanHeading">扫码已暂停</h2><p class="muted">提示已保存后可继续扫描，无需等待云端。重复码和异常码自动剔除并留痕。</p><div class="scan-entry"><input id="scanInput" autocomplete="off" placeholder="实体扫描，或输入追溯码" aria-label="追溯码"><button id="submitScan" class="secondary">采集</button></div><button id="toggleScan" class="primary wide">开始连续采集</button></div>':'<div class="card"><h2>'+ (session.phase==='starting'?'正在缓存领用清单':'已停止扫码，正在同步并结束')+'</h2><p class="muted">'+(session.phase==='starting'?'云端确认后才允许扫码；请保持联网或重新登录。':'全部记录收到云端收据后才完成结束，未确认记录仍保留在设备。')+'</p></div>')+'<div class="card"><div class="split"><h3>采集与异常记录</h3><span id="anomalyCount"></span></div><div id="recentRows"></div></div><button id="loginAgain" class="secondary wide" hidden>登录已失效，重新登录</button>'+(open?'<button id="closeCollection" class="danger wide">结束本机采集及本批生产</button><p class="devicehint">其他设备仍在采集时，只结束本机；任务需等所有设备完成同步。</p>':''));
+    const uploadStatus=document.createElement('p');uploadStatus.id='uploadBoundaryStatus';uploadStatus.className='devicehint';$('syncStatus').after(uploadStatus);
+    $('uploadCloud').textContent='立即同步';
+    $('uploadCloud').parentElement.nextElementSibling.textContent='扫码持续自动上传。点击“完成本次上传”划分子批次，之后扫描的码归入下一批；可以继续扫码。';
+    if(open){
+      const finish=document.createElement('button');finish.id='finishUpload';finish.className='primary wide';finish.textContent='完成本次上传';$('uploadCloud').parentElement.before(finish);
+      click('finishUpload',()=>{
+        try{
+          const result=JSON.parse(Native.finishUpload());if(!result.ok)throw new Error(result.error || '本次上传边界未能保存，请重试');
+          toast(result.finishRequested?'本次上传边界已保存，等待云端确认；可以继续扫码':'没有新的采集记录，无需完成本次上传');updateQueue();
+          if(state.scanning && settings.mode!=='broadcast' && $('scanInput'))$('scanInput').focus();
+        }catch(error){toast(error.message,true);}
+      });
+    }
     const records=$('recentRows'),card=records.parentElement;
     const more=document.createElement('details'),summary=document.createElement('summary');summary.textContent='查看最近30条采集原文及原因';more.appendChild(summary);more.appendChild(records);card.appendChild(more);
     if($('closeCollection'))card.before($('closeCollection'));
@@ -228,14 +242,18 @@
     });
     updateQueue();receipt(open?'本机记录已恢复，等待开始':'请等待云端确认','有效码先本机保存，批量同步后显示云端已绑定。','warning');
   }
-  function updateScanLabel(){if(window.Native)Native.capturing(state.scanning);if($('toggleScan')){$('toggleScan').textContent=state.scanning?'暂停采集':'开始连续采集';$('scanHeading').textContent=state.scanning?'正在连续采集':'扫码已暂停';}}
+  function updateScanLabel(){if(window.Native)Native.capturing(state.scanning);if($('toggleScan')){$('toggleScan').textContent=state.scanning?'暂停采集':'开始连续采集';$('scanHeading').textContent=state.scanning?'正在连续采集':'扫码已暂停';}if($('externalToggle')){$('externalToggle').textContent=state.scanning?'暂停外部采集':'开始连续采集';$('externalHeading').textContent=state.scanning?'正在采集外部二维码':'外部扫码已暂停';}}
   function updateQueue(){
     const q=readQueue(),session=q.session;
     if(state.page!=='scan')return;
-    if(!session){Native.openWorkerApp();return;}if(!session){state.scanning=false;Native.capturing(false);toast(q.syncMessage || '全部记录已同步，本机采集已结束');if(state.user)tasks();else login();return;}
+    if(!session){state.scanning=false;Native.capturing(false);toast(q.syncMessage || '全部记录已同步，本机采集已结束');if(state.user)tasks();else login();return;}
     const counts=q.counts || {};
     for(const [id,key] of [['localCount','collected'],['cloudCount','accepted'],['waitingCount','waiting']])if($(id))$(id).textContent=number(counts[key]);
     if($('syncStatus'))$('syncStatus').textContent=q.syncMessage || '自动同步中';
+    if($('uploadBoundaryStatus')){
+      const current=q.currentUpload && q.currentUpload.counts || {}, batches=q.uploadCounts || {};
+      $('uploadBoundaryStatus').textContent='本次有效采集 '+number(current.collected)+' · 本次云端成功 '+number(current.accepted)+' · 已完成 '+number(batches.completed)+' 批'+(number(batches.pending)>0?' · '+number(batches.pending)+' 批等待云端确认':'');
+    }
     if($('loginAgain')){$('loginAgain').hidden=!q.loginRequired;$('loginAgain').textContent=state.deviceMode?'重新验证设备':'登录已失效，重新登录';}if(q.deviceBlocked){state.scanning=false;updateScanLabel();}
     if($('anomalyCount'))$('anomalyCount').textContent='重复 '+number(counts.duplicates)+' · 异常 '+number(counts.rejected);
     const latest=(q.recent || []).find(row=>row.event.eventId===state.lastEventId);
@@ -259,15 +277,52 @@
   }
 
   function exportBackup(){state.scanning=false;updateScanLabel();Native.exportBackup();}
+  function readExternal(){const result=JSON.parse(Native.externalQueue());if(!result.ok)throw new Error(result.error || '本机外部队列不可用');state.external=result;return result;}
+  function externalSetup(){
+    readQueue();if(state.queue.session){toast('请先完成本机内部生产采集及同步',true);queuePage();return;}
+    let q;try{q=readExternal();}catch(error){toast(error.message,true);return;}
+    const device=q.deviceContext,open=q.batch&&q.batch.state==='open',worker=open?q.batch.worker_no:q.selection&&q.selection.workerNo || '';
+    selectPage('external-setup','<div class="heading"><h1>外部二维码采集</h1><button id="externalSetupBack" class="iconbutton">返回</button></div><div class="card"><div class="detail-line"><span>厂家</span><strong>'+escape(device&&device.enterpriseName || '请先联网验证设备')+'</strong></div><div class="detail-line"><span>生产流水线</span><strong>'+escape(device&&device.lineName || '请先联网验证设备')+'</strong></div><p class="muted">流水线取自管理员的设备登记。填写工号后即可扫描，产品、生产批号、生产日期及生产数量在后台补填。</p><form id="externalWorkerForm">'+field('externalWorker','本次采集工号（必填）',worker,'text','请输入本次操作工号')+'<button class="primary wide" id="externalStart">进入外部采集</button></form><p class="devicehint">工号是生产记录字段。每次点击“完成本次采集”后，下一扫码自动创建新采集批次。</p></div><button id="externalVerify" class="secondary wide">联网验证设备</button><button id="externalSetupBackup" class="secondary wide">导出完整本机备份</button>'+(q.batch?'<button id="externalView" class="secondary wide">查看外部采集与同步状态</button>':''));
+    $('externalWorker').maxLength=64;if(open)$('externalWorker').readOnly=true;
+    on('externalWorkerForm','submit',event=>{event.preventDefault();try{const result=JSON.parse(Native.prepareExternal($('externalWorker').value));if(!result.ok)throw new Error(result.error);externalPage();}catch(error){toast(error.message,true);}});
+    click('externalSetupBack',()=>{if(state.user)tasks();else deviceActivation();});click('externalVerify',connectDevice);click('externalSetupBackup',exportBackup);click('externalView',externalPage);
+    if(q.deviceBlocked){$('externalStart').disabled=true;toast('设备已停用或凭证失效，请联网验证；原文和备份保留',true);}
+  }
+  function externalPage(){
+    let q;try{q=readExternal();}catch(error){toast(error.message,true);return;}
+    const selected=q.selection || q.deviceContext || {},worker=selected.workerNo || q.batch&&q.batch.worker_no || '未设置';
+    selectPage('external','<div class="heading"><div><div class="eyebrow">'+escape(selected.enterpriseName || '')+'</div><h1>外部二维码采集</h1></div><button id="externalBack" class="iconbutton">返回</button></div><div class="card"><div class="detail-line"><span>生产流水线</span><strong>'+escape(selected.lineName || '-')+'</strong></div><div class="detail-line"><span>采集工号</span><strong>'+escape(worker)+'</strong></div><div class="stats"><div><strong id="externalLocal">0</strong><small>本次初步去重</small></div><div><strong id="externalCloud">0</strong><small>本次云端入库</small></div><div><strong id="externalWaiting">0</strong><small>全部待补传</small></div></div><div id="externalSyncStatus" class="tips"></div><p id="externalBoundary" class="devicehint"></p><button id="externalFinish" class="primary wide">完成本次采集</button><div class="actions sync-actions"><button id="externalUpload" class="secondary">立即同步</button><button id="externalBackup" class="secondary">导出备份</button></div><p class="devicehint">完整扫码原文持续自动上传。断网先保存在本机，联网后补传；不同设备重复以云端结果为准。</p></div><div class="card scan-panel"><h2 id="externalHeading">外部扫码已暂停</h2><div class="scan-entry"><input id="externalInput" autocomplete="off" aria-label="外部二维码原文" placeholder="扫描外部二维码或输入完整原文"><button id="externalSubmit" class="secondary">采集</button></div><button id="externalToggle" class="primary wide">开始连续采集</button></div><div class="card"><div class="split"><h3>最近采集记录</h3><span id="externalAnomalies"></span></div><div id="externalRecent"></div></div>');
+    click('externalBack',externalSetup);
+    click('externalToggle',()=>{try{const current=readExternal();if(current.deviceBlocked)throw new Error('设备已停用或认证失效，请联网验证');if(!current.selection)throw new Error('请返回填写工号后开始采集');state.scanning=!state.scanning;updateScanLabel();if(state.scanning&&settings.mode!=='broadcast')$('externalInput').focus();}catch(error){toast(error.message,true);}});
+    click('externalSubmit',()=>submitExternal($('externalInput').value,true));on('externalInput','keydown',event=>{if(event.key==='Enter'){event.preventDefault();submitExternal($('externalInput').value,false);}});
+    click('externalFinish',()=>{try{const result=JSON.parse(Native.finishExternal());if(!result.ok)throw new Error(result.error);toast(result.finishRequested?'本次采集边界已保存，下一扫码归入新批；云端收齐后完成':'本次没有新记录，无需完成');updateExternal();if(state.scanning&&settings.mode!=='broadcast')$('externalInput').focus();}catch(error){toast(error.message,true);}});
+    click('externalUpload',()=>{try{const result=JSON.parse(Native.uploadExternal());toast(result.message || '正在补传外部记录',!result.ok);updateExternal();}catch(error){toast(error.message,true);}});click('externalBackup',exportBackup);updateExternal();
+  }
+  function updateExternal(){
+    if(state.page!=='external')return;const q=readExternal(),c=q.counts || {},batch=q.batch,batches=q.batchCounts || {};
+    $('externalLocal').textContent=number(c.collected);$('externalCloud').textContent=number(c.accepted);$('externalWaiting').textContent=number(q.queueCounts&&q.queueCounts.waiting);
+    $('externalSyncStatus').textContent=q.syncMessage || '等待采集';
+    $('externalBoundary').textContent=(batch?'本次'+({open:'采集中',sealed:'已固定，等待云端确认',completed:'已完整上传'}[batch.state] || '待核对'):'等待本次第一条扫码')+' · 已完成 '+number(batches.completed)+' 批 · 等待确认 '+number(batches.pending)+' 批';
+    $('externalAnomalies').textContent='本机重复 '+number(c.localDuplicates)+' · 云端重复 '+number(c.duplicates)+' · 云端未入库 '+number(c.rejected);
+    if(q.deviceBlocked){state.scanning=false;updateScanLabel();}
+    const latest=(q.recent || []).find(row=>row.event.eventId===state.lastExternalEventId);if(latest&&latest.receipt){const r=latest.receipt;receipt(r.state==='accepted'?'云端已入库':r.state==='duplicate'?'重复码，云端未新增':'云端未入库',r.reason || latest.event.rawCode,r.state==='accepted'?'':r.state==='duplicate'?'warning':'error');}
+    $('externalRecent').innerHTML=(q.recent || []).map(row=>{const e=row.event,r=row.receipt,title=r?{accepted:'云端已入库',duplicate:'云端重复，未新增',rejected:'云端未入库'}[r.state]:row.localKind==='duplicate'?'本机重复，原文留存待云端确认':'本机已保存，待云端确认';return '<div class="recent"><small>'+escape(title)+' · '+escape(new Date(e.capturedAt).toLocaleTimeString('zh-CN',{hour12:false}))+'</small><code>'+escape(e.rawCode)+'</code>'+(r&&r.reason?'<small>'+escape(r.reason)+'</small>':'')+'</div>';}).join('') || '<div class="empty">暂无本次采集记录</div>';
+  }
+  function submitExternal(raw,manual){
+    if(state.page!=='external'||!state.foreground||state.confirming||!state.scanning){if(manual)toast('请先开始连续采集');return;}
+    try{const result=JSON.parse(Native.collectExternal(String(raw)));if(!result.ok)throw new Error(result.error);const e=result.event;state.lastExternalEventId=e.eventId;$('externalInput').value='';receipt(e.localKind==='duplicate'?'本机发现重复，原文留存待云端确认':'完整原文已保存，可以扫描下一件',e.rawCode,e.localKind==='duplicate'?'warning':'');if(e.localKind==='duplicate')Native.rejected();else Native.confirmed();updateExternal();if(settings.mode!=='broadcast')$('externalInput').focus();}
+    catch(error){state.scanning=false;updateScanLabel();receipt('本次未录入，请核对',error.message,'error');}
+  }
   function showSettings() {
     if (creation()) { toast('有未确认扫码或领用，请先在原服务器核对；需要登录时返回登录页即可'); return; }
     selectPage('settings', '<div class="heading"><h1>连接与扫码设置</h1><button id="settingsBack" class="iconbutton">返回</button></div><form id="settingsForm" class="card">' + field('settingServer', '服务器地址', settings.server, 'url', 'https://www.nz315.cn') + '<label class="field"><span>扫码输出方式</span><select id="settingMode"><option value="broadcast">广播模式（原源码方式）</option><option value="keyboard">键盘输入＋回车</option></select></label><details><summary>自定义广播（可选）</summary>' + field('settingAction', '广播动作', settings.action, 'text', '使用原来的广播时可以留空') + field('settingExtra', '数据字段', settings.extra, 'text', 'scannerdata') + '</details><button class="primary wide" data-busy>保存连接设置</button></form><div class="tips">已保留原源码的扫码广播，并兼容优博讯标准广播。设备扫码服务的输出方式应与这里保持一致。</div><p class="devicehint">已登记设备自动认证。设备凭证由系统加密保存，不导出到备份。</p><button id="backupHistory" class="secondary wide">导出全部本机备份</button><p class="devicehint">包含已结束任务、待上传记录、重复和异常原文及云端收据。</p>' + (state.user && !state.deviceMode ? '<button id="logout" class="secondary wide" data-busy>退出当前账号</button>' : ''));
     $('settingMode').insertAdjacentHTML('afterbegin', '<option value="auto">自动接收（广播与键盘，沿用原源码）</option>'); $('settingMode').value = settings.mode;
+    const terminator=document.createElement('label');terminator.className='check';terminator.innerHTML='<input id="stripTerminator" type="checkbox">去掉扫描头附加的末尾回车／换行';$('settingsForm').insertBefore(terminator,$('settingsForm').querySelector('button'));$('stripTerminator').checked=settings.stripTerminator!==false;
     click('backupHistory',exportBackup);
     click('settingsBack', () => { if (state.user) tasks(); else login(); });
     on('settingsForm', 'submit', event => {
       event.preventDefault(); if (state.busy) return;
-      const error = Native.configure(JSON.stringify({ server: $('settingServer').value.trim(), mode: $('settingMode').value, action: $('settingAction').value.trim(), extra: $('settingExtra').value.trim() || 'scannerdata' }));
+      const error = Native.configure(JSON.stringify({ server: $('settingServer').value.trim(), mode: $('settingMode').value, action: $('settingAction').value.trim(), extra: $('settingExtra').value.trim() || 'scannerdata',stripTerminator:$('stripTerminator').checked }));
       if (error) { toast(error, true); return; }
       settings = JSON.parse(Native.settings()); state.user = null; bootDevice();
     });
@@ -283,6 +338,7 @@
     if($('activationCode'))$('activationCode').focus();
     let info={};try{info=JSON.parse(Native.deviceInfo());}catch(_){}
     if(info.pendingActivation&&!queued){const retry=document.createElement('button');retry.className='secondary wide';retry.textContent='核对上次激活（超时重试）';retry.onclick=()=>submitActivation('');$('main').appendChild(retry);}
+    try{const q=readExternal();if(info.hasCredential&&info.registered&&q.deviceContext&&q.deviceContext.server===settings.server){const offline=document.createElement('button');offline.className='secondary wide';offline.textContent='外部采集（可离线）';offline.onclick=externalSetup;$('main').appendChild(offline);}else if(q.batch){const view=document.createElement('button');view.className='secondary wide';view.textContent='查看外部记录并导出备份';view.onclick=externalPage;$('main').appendChild(view);}}catch(_){/* 旧版本无外部队列时保留原激活入口。 */}
     if(message)toast(message,true);
   }
   async function submitActivation(raw) {
@@ -293,7 +349,7 @@
   }
   async function connectDevice() {
     state.deviceMode=true;busy(true);
-    try{const result=await api('POST','/api/device/context',{});if(!result.device||!result.user)throw new Error('设备资料不完整');state.user=result.user;Native.resumeUpload();readQueue();if(state.queue.session)queuePage();else await tasks();}
+    try{const result=await api('POST','/api/device/context',{});if(!result.device||!result.user)throw new Error('设备资料不完整');state.user=result.user;Native.resumeUpload();readQueue();const external=readExternal();if(state.queue.session)queuePage();else if(external.batch&&external.batch.state!=='completed')externalSetup();else await tasks();}
     catch(error){readQueue();if(error.status===0&&state.queue.session){queuePage();toast('网络未连接，本机记录已恢复；联网后重新验证设备',true);}else deviceActivation(error.message);}
     finally{busy(false);}
   }
@@ -313,13 +369,14 @@
     catch(error){if(error.status===403){state.scanning=false;updateScanLabel();if(state.page==='scan')toast(error.message,true);else deviceActivation(error.message);}}
     finally{heartbeatBusy=false;}
   },15000);
-  window.PDAScanAdapter = { onScan(raw) { if(state.page==='activation'){submitActivation(raw);return;}if (settings.mode !== 'keyboard') submitScan(raw, false); } };
+  window.PDAScanAdapter = { onScan(raw) { if(state.page==='activation'){submitActivation(raw);return;}if (settings.mode !== 'keyboard'){if(state.page==='external')submitExternal(raw,false);else submitScan(raw, false);} } };
   // 沿用原源码扫码页的键盘自动聚焦；普通登录、填写资料和暂停时不接管键盘。
   document.addEventListener('keydown', event => {
-    if (state.page !== 'scan' || !state.foreground || !state.scanning || state.confirming || settings.mode === 'broadcast' || !$('scanInput')) return;
+    const input=state.page==='external'?$('externalInput'):$('scanInput');
+    if (!['scan','external'].includes(state.page) || !state.foreground || !state.scanning || state.confirming || settings.mode === 'broadcast' || !input) return;
 
-    if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey && event.target !== $('scanInput')) {
-      event.preventDefault(); $('scanInput').focus(); $('scanInput').value += event.key;
+    if (event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey && event.target !== input) {
+      event.preventDefault(); input.focus(); input.value += event.key;
     }
   }, true);
   window.App = {
@@ -327,12 +384,13 @@
     back() {
       if (blockedNavigation()) return;
       if ($('confirmDialog').open) { $('confirmDialog').close('cancel'); return; }
+      if(state.page==='external'){externalSetup();return;}if(state.page==='external-setup'){if(state.user)tasks();else deviceActivation();return;}
       if (state.page === 'scan' || state.page === 'task' || state.page === 'create' || state.page === 'settings') { if (state.user) tasks(); else login(); }
       else Native.exit();
     }
   };
   on('settingsButton', 'click', () => { if (!blockedNavigation()) showSettings(); });
-  setInterval(()=>{if(!window.Native || !state.foreground)return;try{const prior=state.queue && state.queue.session;const q=readQueue();if(state.page==='scan' && prior && q.session && prior.phase!==q.session.phase)queuePage();else if(state.page==='scan')updateQueue();}catch(error){state.scanning=false;updateScanLabel();toast(error.message,true);}},1000);
+  setInterval(()=>{if(!window.Native || !state.foreground)return;try{if(state.page==='external'){updateExternal();return;}const prior=state.queue && state.queue.session;const q=readQueue();if(state.page==='scan' && prior && q.session && prior.phase!==q.session.phase)queuePage();else if(state.page==='scan')updateQueue();}catch(error){state.scanning=false;updateScanLabel();toast(error.message,true);}},1000);
   try {
     if (!window.Native) throw new Error('请在安卓应用内打开生产扫码界面');
     settings=JSON.parse(Native.settings());readQueue();bootDevice();

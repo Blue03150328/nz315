@@ -8,7 +8,7 @@ import { productionRequestId } from '../../shared/utils/production-task-input'
 import { refreshUploadSnapshots } from './upload-snapshot'
 import { headOf } from './code-head'
 import { collectionId, collectionCode } from '../../shared/utils/collection-input'
-const fail=(message:string,statusCode=409):never=>{throw createError({statusCode,statusMessage:message})}
+function fail(message:string,statusCode=409):never{throw createError({statusCode,statusMessage:message})}
 const hash=(value:any)=>createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const json=(value:any)=>typeof value==='string'?JSON.parse(value):value
 function scope(user:AuthUser,row:any){if(!row||(user.role!=='platform_admin'&&Number(row.enterprise_id)!==Number(user.enterprise_id)))fail('记录不存在或不属于本企业',404)}
@@ -119,7 +119,7 @@ export async function lineEvent(conn:any,device:AuthUser,run:any,s:any,event:any
   else if(detail.state==='used'){result='duplicate';reason='此码已被采集，不重复计入生产'}
   else if(event.kind!=='valid')reason='本机判定为重复或异常，保留原文'
   else {
-   try {if(task.workflow==='line-team')await bindTeamCode(conn,task,batch,detail,Number(s.user_id),device.name);else await bindProductionInTransaction(conn,{...device,id:Number(s.user_id)},task.id,{code:event.code,device:device.name},task,task.line_name);result='saved'}
+   try {if(task.workflow==='line-team')await bindTeamCode(conn,task,batch,detail,Number(s.user_id),device.name||'');else await bindProductionInTransaction(conn,{...device,id:Number(s.user_id)},task.id,{code:event.code,device:device.name},task,task.line_name);result='saved'}
    catch(e:any){if(!e.statusCode)throw e;reason=e.statusMessage||'码状态发生冲突'}
   }
  }

@@ -10,6 +10,10 @@ export default defineEventHandler(async (event) => {
 
   if (user.role !== 'platform_admin') {
     conds.push('p.enterprise_id = ?'); params.push(user.enterprise_id)
+  } else if (q.enterpriseId !== undefined && q.enterpriseId !== '') {
+    const enterpriseId = Number(q.enterpriseId)
+    if (!Number.isSafeInteger(enterpriseId) || enterpriseId <= 0) throw createError({ statusCode: 400, statusMessage: '企业筛选无效' })
+    conds.push('p.enterprise_id = ?'); params.push(enterpriseId)
   }
   if (q.keyword) {
     const kw = '%' + String(q.keyword).trim().slice(0, 64) + '%'
@@ -18,6 +22,11 @@ export default defineEventHandler(async (event) => {
   if (q.category) { conds.push('p.category = ?'); params.push(String(q.category)) }
   if (q.status !== undefined && q.status !== '') { conds.push('p.status = ?'); params.push(Number(q.status)) }
   if (q.specId) { conds.push('p.spec_id = ?'); params.push(Number(q.specId)) }
+  if (q.productId !== undefined) {
+    const id = Number(q.productId)
+    if (!Number.isSafeInteger(id) || id <= 0) throw createError({ statusCode: 400, statusMessage: '产品编号无效' })
+    conds.push('p.id = ?'); params.push(id)
+  }
 
   const whereSql = conds.length ? 'WHERE ' + conds.join(' AND ') : ''
   const page = Math.max(1, parseInt(String(q.page || '1')))

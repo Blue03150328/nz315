@@ -1,6 +1,7 @@
 import { lineCache, openLineSession, lineEvent, offlineExportKey } from './line-production'
 import { randomBytes, randomUUID, createHash } from 'node:crypto'
 import type { AuthUser } from './auth'
+import type { PoolConnection } from 'mysql2/promise'
 import { verifyPassword } from './auth'
 import { query, execute } from './db'
 import { transaction } from './production-task'
@@ -104,7 +105,7 @@ export async function openWorkerSession(device:AuthUser,body:any,verifiedGrant?:
     contextConflict=!!((old&&(String(old.produce_date).slice(0,10)!==context.produceDate||String(old.expire_date).slice(0,10)!==context.expireDate))||others.some(r=>{const c=contextOfRun(r);return batchKey(c.batchNo)===batchKey(context.batchNo)&&(c.produceDate!==context.produceDate||c.expireDate!==context.expireDate)}))
     await conn.execute("UPDATE worker_pool SET state='active' WHERE id=?",[pool.id])
    }
-   await conn.execute('INSERT INTO worker_run(id,device_id,enterprise_id,pool_id,product_id,mode,context_json,context_hash,review_needed) VALUES(?,?,?,?,?,?,?,?,?)',[runId,device.device_id,device.enterprise_id,context.mode==='production'?context.poolId:null,context.mode==='production'?context.productId:null,context.mode,JSON.stringify(context),hash(context),g.changed||contextConflict?1:0])
+   await conn.execute('INSERT INTO worker_run(id,device_id,enterprise_id,pool_id,product_id,mode,context_json,context_hash,review_needed) VALUES(?,?,?,?,?,?,?,?,?)',[runId,device.device_id??null,device.enterprise_id,context.mode==='production'?context.poolId??null:null,context.mode==='production'?context.productId:null,context.mode,JSON.stringify(context),hash(context),g.changed||contextConflict?1:0])
    await conn.execute('UPDATE worker_run SET device_snapshot=?,product_snapshot=? WHERE id=?',[JSON.stringify({id:device.device_id,name:device.name,lineName:device.device_line,enterpriseName:device.enterprise_name}),productSnapshot?JSON.stringify(productSnapshot):null,runId])
    if(contextConflict)await audit(conn,device,'context_conflict',runId,{original:context,reason:'同产品同批号日期不一致，保存原录入，待管理员核对'})
   }
@@ -176,7 +177,7 @@ export async function workerAdminList(user:AuthUser,params:any){
  if(params.deviceId){conds.push('r.device_id=?');args.push(Number(params.deviceId))}
  if(['production','external'].includes(params.mode)){conds.push('r.mode=?');args.push(params.mode)}
  if(['active','sealed'].includes(params.state)){conds.push('r.state=?');args.push(params.state)}
- for(const [key,op] of [['from','>='],['to','<=']])if(params[key]){if(!/^\d{4}-\d{2}-\d{2}$/.test(String(params[key])))fail('查询日期无效',400);conds.push(`r.created_at ${op} ?`);args.push(params[key]+(key==='from'?' 00:00:00':' 23:59:59'))}
+ for(const [key,op] of [['from','>='],['to','<=']] as const)if(params[key]){if(!/^\d{4}-\d{2}-\d{2}$/.test(String(params[key])))fail('查询日期无效',400);conds.push(`r.created_at ${op} ?`);args.push(params[key]+(key==='from'?' 00:00:00':' 23:59:59'))}
  if(params.operator){conds.push('EXISTS(SELECT 1 FROM worker_session ws JOIN user wu ON wu.id=ws.user_id WHERE ws.run_id=r.id AND (wu.username LIKE ? OR wu.name LIKE ?))');args.push('%'+String(params.operator).slice(0,100)+'%','%'+String(params.operator).slice(0,100)+'%')}
  if(['own','other_enterprise','not_imported','unparsed'].includes(params.classification)){conds.push('EXISTS(SELECT 1 FROM worker_event we JOIN worker_session ws ON ws.id=we.session_id WHERE ws.run_id=r.id AND we.classification=?)');args.push(params.classification)}
  const page=Math.max(1,Math.min(100000,Math.floor(Number(params.page)||1))),pageSize=50,where=conds.join(' AND ')
@@ -199,7 +200,7 @@ export async function workerDetails(user:AuthUser,id:string,params:any={}){
  const audits=await query<any[]>(`SELECT a.*,u.name AS actor_name FROM worker_audit a LEFT JOIN user u ON u.id=a.actor_id WHERE a.run_id=?${user.role==='production_operator'?' AND a.actor_id=?':''} ORDER BY a.id DESC LIMIT 100`,user.role==='production_operator'?[id,user.id]:[id])
  return {run:{...r,context:contextOfRun(r),originalContext:json(r.context_json),deviceSnapshot:r.device_snapshot?json(r.device_snapshot):null,productSnapshot:r.product_snapshot?json(r.product_snapshot):null},rows,sessions,remaining,audits,total:Number(count.n),page,pageSize}
 }
-async function allRunsSealed(conn:any,r:any){
+async function allRunsSealed(conn:PoolConnection,r:any){
  if(r.state!=='sealed')fail('本批还未完整上传及结束')
  const context=contextOfRun(r),[others]=await conn.query<any[]>("SELECT context_json,effective_context,state FROM worker_run WHERE enterprise_id=? AND product_id=? AND mode='production'",[r.enterprise_id,r.product_id])
  if(others.some(o=>batchKey(contextOfRun(o).batchNo)===batchKey(context.batchNo)&&o.state!=='sealed'))fail('同批其他设备尚未结束，请等待完整上传')

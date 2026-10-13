@@ -4,11 +4,14 @@ import { assertBindingAllowed, assertCodesCorrectable } from './binding-guard'
 import { effectiveProduction } from '../../shared/utils/production-info'
 import { refreshUploadSnapshots } from './upload-snapshot'
 import { assertNoProductionReservation } from './production-reservation'
+import { codeScopeSql } from './code-scope'
+import { requireUsageBatchSchema } from './usage-batch-schema'
 
-type Selection = { ids?: number[]; uploadBatchId?: number; single?: boolean }
+type Selection = { ids?: number[]; uploadBatchId?: number; single?: boolean; remaining?: boolean }
 
 /** 三个修正入口同一事务：产品→目标生产批次→码；只写选中码的覆盖字段。 */
 export async function correctCodes(user: { role: string; enterprise_id: number | null }, body: Record<string, any>, selection: Selection) {
+  if (selection.remaining) await requireUsageBatchSchema()
   let patch: Record<string, string | number>
   try { patch = productionPatch(body) } catch (e) { throw createError({ statusCode: 400, statusMessage: (e as Error).message }) }
   const hasBatch = body.batchId !== undefined && body.batchId !== null && body.batchId !== ''
@@ -21,8 +24,9 @@ export async function correctCodes(user: { role: string; enterprise_id: number |
   const fid = user.role === 'platform_admin' ? null : user.enterprise_id
   if (user.role !== 'platform_admin' && !fid) throw createError({ statusCode: 403, statusMessage: '账号未关联企业' })
   const ids = [...new Set(selection.ids ?? [])].sort((a, b) => a - b)
-  const where = selection.uploadBatchId ? 'upload_batch_id = ?' : 'id IN (' + ids.map(() => '?').join(',') + ')'
-  const values = selection.uploadBatchId ? [selection.uploadBatchId] : ids
+  const selectedScope = selection.uploadBatchId ? codeScopeSql(selection, 'trace_code') : null
+  const where = selectedScope ? selectedScope.sql : 'id IN (' + ids.map(() => '?').join(',') + ')'
+  const values = selectedScope ? selectedScope.values : ids
   const scope = fid ? ' AND enterprise_id = ?' : ''
   const params = [...values, ...(fid ? [fid] : [])]
   const conn = await getPool().getConnection()

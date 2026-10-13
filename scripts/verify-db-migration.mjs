@@ -174,7 +174,13 @@ const grew = [];
 // ⚠️ 少了 ② 的后果：本次上线三明治第 ③ 步会打出
 //    `FAIL 出现了基线中不存在、且不在预期白名单里的新表: farm_bill` + 退出码 1 —— **假 FAIL**，
 //    而第 ④ 行的「新表为 0 行」真正该看的判据反而被这条红字盖住。
-const EXPECTED_NEW_TABLES = ['external_verification', 'farm_bill', 'external_source_snapshot'];
+const EXPECTED_NEW_TABLES = [
+  'external_verification', 'farm_bill', 'external_source_snapshot',
+  'production_task', 'production_task_code', 'production_task_review', 'production_task_change',
+  'production_collection_session', 'production_collection_event',
+  'production_device', 'production_device_activation', 'production_device_change',
+  'production_collection_upload', 'code_usage_batch',
+];
 
 console.log('--- 1) 逐表行数（业务主数据必须严格相等；活跃日志表允许只增不减）---');
 for (const t of Object.keys(base.counts)) {

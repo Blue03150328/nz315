@@ -9,7 +9,7 @@ const fail=(message:string,statusCode=409):never=>{throw createError({statusCode
 export function teamScope(user:AuthUser,row:any){if(!row||(user.role!=='platform_admin'&&Number(user.enterprise_id)!==Number(row.enterprise_id)))fail('记录不存在或不属于本企业',404)}
 async function members(conn:any,user:AuthUser,enterpriseId:number,ids:any){
  if(!Array.isArray(ids)||!ids.length||ids.length>500)fail('请至少选择一名生产操作员',400)
- const selected=[...new Set(ids.map(Number))];if(selected.some(n=>!Number.isSafeInteger(n)||n<=0))fail('人员选择无效',400)
+ const selected=[...new Set<number>((ids as unknown[]).map(value=>Number(value)))];if(selected.some(n=>!Number.isSafeInteger(n)||n<=0))fail('人员选择无效',400)
  const [rows]=await conn.query('SELECT id FROM user WHERE id IN (?) AND enterprise_id=? AND role=\'production_operator\' AND status=1 FOR UPDATE',[selected,enterpriseId])
  if(rows.length!==selected.length)fail('只能选择本厂启用的生产操作员',400)
  return selected

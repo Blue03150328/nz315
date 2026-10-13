@@ -58,7 +58,7 @@ public final class QueueStoreInstrumentation extends Instrumentation {
             check(counts.getInt("collected")==1&&counts.getInt("duplicates")==1&&counts.getInt("rejected")==1&&counts.getInt("waiting")==3,"SQLite counts differ");
             driver.close();driver=new QueueDatabase(isolated);queue=new QueueStore(driver);
             check(id.equals(queue.current().getString("id"))&&queue.pending(20).length()==3,"queue did not survive reopen");
-            queue.acknowledge(new JSONObject().put("sessionId",id).put("receipts",new JSONArray().put(new JSONObject().put("eventId",valid.getString("eventId"))
+            queue.acknowledge(new JSONObject().put("sessionId",id).put("uploadId",queue.nextUpload().getString("id")).put("receipts",new JSONArray().put(new JSONObject().put("eventId",valid.getString("eventId"))
                 .put("sequence",valid.getInt("sequence")).put("code",code).put("kind","valid").put("state","accepted").put("reason",""))));
             check(queue.snapshot().getJSONObject("counts").getInt("accepted")==1&&queue.pending(20).length()==2,"partial receipts incorrect");
             java.io.ByteArrayOutputStream backupBytes=new java.io.ByteArrayOutputStream();queue.writeBackup(backupBytes);

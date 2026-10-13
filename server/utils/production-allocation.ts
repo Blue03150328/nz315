@@ -3,12 +3,13 @@ import { productionAllocationInput } from '../../shared/utils/production-allocat
 import { assertCodesCorrectable } from './binding-guard'
 import { assertNoProductionReservation } from './production-reservation'
 import { headOf } from './code-head'
+import { assertCodeSpecCompatibility } from '../../shared/utils/code-spec-compatibility'
 
 // 列表计数和实际领取共用可领用口径；公众查询次数不参与判断。
 export const freeProductionCode = `a.active_code_id IS NULL AND NOT EXISTS(SELECT 1 FROM production_code_reservation wr WHERE wr.code_id=c.id) AND c.status=1 AND c.abnormal_flag=0 AND c.batch_id IS NULL
   AND c.bound_at IS NULL AND c.produce_date IS NULL AND c.expire_date IS NULL AND c.qc_result IS NULL AND c.quality_cert_no IS NULL AND c.batch_no IS NULL`
 const fail = (message: string, statusCode = 409): never => { throw createError({ statusCode, statusMessage: message }) }
-export async function selectProductionAllocation(conn: PoolConnection, product: any, body: Record<string, any>) {
+export async function selectProductionAllocation(conn: PoolConnection, product: any, body: Record<string, any>, taskId = 0) {
   let input: ReturnType<typeof productionAllocationInput>
   try { input = productionAllocationInput(body) } catch (e) { fail((e as Error).message, 400) }
   const rows: any[] = []
@@ -44,6 +45,14 @@ export async function selectProductionAllocation(conn: PoolConnection, product: 
   if (!product.spec_code || rows.some(c => !String(c.code).startsWith(headOf(product)))) fail('领用码前11位与当前产品规格或生产类型不一致', 400)
   if (rows.some(c => Number(c.status) !== 1 || c.batch_id || c.bound_at || c.produce_date || c.expire_date || c.quality_cert_no || c.batch_no || c.qc_result !== null)) fail('只能领取尚未生产且没有生产资料的码，已生产码不能再次领取', 400)
   await assertNoProductionReservation(conn, rows.map(c => Number(c.id)))
+  // 生成时已知包装规格不能混入一个任务；未知历史不套用当前产品规格。
+  const [[snapshotColumn]] = await conn.query<any[]>("SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='upload_batch' AND COLUMN_NAME='spec_name_snapshot'")
+  if (snapshotColumn) {
+    const roots = [...new Set(rows.map(row => Number(row.upload_batch_id)).filter(Boolean))]
+    const [candidate] = roots.length ? await conn.query<any[]>('SELECT spec_name_snapshot FROM upload_batch WHERE id IN (' + roots.map(() => '?').join(',') + ')', roots) : [[]]
+    const [existing] = taskId ? await conn.query<any[]>('SELECT DISTINCT ub.spec_name_snapshot FROM production_task_code d JOIN trace_code c ON c.id=d.code_id JOIN upload_batch ub ON ub.id=c.upload_batch_id WHERE d.task_id=?', [taskId]) : [[]]
+    try { assertCodeSpecCompatibility([...candidate, ...existing].map(root => root.spec_name_snapshot)) } catch (error) { fail((error as Error).message) }
+  }
   return { rows, sourceTaskId: input!.sourceTaskId || null }
 }
 export async function recordProductionAllocation(conn: PoolConnection, taskId: number, rows: any[], allocationId: number, sourceTaskId: number | null) {

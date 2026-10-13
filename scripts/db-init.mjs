@@ -19,6 +19,8 @@ import { fileURLToPath } from 'url';
 import { productionDDL, migrateProductionSchema } from './production-schema.mjs';
 import { collectionDDL } from './collection-schema.mjs';
 import { deviceDDL, migrateDeviceSchema } from './device-schema.mjs';
+import { usageBatchDDL, migrateUsageBatchSchema } from './usage-batch-schema.mjs';
+import { externalCollectionDDL, migrateExternalCollectionSchema } from './external-collection-schema.mjs';
 import { migrateWorkerSchema } from './worker-schema.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -608,8 +610,12 @@ async function main() {
   }
   await migrateProductionSchema(conn);
   await migrateDeviceSchema(conn);
+  await migrateUsageBatchSchema(conn);
+  await migrateExternalCollectionSchema(conn);
   await migrateWorkerSchema(conn);
-  console.log('[db] ' + (DDL.length + productionDDL.length + collectionDDL.length + deviceDDL.length) + ' 张表创建完成');
+  // 工人迁移同时安装生产线表，以数据库实际表数避免遗漏新增模块。
+  const [[tableCount]] = await conn.query("SELECT COUNT(*) AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE'");
+  console.log('[db] ' + Number(tableCount.n) + ' 张表创建完成');
 
   // 3) 增量迁移（历史库补列/补索引）
   await migrate(conn);

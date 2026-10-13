@@ -209,12 +209,16 @@ body {
     border-top: 1px solid var(--b-divider); background: var(--b-fill-weak); padding: 0.625rem 1rem;
   }
 
-  /* —— 吸底批量操作条（依赖后台布局 main 的 px-8 内边距做通栏） —— */
+  /* —— 吸底批量操作条 ——
+     全宽出血不再硬编码 -2rem：左右内边距取自 --b-content-px，
+     与后台布局 main 的 px-4/lg:px-8 保持同一来源；内容区改 padding 只需改这个变量 */
+  :root { --b-content-px: 1rem; }
+  @media (min-width: 1024px) { :root { --b-content-px: 2rem; } }
   .b-bulkbar {
     position: sticky; bottom: 0; z-index: 20;
-    margin-left: -2rem; margin-right: -2rem;
+    margin-left: calc(-1 * var(--b-content-px)); margin-right: calc(-1 * var(--b-content-px));
     border-top: 1px solid var(--b-border); background: var(--b-fill-weak);
-    padding: 0.625rem 2rem;
+    padding: 0.625rem var(--b-content-px);
   }
   .b-count { display: inline-block; border-radius: 4px; background: var(--b-fill-badge); padding: 0.125rem 0.5rem; font-size: 0.75rem; line-height: 1rem; font-weight: 500; color: var(--b-text-strong); }
 

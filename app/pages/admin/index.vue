@@ -105,6 +105,9 @@ const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.
       </div>
     </div>
 
+    <!-- 建档流程条（2026-10-09）：未完成建档时置顶引导，全绿后自动隐藏 -->
+    <AdminFlowStrip />
+
     <!-- 核心指标卡（PRD 5.2） -->
     <div class="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
       <component :is="c.to ? NuxtLink : 'div'" v-for="c in cards" :key="c.label" :to="c.to" class="b-stat" :class="c.to ? 'hover:ring-1 hover:ring-primary focus-visible:ring-2 focus-visible:ring-primary' : ''">

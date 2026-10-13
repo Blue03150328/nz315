@@ -136,27 +136,23 @@ const copyCode = async () => {
         </div>
       </div>
 
-      <!-- 记一笔账（2026-09-23 新增，用户裁定「异常页也加」）：异常 ≠ 没花钱 ——
-           消费者往往是**已经买回来了**才扫码核对（甚至正因为觉得不对劲才来扫），
-           此时「把这笔支出记下来」与「举报维权」是两件独立的事，不该因为页面显示异常就没了记账口。
-           预填口径与上方「产品信息」卡片严格一致：作废码不展示产品信息 ⇒ 也不预填产品名
-           （不把页面上刻意不展示的产品名悄悄写进用户账本）；其余异常类型产品已知，正常预填。 -->
+      <!-- 一键举报：异常页第一主入口（2026-10-09 用户确认），渠道及追溯码由组件备好。
+           举报交由主管部门处理；下方反馈用于平台内纠错，两者各自保留。 -->
+      <TraceReport :code="outcome.code" block />
+
+      <!-- 记账保留为次级入口，已购买的用户仍可记录支出。
+           预填口径与上方产品信息一致，作废码不展示产品信息，也不预填产品名。 -->
       <TraceBillEntry
         :code="outcome.code"
         :product-name="showProductInfo ? (product?.name || '') : ''"
         :category="showProductInfo ? (product?.category || '') : ''"
         :dosage="showProductInfo ? (product?.formulation || '') : ''"
         :bill-date="showProductInfo ? (batch?.produceDate || '') : ''"
+        label="已购买？记一笔账"
+        variant="outline"
+        color="neutral"
         block
       />
-
-      <!-- 一键举报（2026-09-23 新增）：本组件服务的是**异常结果**
-           （登记证过期 / 产品过有效期 / 重复查询 / 已冻结 / 已作废）。
-           此前页面上只有一句「请勿购买使用」，消费者看完没有任何下一步 ——
-           现在给出主管部门渠道（12316 热线 + 当地农业农村局），并把追溯码备好供其举报时提供。
-           ⚠️ 与「信息有误，点此反馈」是两个不同去向：反馈是「平台内纠错」（落 risk_alert 由企业核实），
-              举报是「找主管部门投诉」，两者不可互相替代。 -->
-      <TraceReport :code="outcome.code" block />
 
       <!-- 操作：反馈入口（2026-09-23 N2 修复 —— 除作废码外都可反馈，见 script 里 showFeedback 注释） -->
       <div class="grid gap-3" :class="showFeedback ? 'grid-cols-2' : 'grid-cols-1'">

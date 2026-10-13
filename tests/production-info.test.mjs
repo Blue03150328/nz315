@@ -17,6 +17,14 @@ test('北京时间跨日、到期当天、空日期与非法日期', () => {
   assert.equal(isExpired('2026-10-05', '2026-10-06'), true)
   for (const value of [null, '', '2026-02-30']) assert.equal(isExpired(value, '2026-10-05'), false)
 })
+test('已用码更正的批号优先，共享业务批次和其他任务的码保持原批号', () => {
+  const shared = { batch_no: '原生产批号', produce_date: '2026-10-10' }
+  assert.equal(effectiveProduction({ batch_no: '任务甲更正批号' }, shared).batchNo, '任务甲更正批号')
+  assert.equal(effectiveProduction({ batch_no: '原生产批号' }, shared).batchNo, '原生产批号')
+  assert.equal(effectiveProduction({ batch_no: null }, shared).batchNo, '原生产批号')
+  assert.equal(effectiveProduction({}, shared).batchNo, '原生产批号')
+  assert.equal(shared.batch_no, '原生产批号')
+})
 test('已采集待质检保留日期和批号，未知质检不能显示不合格', () => {
   const batch = { batch_no: 'B01', produce_date: '2026-10-12', expire_date: '2027-10-12', qc_result: null }
   const info = effectiveProduction({}, batch)

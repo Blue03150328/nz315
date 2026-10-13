@@ -106,7 +106,7 @@ public class ProductionClientTest {
     @Test public void deviceQueuesUseRestrictedCollectionRoutes() throws Exception {
         client.deviceCredential("b".repeat(64));
         String sid="3beff054-1b7d-4c72-8c25-e8937024b523",basePath="/api/admin/production-tasks/1/collection-sessions";
-        for(String path:new String[]{basePath,basePath+"/"+sid+"/events",basePath+"/"+sid+"/complete"}){
+        for(String path:new String[]{basePath,basePath+"/"+sid+"/events",basePath+"/"+sid+"/complete",basePath+"/"+sid+"/uploads",basePath+"/"+sid+"/uploads/"+sid+"/complete"}){
             assertEquals(200,client.request("POST",path,"{}").getInt("status"));assertTrue(requestPath.get().startsWith("/api/device/"));
         }
         client.request("POST","/api/device/activate","{}");assertNull(authorization.get());
@@ -115,12 +115,37 @@ public class ProductionClientTest {
     @Test public void refusesArbitraryEndpoints() throws Exception {
         for (String path : new String[] { "https://example.com/api/auth/me", "//example.com/api/auth/me", "/api/users", "/api/admin/production-tasks/1/scan#fragment" }) assertEquals(0, client.request("GET", path, "{}").getInt("status"));
     }
+    @Test public void externalRoutesRequireDeviceCredentialAndKeepFullRawText() throws Exception {
+        String id="3beff054-1b7d-4c72-8c25-e8937024b523",path="/api/device/external-collections/"+id+"/events",raw="https://example.com/?code=00001&x=%2f";
+        assertEquals(0,client.request("POST",path,"{}").getInt("status"));client.deviceCredential("c".repeat(64));
+        for(String target:new String[]{"/api/device/external-collections",path,"/api/device/external-collections/"+id+"/complete"})assertEquals(200,client.request("POST",target,new JSONObject().put("rawCode",raw).toString()).getInt("status"));
+        assertEquals("Bearer "+"c".repeat(64),authorization.get());assertEquals(raw,new JSONObject(payload.get()).getString("rawCode"));
+        assertEquals(0,client.request("GET",path,"{}").getInt("status"));assertEquals(0,client.request("POST","/api/device/external-collections/"+id+"/delete","{}").getInt("status"));
+    }
     @Test public void productionRequiresHttpsAndRootUrl() {
         ProductionClient production = new ProductionClient(false);
         for (String url : new String[] { base, "https://user:password@example.com", "https://example.com/trace", "https://example.com?code=1", "file:///tmp/page" }) {
             try { production.configure(url); fail("非法地址不能通过"); } catch (IllegalArgumentException expected) { assertNotNull(expected.getMessage()); }
         }
         production.configure("https://www.nz315.cn/");
+    }
+    @Test public void workerRoutesKeepDeviceIdentityAndBothQueueProtocols() throws Exception {
+        String id="3beff054-1b7d-4c72-8c25-e8937024b523";
+        String[] routes={"/api/device/operator/login","/api/device/operator/check","/api/device/line-progress","/api/device/worker-sessions","/api/device/worker-sessions/"+id+"/events","/api/device/worker-sessions/"+id+"/complete","/api/device/worker-runs/"+id+"/complete"};
+        for(String route:routes)assertEquals(0,client.request("POST",route,"{}").getInt("status"));
+        assertEquals(0,client.request("GET","/api/device/worker-cache?workflow=line","{}").getInt("status"));
+        client.deviceCredential("d".repeat(64));
+        for(String route:routes){assertEquals(200,client.request("POST",route,"{}").getInt("status"));assertEquals("Bearer "+"d".repeat(64),authorization.get());}
+        assertEquals(200,client.request("GET","/api/device/worker-cache?workflow=line","{}").getInt("status"));
+        assertEquals(0,client.request("POST","/api/device/worker-sessions/"+id+"/delete","{}").getInt("status"));
+        assertEquals(0,client.request("GET","/api/device/worker-runs/"+id+"/complete","{}").getInt("status"));
+    }
+    @Test public void restoringWorkerCredentialCannotSendOldDeviceTokenToAnotherServer() throws Exception {
+        String token="e".repeat(64);JSONObject credential=new JSONObject().put("server",base).put("credential",token).put("registered",true);
+        assertTrue(client.restoreRegisteredDevice(base,credential));client.request("GET","/api/device/context","{}");assertEquals("Bearer "+token,authorization.get());
+        assertFalse(client.restoreRegisteredDevice(base,credential.put("server","https://other.example")));client.request("GET","/api/device/context","{}");assertNull(authorization.get());assertFalse(client.hasSession());
+        assertFalse(client.restoreRegisteredDevice(base,credential.put("server",base).put("registered",false)));client.request("GET","/api/device/context","{}");assertNull(authorization.get());
+        client.deviceCredential(token);assertFalse(client.restoreRegisteredDevice(base,null));assertFalse(client.hasSession());
     }
     @Test public void debugAllowsOnlyPrivateHttpAndCollectionEndpoints() throws Exception {
         for(String url:new String[]{"http://192.168.3.18:38121","http://10.0.0.2:38121","http://172.16.1.2:38121",base})client.configure(url);
@@ -129,6 +154,6 @@ public class ProductionClientTest {
         }
         client.configure(base);
         String path="/api/admin/production-tasks/1/collection-sessions",id="3beff054-1b7d-4c72-8c25-e8937024b523";
-        for(String target:new String[]{path,path+"/"+id+"/events",path+"/"+id+"/complete"})assertEquals(200,client.request("POST",target,"{\"events\":[]}").getInt("status"));
+        for(String target:new String[]{path,path+"/"+id+"/events",path+"/"+id+"/complete",path+"/"+id+"/uploads",path+"/"+id+"/uploads/"+id+"/complete"})assertEquals(200,client.request("POST",target,"{\"events\":[]}").getInt("status"));
     }
 }
