@@ -12,6 +12,7 @@ import { collectionId, collectionCode } from '../../shared/utils/collection-inpu
 import { workerContext, workerEvents } from '../../shared/utils/worker-input'
 import { ensureWorkerExternalBatch, projectWorkerExternalEvent } from './worker-external-management'
 import { projectWorkerCodeUsage } from '../../scripts/worker-code-usage.mjs'
+import { traceUrlClassification } from '../../shared/utils/internal-trace-url'
 const fail=(message:string,statusCode=409):never=>{throw createError({statusCode,statusMessage:message})}
 const hash=(x:any)=>createHash('sha256').update(typeof x==='string'?x:JSON.stringify(x)).digest('hex')
 const json=(x:any)=>typeof x==='string'?JSON.parse(x):x
@@ -50,7 +51,9 @@ async function grantOf(device:AuthUser,token:string,historical=false){
 export async function workerCheck(device:AuthUser,token:string){const g=await grantOf(device,token),expiresAt=Date.now()+72*3600000;await execute('UPDATE worker_grant SET expires_at=? WHERE id=?',[expiresAt,g.id]);return {ok:true,identity:json(g.identity_json),expiresAt,serverTime:Date.now()}}
 export async function workerDownloadUser(device:AuthUser,token:string):Promise<AuthUser>{const g=await grantOf(device,token);return {...device,id:Number(g.user_id),role:'production_operator'}}
 export async function workerTracePreview(codeId:number){
- const [row]=await query<any[]>("SELECT r.context_json,r.effective_context,r.qc_state FROM worker_pool_code p JOIN worker_run r ON r.pool_id=p.pool_id WHERE p.code_id=? AND p.state='captured' ORDER BY r.created_at DESC LIMIT 1",[codeId])
+ let row:any
+ try { [row]=await query<any[]>("SELECT r.context_json,r.effective_context,r.qc_state FROM worker_pool_code p JOIN worker_run r ON r.pool_id=p.pool_id WHERE p.code_id=? AND p.state='captured' ORDER BY r.created_at DESC LIMIT 1",[codeId]) }
+ catch(error:any){if(error.code==='ER_NO_SUCH_TABLE'&&/\bworker_(pool_code|run)\b/.test(String(error.message)))return undefined;throw error}
  if(!row)return undefined;const c=contextOfRun(row)
  return {batchNo:c.batchNo,produceDate:c.produceDate,expireDate:c.expireDate,qcResult:row.qc_state==='failed'?'不合格':'',qualityCertNo:'',qualityStatus:row.qc_state==='failed'?'failed' as const:'pending' as const}
 }
@@ -66,7 +69,7 @@ export async function workerCache(device:AuthUser,params:any){
   await execute('INSERT INTO worker_cache(id,device_id,created_at,expires_at,data_json) VALUES(?,?,?,?,?)',[snapshot.id,device.device_id,snapshot.created_at,snapshot.expires_at,JSON.stringify(snapshot.data_json)])
  }
  const data=json(snapshot.data_json),kind=['products','pools','codes'].includes(params.kind)?params.kind:'products',offset=Math.max(0,Number(params.offset)||0),limit=kind==='codes'?1000:200,rows=data[kind].slice(offset,offset+limit)
- return {ok:true,id:snapshot.id,createdAt:Number(snapshot.created_at),expiresAt:Number(snapshot.expires_at),serverTime:Date.now(),kind,rows,total:data[kind].length,next:offset+rows.length<data[kind].length?offset+rows.length:null,hash:hash(data)}
+ return {ok:true,id:snapshot.id,createdAt:Number(snapshot.created_at),expiresAt:Number(snapshot.expires_at),serverTime:Date.now(),traceBaseUrl:String(useRuntimeConfig().public.traceBaseUrl),kind,rows,total:data[kind].length,next:offset+rows.length<data[kind].length?offset+rows.length:null,hash:hash(data)}
 }
 export async function assignWorkerPool(user:AuthUser,body:any){
  deviceManager(user);const deviceId=Number(body.deviceId),productId=Number(body.productId),quantity=Number(body.quantity),requestId=collectionId(body.requestId)
@@ -149,7 +152,7 @@ export async function syncWorkerEvents(device:AuthUser,sessionId:string,body:any
     dedup=hash(event.code||event.rawCode.trim())
     const [[old]]=await conn.query<any[]>("SELECT e.id FROM worker_event e JOIN worker_session w ON w.id=e.session_id WHERE w.run_id=? AND e.dedup_key=? AND e.result_state='saved' LIMIT 1",[run.id,dedup])
     if(old){result='duplicate';reason='重复采集，原文保留，不重复导出'}else result='saved'
-    if(event.code){const [[c]]=await conn.query<any[]>('SELECT enterprise_id FROM trace_code WHERE code=?',[event.code]);classification=!c?'not_imported':Number(c.enterprise_id)===Number(device.enterprise_id)?'own':'other_enterprise'}else classification='unparsed'
+     classification=traceUrlClassification(event.rawCode,String(useRuntimeConfig().public.traceBaseUrl))
    }
    if(!within||Number(g.us)!==1||Number(g.uv)!==Number(g.user_version)||g.ur!=='production_operator'||Number(g.ue)!==Number(run.enterprise_id)){
     await conn.execute('UPDATE worker_run SET review_needed=1 WHERE id=?',[run.id]);reason=(reason?reason+'；':'')+'工人授权或采集时间需管理员核对，历史数据保留'
@@ -192,7 +195,7 @@ export async function workerAdminList(user:AuthUser,params:any){
  if(['active','sealed'].includes(params.state)){conds.push('r.state=?');args.push(params.state)}
  for(const [key,op] of [['from','>='],['to','<=']] as const)if(params[key]){if(!/^\d{4}-\d{2}-\d{2}$/.test(String(params[key])))fail('查询日期无效',400);conds.push(`r.created_at ${op} ?`);args.push(params[key]+(key==='from'?' 00:00:00':' 23:59:59'))}
  if(params.operator){conds.push('EXISTS(SELECT 1 FROM worker_session ws JOIN user wu ON wu.id=ws.user_id WHERE ws.run_id=r.id AND (wu.username LIKE ? OR wu.name LIKE ?))');args.push('%'+String(params.operator).slice(0,100)+'%','%'+String(params.operator).slice(0,100)+'%')}
- if(['own','other_enterprise','not_imported','unparsed'].includes(params.classification)){conds.push('EXISTS(SELECT 1 FROM worker_event we JOIN worker_session ws ON ws.id=we.session_id WHERE ws.run_id=r.id AND we.classification=?)');args.push(params.classification)}
+ if(['internal','external','own','other_enterprise','not_imported','unparsed'].includes(params.classification)){conds.push('EXISTS(SELECT 1 FROM worker_event we JOIN worker_session ws ON ws.id=we.session_id WHERE ws.run_id=r.id AND we.classification=?)');args.push(params.classification)}
  const page=Math.max(1,Math.min(100000,Math.floor(Number(params.page)||1))),pageSize=50,where=conds.join(' AND ')
  const [count]=await query<any[]>(`SELECT COUNT(*) AS n FROM worker_run r WHERE ${where}`,args)
  const rows=await query<any[]>(`SELECT r.*,p.name AS product_name,d.name AS device_name,d.line_name,en.name AS enterprise_name,(SELECT COUNT(*) FROM worker_pool_code c WHERE c.pool_id=r.pool_id) AS total,IF(r.mode='external',(SELECT COUNT(*) FROM worker_event e JOIN worker_session s ON s.id=e.session_id WHERE s.run_id=r.id AND e.result_state='saved'),(SELECT COUNT(*) FROM worker_pool_code c WHERE c.pool_id=r.pool_id AND c.state IN ('captured','bound'))) AS collected,(SELECT COUNT(*) FROM worker_pool_code c WHERE c.pool_id=r.pool_id AND c.state='reserved') AS remaining,(SELECT COUNT(*) FROM worker_pool_code c WHERE c.pool_id=r.pool_id AND c.state='bound') AS bound FROM worker_run r LEFT JOIN product p ON p.id=r.product_id JOIN production_device d ON d.id=r.device_id JOIN enterprise en ON en.id=r.enterprise_id WHERE ${where} ORDER BY r.created_at DESC,r.id LIMIT ? OFFSET ?`,[...args,pageSize,(page-1)*pageSize])
@@ -204,7 +207,7 @@ export async function workerDetails(user:AuthUser,id:string,params:any={}){
  if(user.role==='production_operator'){const [own]=await query<any[]>('SELECT id FROM worker_session WHERE run_id=? AND user_id=?',[id,user.id]);if(!own)fail('只能查看自己的采集记录',403)}else deviceManager(user)
  const conds=['s.run_id=?'],args:any[]=[id];if(user.role==='production_operator'){conds.push('s.user_id=?');args.push(user.id)}
  if(['saved','duplicate','exception'].includes(params.result)){conds.push('e.result_state=?');args.push(params.result)}
- if(['own','other_enterprise','not_imported','unparsed'].includes(params.classification)){conds.push('e.classification=?');args.push(params.classification)}
+ if(['internal','external','own','other_enterprise','not_imported','unparsed'].includes(params.classification)){conds.push('e.classification=?');args.push(params.classification)}
  const page=Math.max(1,Math.min(100000,Math.floor(Number(params.page)||1))),pageSize=100
  const [count]=await query<any[]>(`SELECT COUNT(*) AS n FROM worker_event e JOIN worker_session s ON s.id=e.session_id WHERE ${conds.join(' AND ')}`,args)
  const rows=await query<any[]>(`SELECT e.*,s.user_id,s.identity_json FROM worker_event e JOIN worker_session s ON s.id=e.session_id WHERE ${conds.join(' AND ')} ORDER BY e.received_at,e.session_id,e.sequence_no LIMIT ? OFFSET ?`,[...args,pageSize,(page-1)*pageSize])
@@ -269,7 +272,7 @@ export async function exportWorkerTxt(user:AuthUser,id:string,classification?:st
  if(user.role!=='production_operator')deviceManager(user)
  const conds=["s.run_id=?","e.result_state='saved'"],args:any[]=[id]
  if(user.role==='production_operator'){const [own]=await query<any[]>('SELECT id FROM worker_session WHERE run_id=? AND user_id=? LIMIT 1',[id,user.id]);if(!own)fail('只能下载自己参与采集的记录',403);conds.push('s.user_id=?');args.push(user.id)}
- if(classification&&classification!=='all'){if(!['own','other_enterprise','not_imported','unparsed'].includes(classification))fail('分类无效',400);conds.push('e.classification=?');args.push(classification)}
+ if(classification&&classification!=='all'){if(!['internal','external','own','other_enterprise','not_imported','unparsed'].includes(classification))fail('分类无效',400);conds.push('e.classification=?');args.push(classification)}
  const rows=await query<any[]>(`SELECT e.raw_code FROM worker_event e JOIN worker_session s ON s.id=e.session_id WHERE ${conds.join(' AND ')} ORDER BY e.received_at,e.sequence_no`,args)
  await execute('INSERT INTO worker_audit(enterprise_id,actor_id,run_id,action,detail) VALUES(?,?,?,?,?)',[r.enterprise_id,user.id,id,'export_txt',JSON.stringify({classification:classification||'all',count:rows.length})])
  return '\uFEFF'+rows.map(e=>String(e.raw_code).replace(/\r/g,'\\r').replace(/\n/g,'\\n')).join('\r\n')+(rows.length?'\r\n':'')

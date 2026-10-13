@@ -16,6 +16,7 @@ public class WorkerStoreTest {
   assertEquals("worker-one-url\r\n",w.externalExport(run.getString("id"),1).getString("text"));assertEquals("worker-two-url\r\n",w.externalExport(run.getString("id"),2).getString("text"));
   assertTrue(w.snapshot(1).getJSONArray("history").getJSONObject(0).has("startedAt"));
  }}
+ @Test public void externalClassificationUsesWebsiteWithoutKnownCodes()throws Exception{try(QueueStoreTest.Jdbc db=new QueueStoreTest.Jdbc(":memory:")){WorkerStore w=new WorkerStore(db);w.start(new JSONObject().put("mode","external"),profile(1),1);assertEquals("internal",w.capture("https://www.nz315.cn/trace?code="+A,profile(1),2).getString("classification"));assertEquals("external",w.capture("https://vendor.example/trace?code="+B,profile(1),3).getString("classification"));assertEquals("unparsed",w.capture(A,profile(1),4).getString("classification"));}}
  static final String A="00000000000000000000000000000001",B="00000000000000000000000000000002",POOL=UUID.randomUUID().toString();
  static JSONObject profile(int id){return new JSONObject().put("identity",new JSONObject().put("id",id).put("name","worker"+id).put("deviceId",10)).put("grantId","grant"+id);}
  static JSONObject context(){return new JSONObject().put("mode","production").put("productId",1).put("poolId",POOL).put("batchNo","A").put("produceDate","2026-10-12").put("expireDate","2027-10-12");}
