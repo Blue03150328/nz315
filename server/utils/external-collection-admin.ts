@@ -20,7 +20,7 @@ function pattern(value: unknown) {
 }
 
 function filter(user: AuthUser, input: Record<string, any>) {
-  const clauses: string[] = [], params: any[] = []
+  const clauses: string[] = ["b.state <> 'deleted'"], params: any[] = []
   if (user.role !== 'platform_admin') { clauses.push('b.enterprise_id=?'); params.push(user.enterprise_id) }
   else if (input.enterpriseId !== undefined && input.enterpriseId !== '') {
     const id = Number(input.enterpriseId)
@@ -46,6 +46,16 @@ function filter(user: AuthUser, input: Record<string, any>) {
 export async function listExternalCollections(user: AuthUser, input: Record<string, any>) {
   await requireExternalCollectionSchema()
   const { page, pageSize, offset } = paging(input), { clauses, params } = filter(user, input)
+  if (input.batchId) {
+    const batch = await externalCollectionBatch(user, String(input.batchId))
+    clauses.push('b.id=?'); params.push(batch.id)
+  }
+  const rawCode = pattern(input.rawCode)
+  if (rawCode) {
+    // 按码原文定位所属批次，不因同批多条命中而重复展示或改变实际码数。
+    clauses.push("EXISTS (SELECT 1 FROM external_trace_code c WHERE c.batch_id=b.id AND c.raw_code LIKE ? ESCAPE '!')")
+    params.push(rawCode)
+  }
   const where = clauses.length ? ' WHERE ' + clauses.join(' AND ') : ''
   const [count] = await query<any[]>('SELECT COUNT(*) AS total' + joins + where, params)
   const rows = await query<any[]>(`SELECT ${columns}${joins}${where} ORDER BY b.created_at DESC,b.id DESC LIMIT ? OFFSET ?`, [...params, pageSize, offset])
@@ -57,6 +67,7 @@ export async function externalCollectionBatch(user: AuthUser, id: string) {
   try { batchId = externalCollectionId(id) } catch (error) { return externalFail((error as Error).message, 400) }
   const [batch] = await query<any[]>(`SELECT ${columns}${joins} WHERE b.id=?`, [batchId])
   externalScope(user, batch)
+  if (batch.state === 'deleted') externalFail('外部采集批次已删除', 404)
   return externalBatchRow(batch)
 }
 
@@ -84,6 +95,23 @@ export async function listExternalCodes(user: AuthUser, input: Record<string, an
   const [count] = await query<any[]>('SELECT COUNT(*) AS total' + from + where, params)
   const rows = await query<any[]>(`SELECT c.id,c.batch_id,c.enterprise_id,c.raw_code,c.sequence_no,c.captured_at,c.received_at,b.line_name_snapshot AS line_name,b.worker_no,e.name AS enterprise_name${from}${where} ORDER BY c.id DESC LIMIT ? OFFSET ?`, [...params, pageSize, offset])
   return { rows, total: Number(count.total), page, pageSize }
+}
+
+/** 已完成批次只从业务列表移除，保留码原文和设备收据防止重复采集、旧批重建。 */
+export async function deleteExternalCollection(user: AuthUser, id: string) {
+  await requireExternalCollectionSchema()
+  if (user.role === 'viewer' || user.device_id) externalFail('只读账号或采集设备不能删除采集批次', 403)
+  let batchId: string
+  try { batchId = externalCollectionId(id) } catch (error) { return externalFail((error as Error).message, 400) }
+  return externalTransaction(async conn => {
+    const [[batch]] = await conn.query<any[]>('SELECT * FROM external_collection_batch WHERE id=? FOR UPDATE', [batchId])
+    externalScope(user, batch)
+    if (batch.state === 'deleted') return { ok: true }
+    if (batch.state !== 'completed') externalFail('请先在设备完成本次采集，再删除采集批次')
+    await conn.execute("UPDATE external_collection_batch SET state='deleted' WHERE id=?", [batchId])
+    await conn.execute('INSERT INTO operation_log(enterprise_id,user_id,module,action,content,result) VALUES (?,?,?,?,?,1)', [batch.enterprise_id, user.id, '外部生产记录', '删除', JSON.stringify({ batchId, lineName: batch.line_name_snapshot, workerNo: batch.worker_no, codeCount: batch.accepted_count })])
+    return { ok: true }
+  })
 }
 
 /** 手填产品名只落本批快照；不会新增产品或改动内部生产批次。 */

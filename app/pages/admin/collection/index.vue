@@ -113,11 +113,15 @@ const resetPage = () => {
       <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetPage">重置</UButton>
     </div>
 
-    <OfflineProductionImport v-if="canWrite" />
     <CodeImportInput v-model="pasteText" :file-name="fileName" :parsing="parsing" :can-write="canWrite" @file="handleFile" @parse="doParse" />
     <template v-if="parseResult">
       <CodeImportPreview :result="parseResult" />
       <CodeImportBatchForm v-model="importForm" :products="productData?.rows || []" :valid-count="parseResult.validCount" :importing="importing" :parsing="parsing" :can-write="canWrite" @submit="doImport" />
     </template>
+    <div v-if="canWrite" class="b-card">
+      <div class="b-card-head"><h2 class="b-card-title">离线生产记录</h2></div>
+      <div class="b-card-body"><p class="b-help">需要恢复扫描仪导出的完整生产记录时，可进入离线 TXT 导入页面。</p></div>
+      <div class="b-card-foot justify-end"><UButton to="/admin/collection/offline" color="neutral" variant="outline" icon="i-lucide-file-up">导入离线生产记录 TXT</UButton></div>
+    </div>
   </div>
 </template>
