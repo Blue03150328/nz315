@@ -61,6 +61,16 @@ try{
   const progress=ok(await req('/api/admin/production-tasks/'+task.id+'/worker-progress',cookie));assert.ok(progress.rows.every(r=>r.stopped_at));
   assert.equal((await req('/api/device/worker-sessions',d1.secret,{runId:randomUUID(),sessionId:randomUUID(),context,grant:g1.grant,startedAt})).status,409);
  });
+ await check('完整工人上传进入码库，个人设备归属正确，重传不重复建批',async()=>{
+  const listed=ok(await req('/api/admin/codes/usage-batches?uploadBatchId='+ur.insertId,cookie));
+  assert.equal(listed.total,2);assert.equal(listed.rows.reduce((n,r)=>n+r.codeTotal,0),2);
+  assert.deepEqual(new Set(listed.rows.map(r=>r.uploaderUsername)),new Set([one.username,two.username]));
+  assert.ok(listed.rows.every(r=>r.batchNo===context.batchNo&&r.produceDate===context.produceDate&&r.deviceName));
+  ok(await req('/api/device/worker-sessions/'+s1+'/complete',d1.secret,{lastSequence:3}));
+  assert.equal(ok(await req('/api/admin/codes/usage-batches?uploadBatchId='+ur.insertId,cookie)).total,2);
+  const exported=await req('/api/admin/codes/usage-batches/'+listed.rows[0].id+'/export?format=txt',cookie);
+  assert.equal(exported.status,200);
+ });
  await check('同文件不同批号逐码展示，批次回退有效，未生产码保持空资料',async()=>{
   const [[firstBatch]]=await db.query('SELECT batch_id FROM production_task WHERE id=?',[task.id]);
   const [other]=await db.execute('INSERT INTO batch(enterprise_id,product_id,batch_no,produce_date,expire_date,qc_result) VALUES(?,?,?,?,?,NULL)',[ent,product,'MIX-'+tag,'2026-10-13','2027-10-13']);

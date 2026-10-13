@@ -38,7 +38,7 @@ onBeforeUnmount(() => { clearInterval(timer); window.removeEventListener('focus'
         <tr v-for="row in data?.rows || []" :key="row.id">
           <td v-if="user?.role === 'platform_admin'">{{ row.enterprise_name }}</td>
           <td class="max-w-64 break-words b-strong">{{ row.product_name_snapshot || '待补填产品' }}</td><td class="max-w-48 break-all">{{ row.batch_no || '待补填' }}</td><td>{{ row.accepted_count }}</td><td>{{ row.effective_production_quantity }}<span v-if="row.production_quantity != null" class="ml-1 b-tag b-tag-default">手填</span></td><td class="whitespace-nowrap">{{ dateText(row.produce_date) }}</td>
-          <td><p class="break-all">{{ row.line_name }}</p><p class="b-help">工号 {{ row.worker_no }}</p></td><td class="whitespace-nowrap text-xs">{{ timeText(row.created_at) }}</td>
+          <td><p class="break-all">{{ row.line_name }}</p><p class="b-help">{{ row.worker_name_snapshot || '工人' }} · {{ row.worker_no }}</p></td><td class="whitespace-nowrap text-xs">{{ timeText(row.created_at) }}</td>
           <td><span class="b-tag" :class="row.state === 'completed' ? 'b-tag-success' : 'b-tag-info'">{{ row.state === 'completed' ? (row.product_name_snapshot ? '资料已填写' : '待补生产资料') : '采集中／待补传' }}</span></td>
           <td><div class="flex justify-end gap-1 whitespace-nowrap"><UButton size="sm" color="neutral" variant="link" @click="show(row.id)">{{ canWrite && row.state === 'completed' ? '查看／补填' : '查看' }}</UButton><UButton size="sm" color="neutral" variant="link" :disabled="row.state !== 'completed' || downloading" @click="download(row.id, 'csv')">CSV</UButton><UButton size="sm" color="neutral" variant="link" :disabled="row.state !== 'completed' || downloading" @click="download(row.id, 'txt')">TXT</UButton></div></td>
         </tr>

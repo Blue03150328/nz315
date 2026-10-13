@@ -22,7 +22,7 @@ export async function usageBatchCorrectionPreview(user: AuthUser, childId: numbe
   const { row } = await resolveCodeScope(user, { usageBatchId: childId })
   const [task] = await query<any[]>('SELECT * FROM production_task WHERE id=?', [row.task_id])
   const [batch] = await query<any[]>('SELECT * FROM batch WHERE id=?', [task.batch_id])
-  const [active] = await query<any[]>("SELECT COUNT(*) AS n FROM production_collection_session WHERE task_id=? AND state='active'", [task.id])
+  const [active] = await query<any[]>("SELECT (SELECT COUNT(*) FROM production_collection_session WHERE task_id=? AND state='active')+(SELECT COUNT(*) FROM worker_session s JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=? AND s.state='active') AS n", [task.id,task.id])
   const [unfinished] = await query<any[]>("SELECT COUNT(*) AS n FROM production_collection_upload WHERE task_id=? AND state<>'completed'", [task.id])
   const [abnormal] = await query<any[]>("SELECT COUNT(*) AS n FROM production_task_code d JOIN trace_code c ON c.id=d.code_id WHERE d.task_id=? AND d.state='used' AND c.abnormal_flag<>0", [task.id])
   const roots = await taskImpact(Number(task.id)), production = taskProduction(task, batch)
@@ -50,7 +50,7 @@ export async function correctUsageBatchProduction(user: AuthUser, childId: numbe
     if (Number(task.created_by) !== user.id && !productionReviewer(user)) fail('仅任务创建人或管理员可以更正生产资料', 403)
     const [[prior]] = await conn.query<any[]>('SELECT request_hash,detail FROM production_task_change WHERE task_id=? AND actor_id=? AND request_id=?', [task.id, user.id, requestId!])
     if (prior) { if (prior.request_hash !== hash) fail('相同提交标识不能用于不同生产资料'); const saved = typeof prior.detail === 'string' ? JSON.parse(prior.detail) : prior.detail; return { ...saved.result, duplicate: true } }
-    const [[active]] = await conn.query<any[]>("SELECT COUNT(*) AS n FROM production_collection_session WHERE task_id=? AND state='active'", [task.id])
+    const [[active]] = await conn.query<any[]>("SELECT (SELECT COUNT(*) FROM production_collection_session WHERE task_id=? AND state='active')+(SELECT COUNT(*) FROM worker_session s JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=? AND s.state='active') AS n", [task.id,task.id])
     if (Number(active.n)) fail('请先同步并结束所有设备采集后再更正生产资料')
     const [[unfinished]] = await conn.query<any[]>("SELECT COUNT(*) AS n FROM production_collection_upload WHERE task_id=? AND state<>'completed'", [task.id])
     if (Number(unfinished.n)) fail('请先完成所有上传，再更正生产资料')

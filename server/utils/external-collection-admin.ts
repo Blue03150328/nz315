@@ -128,6 +128,7 @@ export async function exportExternalCollection(user: AuthUser, id: string, forma
       sequence = Number(rows[rows.length - 1].sequence_no)
     }
   }
-  const filename = '外部溯源码_' + batch.id + '.' + format
+  const safe = (value: unknown) => String(value || '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 50)
+  const filename = ['外码采集', safe(batch.enterprise_name), String(batch.created_at).slice(0, 10), safe(batch.worker_no), batch.accepted_count + '条', batch.id.slice(0, 8)].join('_') + '.' + format
   return { stream: Readable.from(chunks()), filename, contentType: format === 'csv' ? 'text/csv; charset=utf-8' : 'text/plain; charset=utf-8' }
 }

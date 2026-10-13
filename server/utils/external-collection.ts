@@ -51,6 +51,7 @@ export function externalScope(user: AuthUser, row: any) {
 }
 
 function owner(user: AuthUser, row: any) {
+  if (row?.source_kind === 'worker') externalFail('工人采集请通过原工人会话接口上传和完成', 403)
   if (!row || Number(row.enterprise_id) !== Number(user.enterprise_id) || Number(row.device_id) !== Number(user.device_id)) externalFail('请使用本次采集的原设备上传和完成', 403)
   if (row.state === 'active' && row.line_name_snapshot !== user.device_line) externalFail('本批生产线与设备当前归属不一致，请联系管理员恢复设备归属', 409)
 }

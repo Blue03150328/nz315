@@ -1,5 +1,7 @@
 # AGENTS.md — AI 协作指南（项目 Memory 系统）
 
+> **2026-10-13 全量上线与工人外码接通**：用户新授权覆盖前次有限发布范围，主仓全网站及外码管理接通。个人外码与管理表同事务投影、保留原文及收据/可信人员设备归属，旧接口不可写工人批次；幂等历史补入。完整工人生产上传进入新版码库，不虚构旧会话；未完成采集保护更正。93单测/4跳过、tsc/build、45组真实隔离接口通过，APK沿用候选3.1.3原签名；生产状态以.full-release.json和full-20261013-3.1.3备份state为准。专用migrate-full-release不跑seed、不删字段、不改原生产资料。当前线上设备均已删除，不自动恢复或激活，未结束旧会话保留。见docs/production-line/全量上线与外码对接-20261013.md。
+
 > **2026-10-13 主仓同步及发布范围**：PR10已merged；合并master3fc345f与本机b2ca403，在codex/pda-3.1.2-sync-20261013保留主干新增业务及本轮个人账号界面/缓存/外码TXT/完整旧审核删除判断，5冲突解决并保留日志两侧。候选3.1.3/versionCode12：93网站单测/4跳过、tsc零诊断/build、86 JVM/5网页/Android构建Lint、19真实隔离接口通过。用户明确选择“源码全同步，网站保留本轮已验修复并更新APK下载”：公网仅发布实机已验3.1.2链接，hash5e5cfe8…b9b5，nginx平滑重载/旧链接不变；网站保持b2ca403，新增后台/3.1.3未部署或安装，无业务/生产库迁移。下载备份/var/backups/nz315/apk-3.1.2-20261013，用户明确授权直接合入master，不创建PR；源码Git最终状态以远端master ref为准，见docs/production-line/主干同步与APK下载-20261013.md。
 
 > **2026-10-13 删除设备误报旧review修复**：实查gg(7)所有run sealed/session completed且序号完整，旧worker_pool review被activeCount误当未上传。只有review关联sealed且存在会话、所有会话completed/final非空等于last时免拦截；ready/active、孤立review、不完整会话仍拦，封存run异常会话也独立保护。不改审核、码占用、历史，不自动删当前设备。5新隔离接口＋12原设备生命周期回归、75网站单测/4跳过与构建通过；无DDL/APK更新。只改server/utils/production-devices.ts，生产发布以.device-delete-release.json/私密备份状态为准。

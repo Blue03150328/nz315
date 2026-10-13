@@ -84,7 +84,7 @@ export default defineEventHandler(async (event) => {
        p.name AS product_name,
        ${batchNoExpr} AS batch_no, ${produceDateExpr} AS produce_date,
        ${beijing('u.completed_at')} AS completed_at,
-       u.uploader_id, u.uploader_username, u.uploader_name, s.device AS device_name,
+       u.uploader_id, u.uploader_username, u.uploader_name, COALESCE(u.device_name_snapshot,s.device) AS device_name,
        COUNT(c.id) AS code_total,
        COALESCE(SUM(c.abnormal_flag = 1), 0) AS frozen_count,
        COALESCE(SUM(c.abnormal_flag = 2), 0) AS voided_count,
@@ -100,7 +100,7 @@ export default defineEventHandler(async (event) => {
      GROUP BY cb.id, cb.parent_upload_batch_id, cb.upload_id, cb.task_id, cb.spec_name_snapshot,
        t.name, t.product_id, t.production_snapshot, p.name,
        b.batch_no, b.produce_date, u.completed_at,
-       u.uploader_id, u.uploader_username, u.uploader_name, s.device
+       u.uploader_id, u.uploader_username, u.uploader_name, s.device,u.device_name_snapshot
      ORDER BY cb.id DESC`, ids) : []
 
   return {

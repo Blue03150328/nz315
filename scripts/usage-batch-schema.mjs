@@ -27,7 +27,12 @@ export const usageBatchDDL = [
 
 export async function migrateUsageBatchSchema(db) {
   for (const ddl of usageBatchDDL) await db.query(ddl)
+  const [sessionColumn] = await db.query("SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='production_collection_upload' AND COLUMN_NAME='session_id'")
+  if (sessionColumn[0]?.IS_NULLABLE === 'NO') await db.query('ALTER TABLE production_collection_upload MODIFY session_id CHAR(36) NULL')
   for (const [table, column, type] of [
+    ['production_collection_upload', 'worker_session_id', 'CHAR(36) NULL'],
+    ['production_collection_upload', 'source_kind', "VARCHAR(20) NOT NULL DEFAULT 'legacy'"],
+    ['production_collection_upload', 'device_name_snapshot', 'VARCHAR(100) NULL'],
     ['upload_batch', 'spec_name_snapshot', 'VARCHAR(255) NULL'],
     ['production_task', 'production_snapshot', 'JSON NULL'],
     ['trace_code', 'usage_batch_id', 'BIGINT NULL'],

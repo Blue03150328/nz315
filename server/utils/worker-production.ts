@@ -10,6 +10,8 @@ import { lockProductionDevice } from './production-device-auth'
 import { headOf } from './code-head'
 import { collectionId, collectionCode } from '../../shared/utils/collection-input'
 import { workerContext, workerEvents } from '../../shared/utils/worker-input'
+import { ensureWorkerExternalBatch, projectWorkerExternalEvent } from './worker-external-management'
+import { projectWorkerCodeUsage } from '../../scripts/worker-code-usage.mjs'
 const fail=(message:string,statusCode=409):never=>{throw createError({statusCode,statusMessage:message})}
 const hash=(x:any)=>createHash('sha256').update(typeof x==='string'?x:JSON.stringify(x)).digest('hex')
 const json=(x:any)=>typeof x==='string'?JSON.parse(x):x
@@ -112,6 +114,11 @@ export async function openWorkerSession(device:AuthUser,body:any,verifiedGrant?:
   const [[session]]=await conn.query<any[]>('SELECT * FROM worker_session WHERE id=?',[sessionId])
   if(session){if(session.run_id!==runId||session.grant_id!==g.id||session.device_id!==device.device_id)fail('工人会话归属不一致')}
   else{await conn.execute('INSERT INTO worker_session(id,run_id,device_id,user_id,grant_id,identity_json,started_at,started_ms) VALUES(?,?,?,?,?,?,?,?)',[sessionId,runId,device.device_id,g.user_id,g.id,JSON.stringify(json(g.identity_json)),new Date(started),started]);await audit(conn,{...device,id:g.user_id},'join_batch',runId,{sessionId,identity:json(g.identity_json)})}
+  if(context.mode==='external'){
+   const [[savedRun]]=await conn.query<any[]>('SELECT * FROM worker_run WHERE id=?',[runId])
+   const [[savedSession]]=await conn.query<any[]>('SELECT * FROM worker_session WHERE id=?',[sessionId])
+   await ensureWorkerExternalBatch(conn,savedSession,savedRun)
+  }
   return {ok:true,runId,sessionId,identity:json(g.identity_json)}
  })
 }
@@ -148,6 +155,7 @@ export async function syncWorkerEvents(device:AuthUser,sessionId:string,body:any
     await conn.execute('UPDATE worker_run SET review_needed=1 WHERE id=?',[run.id]);reason=(reason?reason+'；':'')+'工人授权或采集时间需管理员核对，历史数据保留'
    }
    await conn.execute('INSERT INTO worker_event(id,session_id,sequence_no,code,raw_code,kind,result_state,classification,reason,payload_hash,captured_at,dedup_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',[event.eventId,sessionId,event.sequence,event.code,event.rawCode,event.kind,result,classification,reason,hash(event),event.capturedAt.replace('T',' ').replace('Z',''),dedup])
+   if(run.mode==='external')await projectWorkerExternalEvent(conn,s,run,{id:event.eventId,sequence_no:event.sequence,raw_code:event.rawCode,dedup_key:dedup,result_state:result,reason,payload_hash:hash(event),captured_at:event.capturedAt.replace('T',' ').replace('Z','')})
    await conn.execute('UPDATE worker_session SET last_sequence=? WHERE id=?',[event.sequence,sessionId])
    return eventReceipt({id:event.eventId,sequence_no:event.sequence,code:event.code,result_state:result,classification,reason})
   });receipts.push(receipt)
@@ -158,11 +166,16 @@ function eventReceipt(e:any){return {eventId:e.id,sequence:Number(e.sequence_no)
 export async function finishWorkerSession(device:AuthUser,id:string,body:any){return transaction(async conn=>{
  await lockProductionDevice(conn,device);const [[s]]=await conn.query<any[]>('SELECT * FROM worker_session WHERE id=? AND device_id=? FOR UPDATE',[collectionId(id),device.device_id]);if(!s)fail('会话不存在',404)
  if(!Number.isSafeInteger(body.lastSequence)||Number(s.last_sequence)!==body.lastSequence)fail('尚有未收到的采集记录，不能结束')
+ const [[run]]=await conn.query<any[]>('SELECT * FROM worker_run WHERE id=?',[s.run_id])
  if(s.final_sequence!=null&&Number(s.final_sequence)!==body.lastSequence)fail('结束序号不一致')
  const stop=body.stoppedAt?new Date(String(body.stoppedAt)):null
  if(stop&&(!Number.isFinite(stop.getTime())||stop.getTime()>Date.now()+60000||(s.started_ms&&stop.getTime()<Number(s.started_ms))))fail('结束采集时间无效')
  if(s.stopped_ms&&stop&&Number(s.stopped_ms)!==stop.getTime())fail('结束采集时间与原标记不一致')
- await conn.execute("UPDATE worker_session SET state='completed',final_sequence=?,stopped_at=COALESCE(stopped_at,?),stopped_ms=COALESCE(stopped_ms,?),completed_at=COALESCE(completed_at,NOW(3)) WHERE id=?",[body.lastSequence,stop,stop?.getTime()??null,id]);await audit(conn,{...device,id:s.user_id},'handover',s.run_id,{sessionId:id,lastSequence:body.lastSequence});return {ok:true,sessionId:id,lastSequence:body.lastSequence}
+ if(run.mode==='external'){
+  await ensureWorkerExternalBatch(conn,s,run)
+  await conn.execute("UPDATE external_collection_batch SET state='completed',completed_at=COALESCE(completed_at,NOW(3)) WHERE id=? AND last_sequence=?",[id,body.lastSequence])
+ }
+ await conn.execute("UPDATE worker_session SET state='completed',final_sequence=?,stopped_at=COALESCE(stopped_at,?),stopped_ms=COALESCE(stopped_ms,?),completed_at=COALESCE(completed_at,NOW(3)) WHERE id=?",[body.lastSequence,stop,stop?.getTime()??null,id]);await projectWorkerCodeUsage(conn,id);await audit(conn,{...device,id:s.user_id},'handover',s.run_id,{sessionId:id,lastSequence:body.lastSequence});return {ok:true,sessionId:id,lastSequence:body.lastSequence}
 })}
 export async function finishWorkerRun(device:AuthUser,id:string,body:any){return transaction(async conn=>{
  await lockProductionDevice(conn,device);const [[run]]=await conn.query<any[]>('SELECT * FROM worker_run WHERE id=? AND device_id=? FOR UPDATE',[collectionId(id),device.device_id]);if(!run)fail('批次不存在',404)

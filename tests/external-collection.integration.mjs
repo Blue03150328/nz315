@@ -88,7 +88,7 @@ async function startHttp() {
   assert.ok(Number.isSafeInteger(requested) && requested >= 0 && requested <= 65535 && requested !== 3100, '不能占用3100开发端口')
   const probe = net.createServer(); await new Promise(resolve => probe.listen(requested, '127.0.0.1', resolve)); const port = probe.address().port; await new Promise(resolve => probe.close(resolve)); base = 'http://127.0.0.1:' + port
   fs.mkdirSync(logDirectory, { recursive: true }); logStream = fs.createWriteStream(path.join(logDirectory, 'server.log'))
-  application = spawn(process.execPath, [entry], { cwd: buildDir, windowsHide: true, env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), NITRO_HOST: '127.0.0.1', NITRO_PORT: String(port), NUXT_DB_HOST: credentials.host, NUXT_DB_PORT: String(credentials.port), NUXT_DB_USER: credentials.user, NUXT_DB_PASSWORD: credentials.password, NUXT_DB_NAME: databaseName, NUXT_SESSION_SECRET: sessionSecret }, stdio: ['ignore', 'pipe', 'pipe'] })
+  application = spawn(process.execPath, [entry], { cwd: buildDir, windowsHide: true, env: { ...process.env, NODE_ENV: 'production', HOST: '127.0.0.1', PORT: String(port), NITRO_HOST: '127.0.0.1', NITRO_PORT: String(port), NUXT_DB_HOST: credentials.host, NUXT_DB_PORT: String(credentials.port), NUXT_DB_USER: credentials.user, NUXT_DB_PASSWORD: JSON.stringify(credentials.password), NUXT_DB_NAME: databaseName, NUXT_SESSION_SECRET: sessionSecret }, stdio: ['ignore', 'pipe', 'pipe'] })
   application.stdout.pipe(logStream, { end: false }); application.stderr.pipe(logStream, { end: false })
   for (let index = 0; index < 120; index++) { assert.equal(application.exitCode, null); try { if ((await request('/api/admin/external-codes')).status === 401) return } catch { /* 等待独立生产预览启动。 */ } await delay(250) }
   throw new Error('独立生产预览未启动')
@@ -180,7 +180,7 @@ try {
     await db.query('DROP TRIGGER fail_external_event'); assert.equal((await sync(d1, batch1, [retry])).receipts[0].state, 'accepted')
   })
   await check('活跃外批阻止改线、删设备和再激活，完成前不能改生产资料或导出', async () => {
-    for (const action of [{ action: 'edit', name: '新名称', lineName: '新线', enterpriseId: a.id }, { action: 'delete' }, { action: 'activate' }]) await rejects(() => devices.changeDevice(admin, d1.device_id, action, 'https://example.invalid'), /未结束采集|排空/)
+    for (const action of [{ action: 'edit', name: '新名称', lineName: '新线', enterpriseId: a.id }, { action: 'delete' }, { action: 'activate' }]) await rejects(() => devices.changeDevice(admin, d1.device_id, action, 'https://example.invalid'), /未结束.*采集|排空/)
     await rejects(() => adminApi.updateExternalCollection(admin, batch1, metadata({})), /先在设备完成/)
     await rejects(() => readExport(viewer, batch1, 'txt'), /先完成/)
   })

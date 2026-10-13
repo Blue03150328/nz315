@@ -38,4 +38,12 @@ export const externalCollectionDDL = [
 
 export async function migrateExternalCollectionSchema(db) {
   for (const ddl of externalCollectionDDL) await db.query(ddl)
+  for (const [column, type] of [
+    ['source_kind', "VARCHAR(20) NOT NULL DEFAULT 'legacy'"],
+    ['worker_user_id', 'BIGINT NULL'],
+    ['worker_name_snapshot', 'VARCHAR(100) NULL'],
+  ]) {
+    const [found] = await db.query('SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?', ['external_collection_batch', column])
+    if (!found.length) await db.query(`ALTER TABLE external_collection_batch ADD COLUMN ${column} ${type}`)
+  }
 }

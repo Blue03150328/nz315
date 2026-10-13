@@ -48,7 +48,7 @@ const dateText = (value: unknown) => value ? String(value).slice(0, 10) : '待�
         <template v-if="detail && !error">
           <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
             <div><span class="b-help">生产线</span><p class="b-strong break-all">{{ detail.batch.line_name }}</p></div>
-            <div><span class="b-help">工号</span><p class="b-strong break-all">{{ detail.batch.worker_no }}</p></div>
+            <div><span class="b-help">工号</span><p class="b-strong break-all">{{ detail.batch.worker_name_snapshot }} {{ detail.batch.worker_no }}</p></div>
             <div><span class="b-help">采集码数</span><p class="b-strong">{{ detail.batch.accepted_count }}</p></div>
             <div><span class="b-help">生产数量</span><p class="b-strong">{{ detail.batch.effective_production_quantity }} <span class="b-help">{{ detail.batch.production_quantity == null ? '按码数' : '手填' }}</span></p></div>
             <div><span class="b-help">产品</span><p class="b-strong break-all">{{ detail.batch.product_name_snapshot || '待补填' }}</p></div>

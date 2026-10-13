@@ -3,7 +3,7 @@ import { query } from './db'
 /** 新结构缺失时明确降级；查询失败不伪装成缺结构。 */
 export async function usageBatchSchemaAvailable() {
   const required: Record<string, string[]> = {
-    production_collection_upload: ['id', 'session_id', 'task_id', 'first_sequence', 'last_sequence', 'state', 'uploader_id', 'uploader_username', 'uploader_name', 'owner_user_id', 'device_id', 'completed_at'],
+    production_collection_upload: ['id', 'session_id', 'worker_session_id', 'device_name_snapshot', 'task_id', 'first_sequence', 'last_sequence', 'state', 'uploader_id', 'uploader_username', 'uploader_name', 'owner_user_id', 'device_id', 'completed_at'],
     code_usage_batch: ['id', 'parent_upload_batch_id', 'upload_id', 'task_id', 'spec_name_snapshot'],
     trace_code: ['usage_batch_id'], upload_batch: ['spec_name_snapshot'],
     production_task: ['production_snapshot'], production_collection_event: ['upload_id'],
