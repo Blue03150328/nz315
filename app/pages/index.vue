@@ -14,7 +14,7 @@ const handleManualQuery = async () => {
     return
   }
   searching.value = true
-  await router.push('/trace?code=' + encodeURIComponent(code))
+  await router.push('/trace?' + new URLSearchParams({ code, source: code }).toString())
   searching.value = false
 }
 

@@ -3,6 +3,7 @@ export type TraceResultType =
   | 'genuine'        // 正常（正品）
   | 'not-found'      // 查无此码（8类异常-2）
   | 'external-reg'   // 非本平台码，但登记资料库比对到候选登记证（2026-09-22 新增）
+  | 'internal-pending' // 本站扫码网址，尚无生产记录
   | 'reg-expired'    // 登记证已过期（8类异常-4）
   | 'expired'        // 产品已过有效期
   | 'repeat'         // 重复查询（8类异常-1）

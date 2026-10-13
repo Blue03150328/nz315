@@ -3,7 +3,8 @@ import type { TraceOutcome } from '#shared/types/trace'
 
 const route = useRoute()
 const code = String(route.query.code || '')
-const source = String(route.query.source || '')
+// 直接打开瓶身扫码网址时按配置的网站入口识别；扫码及手输入口显式保留原文。
+const source = String(route.query.source || (String(useRuntimeConfig().public.traceBaseUrl) + encodeURIComponent(code)))
 
 // SSR 阶段即完成查询，首屏直接呈现结果（扫码场景秒开）
 const traceQuery = new URLSearchParams({ code })
@@ -27,6 +28,7 @@ useHead({
   <div v-else-if="data">
     <TraceResult v-if="data.resultType === 'genuine'" :outcome="data" />
     <TraceExternal v-else-if="data.resultType === 'external-reg'" :outcome="data" />
+    <TraceInternalPending v-else-if="data.resultType === 'internal-pending'" :outcome="data" />
     <TraceNotFound v-else-if="data.resultType === 'not-found'" :outcome="data" />
     <TraceAlert v-else :outcome="data" />
   </div>
