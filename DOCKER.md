@@ -5,11 +5,15 @@
 在 PowerShell 中进入项目目录：
 
 ```powershell
-cd C:\Users\MR\.codex\worktrees\6ed7\nz315\backend-patch
+cd C:\Users\MR\Desktop\work\nz315
 .\docker-start.ps1
 ```
 
 首次下载镜像并构建较慢。脚本自动创建本机私有 `docker.env`（随机数据库密码及会话密钥，不进入镜像）。首次初始化包含演示企业、产品及账号；仅用于本机测试：`admin / admin123` 是总部管理员，`lvfeng / admin123` 是厂家主账号，`codeop / admin123` 是码管理员。工人账号在系统设置中创建为“生产操作员”。
+
+2026-10-13 已按用户要求把线上 `nz315` 的一致性快照复制到本地 `nz315_docker`，当前不再是空演示库。私有 `docker.env` 的 `DOCKER_SEED_DEMO=0`，后续启动只增量迁移，不重新写演示资料。账号密码沿用快照中的线上账号；本机网站使用独立会话密钥。本地测试写入只影响容器数据库，不回传线上，也不会自动继续同步线上新增数据。
+
+同步前备份在 `C:\Users\MR\.codex\worktrees\6ed7\nz315\.tools\local-data-sync-20261013-224641\local-before.sql.gz`；同目录的 `online.sql.gz` 和 `state.json` 保存此次快照及完整性核验。数据和凭据不进入 Git。41张原表行数与原列数据指纹一致；本地另外保留监控协调表和心跳字段，合计42张表。监控界面的旧设备没有新版心跳时按离线／未知展示，历史扫码数量不受影响。
 
 以后使用已有镜像启动：
 
