@@ -36,6 +36,12 @@ public final class ProductionClient {
     public boolean deviceMode() { return !deviceToken.isEmpty(); }
     public synchronized void deviceCredential(String value) { if(!value.matches("[a-f0-9]{64}"))throw new IllegalArgumentException("设备凭证格式错误");deviceToken=value;cookie=""; }
     public synchronized void accountMode() { deviceToken="";cookie=""; }
+    /** 换服务器时不把原服务器的设备凭证带到新地址；待激活凭证也不取得工人权限。 */
+    public synchronized boolean restoreRegisteredDevice(String input,JSONObject credential) {
+        configure(input);
+        if(credential==null||!credential.optBoolean("registered")||!server.equals(credential.optString("server")))return false;
+        deviceCredential(credential.optString("credential"));return true;
+    }
     private static boolean localAddress(String host) {
         if("localhost".equalsIgnoreCase(host) || "[::1]".equals(host) || "::1".equals(host))return true;
         String[] parts=host.split("\\.");if(parts.length!=4)return false;
@@ -61,6 +67,8 @@ public final class ProductionClient {
             allowed |= "GET".equals(method) && (resource.equals("/api/device/context") || resource.equals("/api/device/production-tasks") || resource.matches("/api/device/production-tasks/[1-9][0-9]*"));
             allowed |= "POST".equals(method) && (resource.equals("/api/device/activate") || resource.equals("/api/device/context") || resource.matches("/api/device/production-tasks/[1-9][0-9]*/collection-sessions") || resource.matches("/api/device/production-tasks/[1-9][0-9]*/collection-sessions/[a-fA-F0-9-]{36}/(events|complete|uploads)") || resource.matches("/api/device/production-tasks/[1-9][0-9]*/collection-sessions/[a-fA-F0-9-]{36}/uploads/[a-fA-F0-9-]{36}/complete"));
             allowed |= deviceMode() && "POST".equals(method) && (resource.equals("/api/device/external-collections") || resource.matches("/api/device/external-collections/[a-fA-F0-9-]{36}/(events|complete)"));
+            allowed |= deviceMode() && "GET".equals(method) && resource.equals("/api/device/worker-cache");
+            allowed |= deviceMode() && "POST".equals(method) && (resource.equals("/api/device/line-progress") || resource.matches("/api/device/operator/(login|check)") || resource.equals("/api/device/worker-sessions") || resource.matches("/api/device/worker-sessions/[a-fA-F0-9-]{36}/(events|complete)") || resource.matches("/api/device/worker-runs/[a-fA-F0-9-]{36}/complete"));
             if (!allowed || relative.isAbsolute() || relative.getRawAuthority() != null || relative.getFragment() != null) {
                 throw new IllegalArgumentException("不支持的生产操作");
             }
@@ -80,6 +88,7 @@ public final class ProductionClient {
                 try (java.io.OutputStream output = connection.getOutputStream()) { output.write(bytes); }
             }
             int status = connection.getResponseCode();
+            if(status<100)return new JSONObject().put("status",0).put("error","网络中断，服务器尚未返回有效响应，本机记录保留");
             InputStream stream = status >= 200 && status < 300 ? connection.getInputStream() : connection.getErrorStream();
             String raw = read(stream);
             JSONObject data;
@@ -88,7 +97,7 @@ public final class ProductionClient {
             if (status == 401) cookie = "";
             if (status < 200 || status >= 300) {
                 String message = status >= 500 ? "服务器尚未确认，请核对原码后重试"
-                        : status == 401 ? deviceMode()?"设备凭证失效，请联系管理员重新激活":"账号登录已失效，请重新登录"
+                        : status == 401 ? data!=null?data.optString("statusMessage","认证失效，请重新登录"):deviceMode()?"设备凭证失效，请联系管理员重新激活":"账号登录已失效，请重新登录"
                         : status >= 300 && status < 400 ? "服务器地址发生跳转，请使用最终HTTPS地址"
                         : data == null ? "请求被拒绝，请刷新任务核对" : data.optString("statusMessage", "操作未通过，请核对任务与码");
                 return new JSONObject().put("status", status).put("error", message);
@@ -120,5 +129,10 @@ public final class ProductionClient {
             }
             return output.toString("UTF-8");
         }
+    }
+    public synchronized String workerText(String path,String grant)throws Exception{
+        if(!deviceMode()||!path.matches("/api/device/worker-production/[a-fA-F0-9-]{36}/download"))throw new IllegalArgumentException("下载地址不支持");
+        HttpURLConnection connection=(HttpURLConnection)new URL(server+path).openConnection();
+        try{connection.setInstanceFollowRedirects(false);connection.setConnectTimeout(10000);connection.setReadTimeout(15000);connection.setRequestProperty("Authorization","Bearer "+deviceToken);connection.setRequestProperty("X-Operator-Grant",grant);if(connection.getResponseCode()!=200)throw new IllegalStateException("TXT下载未通过，请联网并使用本人工人账号");return read(connection.getInputStream());}finally{connection.disconnect();}
     }
 }

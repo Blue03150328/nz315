@@ -6,7 +6,7 @@ import { headOf } from './code-head'
 import { assertCodeSpecCompatibility } from '../../shared/utils/code-spec-compatibility'
 
 // 列表计数和实际领取共用可领用口径；公众查询次数不参与判断。
-export const freeProductionCode = `a.active_code_id IS NULL AND c.status=1 AND c.abnormal_flag=0 AND c.batch_id IS NULL
+export const freeProductionCode = `a.active_code_id IS NULL AND NOT EXISTS(SELECT 1 FROM production_code_reservation wr WHERE wr.code_id=c.id) AND c.status=1 AND c.abnormal_flag=0 AND c.batch_id IS NULL
   AND c.bound_at IS NULL AND c.produce_date IS NULL AND c.expire_date IS NULL AND c.qc_result IS NULL AND c.quality_cert_no IS NULL AND c.batch_no IS NULL`
 const fail = (message: string, statusCode = 409): never => { throw createError({ statusCode, statusMessage: message }) }
 export async function selectProductionAllocation(conn: PoolConnection, product: any, body: Record<string, any>, taskId = 0) {
@@ -66,9 +66,11 @@ export async function productionUsage(conn: any, taskIds: number[]) {
   const [rows] = await conn.query(`SELECT d.task_id,COUNT(*) AS total,SUM(d.state='used') AS used_count,
     SUM(d.state='reserved') AS reserved_count,SUM(d.state='pending') AS pending_count,
     SUM(d.state='released' AND (${freeProductionCode})) AS available_count,
-    SUM(d.state='released' AND a.task_id IS NOT NULL AND a.task_id<>d.task_id) AS transferred_count,
-    SUM(d.state='released' AND a.state='used' AND a.task_id<>d.task_id) AS transferred_used_count
+    SUM(d.state='released' AND ((a.task_id IS NOT NULL AND a.task_id<>d.task_id) OR COALESCE(w.owner_kind='pool',0))) AS transferred_count,
+    SUM(d.state='released' AND ((a.state='used' AND a.task_id<>d.task_id) OR COALESCE(wc.state IN ('captured','bound'),0))) AS transferred_used_count
     FROM production_task_code d JOIN trace_code c ON c.id=d.code_id LEFT JOIN production_task_code a ON a.active_code_id=c.id
+    LEFT JOIN production_code_reservation w ON w.code_id=c.id
+    LEFT JOIN worker_pool_code wc ON w.owner_kind='pool' AND wc.pool_id=w.owner_id AND wc.code_id=c.id
     WHERE d.task_id IN (${taskIds.map(() => '?').join(',')}) GROUP BY d.task_id`, taskIds)
   return new Map<number, any>(rows.map((r: any) => [Number(r.task_id), Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Number(v)]))]))
 }

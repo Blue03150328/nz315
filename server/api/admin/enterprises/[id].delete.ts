@@ -26,7 +26,7 @@ export default defineEventHandler(async (event) => {
     const unions = tables.map(t => 'SELECT COUNT(*) AS c FROM ' + t + ' WHERE enterprise_id = ?').join(' UNION ALL ')
     const [references] = await conn.query<any[]>('SELECT SUM(c) AS ref FROM (' + unions + ') t', tables.map(() => id))
     if (Number(references[0]?.ref || 0) > 0) {
-      throw createError({ statusCode: 400, statusMessage: '该厂家存在产品、追溯码或外部采集等业务数据，不可直接删除，请先迁移或清理数据' })
+      throw createError({ statusCode: 400, statusMessage: '该厂家存在产品、追溯码、采集设备或生产记录等业务数据，不可直接删除，请先迁移或清理数据' })
     }
     // mysql2 的 conn.query 返回 QueryResult 联合类型，实际 DELETE 运行时为 ResultSetHeader，需断言取 affectedRows
     // （与 upload-batches/[id].delete.ts 同范式）

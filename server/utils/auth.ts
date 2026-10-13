@@ -5,7 +5,7 @@ import { getCookie, setCookie, deleteCookie, getHeader, getMethod } from 'h3'
 import { query, execute, getPool } from './db'
 
 // 平台角色（PRD 1.3 / 7.6）
-export type PlatformRole = 'platform_admin' | 'enterprise_admin' | 'code_admin' | 'viewer'
+export type PlatformRole = 'platform_admin' | 'enterprise_admin' | 'code_admin' | 'viewer' | 'production_operator'
 
 export interface AuthUser {
   id: number
@@ -154,6 +154,7 @@ export async function requireBackendUser(event: any): Promise<AuthUser> {
   if (!user) {
     throw createError({ statusCode: 401, statusMessage: event.context.sessionInvalidated ? '账号已在其他设备登录或登录已失效，请重新登录' : '未登录' })
   }
+  if (user.role === 'production_operator') throw createError({ statusCode: 403, statusMessage: '生产操作员仅可使用设备采集接口' })
   // 企业启停校验（2026-09-09）：厂家账号每次业务请求校验所属企业——被禁用或续费到期（renew_expire 早于今天/NULL）
   // 一律 403，保证「到期后不可使用系统功能」对已登录会话同样生效（7 天会话可能横跨到期点）
   if (user.enterprise_id) {

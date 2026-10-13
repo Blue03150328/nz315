@@ -21,6 +21,7 @@ import { collectionDDL } from './collection-schema.mjs';
 import { deviceDDL, migrateDeviceSchema } from './device-schema.mjs';
 import { usageBatchDDL, migrateUsageBatchSchema } from './usage-batch-schema.mjs';
 import { externalCollectionDDL, migrateExternalCollectionSchema } from './external-collection-schema.mjs';
+import { migrateWorkerSchema } from './worker-schema.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 读取 .env（简易解析，无 dotenv 依赖）
@@ -36,7 +37,7 @@ function loadEnv() {
   return env;
 }
 
-const env = loadEnv();
+const env = { ...loadEnv(), ...process.env };
 const DB = {
   host: env.DB_HOST || '127.0.0.1',
   port: Number(env.DB_PORT || 3306),
@@ -611,7 +612,10 @@ async function main() {
   await migrateDeviceSchema(conn);
   await migrateUsageBatchSchema(conn);
   await migrateExternalCollectionSchema(conn);
-  console.log('[db] ' + (DDL.length + productionDDL.length + collectionDDL.length + deviceDDL.length + usageBatchDDL.length + externalCollectionDDL.length) + ' 张表创建完成');
+  await migrateWorkerSchema(conn);
+  // 工人迁移同时安装生产线表，以数据库实际表数避免遗漏新增模块。
+  const [[tableCount]] = await conn.query("SELECT COUNT(*) AS n FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_TYPE='BASE TABLE'");
+  console.log('[db] ' + Number(tableCount.n) + ' 张表创建完成');
 
   // 3) 增量迁移（历史库补列/补索引）
   await migrate(conn);

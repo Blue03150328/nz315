@@ -14,17 +14,25 @@ export function activationServer(event: any) {
 export function deviceManager(user: AuthUser) { if (!['enterprise_admin','platform_admin'].includes(user.role) || user.device_id) fail('仅厂家管理员和总部管理员可管理设备',403) }
 function scope(user: AuthUser, row: any) { if (!row || (user.role !== 'platform_admin' && Number(row.enterprise_id) !== Number(user.enterprise_id))) fail('设备不存在或不属于本企业',404) }
 const text = (value: any, label: string) => { if (typeof value !== 'string' || !value.trim() || value.trim().length > 100) fail(label+'请填写1至100字',400); return value.trim() }
+// 列表统计与设备改派守卫共用状态范围，避免工人采集仍占用时列表显示为零。
+const optionalActiveSources = [
+  { table: 'worker_pool', condition: "state IN ('ready','active','review')", field: 'worker_active_pools' },
+  { table: 'worker_run', condition: "state='active'", field: 'worker_active_runs' },
+  { table: 'external_collection_batch', condition: "state='active'", field: 'external_active_batches' },
+] as const
 async function activeCount(conn: any, id: number) {
   const [[r]] = await conn.query("SELECT COUNT(*) AS n FROM production_collection_session WHERE device_id=? AND state='active'", [id])
-  let external = 0
-  try {
-    const [[row]] = await conn.query("SELECT COUNT(*) AS n FROM external_collection_batch WHERE device_id=? AND state='active'", [id])
-    external = Number(row.n)
-  } catch (error: any) {
-    // 旧库尚未安装外部采集表时仍可管理原设备；其他数据库错误必须报出。
-    if (error?.code !== 'ER_NO_SUCH_TABLE') throw error
+  let active = Number(r.n)
+  for (const source of optionalActiveSources) {
+    try {
+      const [[row]] = await conn.query(`SELECT COUNT(*) AS n FROM ${source.table} WHERE device_id=? AND ${source.condition}`, [id])
+      active += Number(row.n)
+    } catch (error: any) {
+      // 旧库尚未安装可选采集模块时仍可管理原设备；其他数据库错误必须报出。
+      if (error?.code !== 'ER_NO_SUCH_TABLE') throw error
+    }
   }
-  return Number(r.n) + external
+  return active
 }
 async function audit(conn: any, id: number, actor: number | null, action: string, detail: any) { await conn.execute('INSERT INTO production_device_change(device_id,actor_id,action,detail) VALUES (?,?,?,?)',[id,actor,action,JSON.stringify(detail)]) }
 export async function deviceOptions(user: AuthUser) {
@@ -38,17 +46,25 @@ export async function deviceOptions(user: AuthUser) {
 export async function listDevices(user: AuthUser) {
   deviceManager(user)
   const rows=await query<any[]>(`SELECT ${publicColumns},e.name AS enterprise_name,(SELECT COUNT(*) FROM production_collection_session s WHERE s.device_id=d.id AND s.state='active') AS active_sessions FROM production_device d JOIN enterprise e ON e.id=d.enterprise_id WHERE d.deleted_at IS NULL`+(user.role==='platform_admin'?'':' AND d.enterprise_id=?')+' ORDER BY d.id DESC LIMIT 500',user.role==='platform_admin'?[]:[user.enterprise_id])
-  const externalCounts = new Map<number, number>()
-  if (rows.length) {
-    try {
-      const counts = await query<any[]>("SELECT device_id,COUNT(*) AS n FROM external_collection_batch WHERE state='active' AND device_id IN (?) GROUP BY device_id", [rows.map(row => Number(row.id))])
-      for (const row of counts) externalCounts.set(Number(row.device_id), Number(row.n))
-    } catch (error: any) {
-      // 缺少新表沿用原设备列表，查询错误不冒充零个未结束采集。
-      if (error?.code !== 'ER_NO_SUCH_TABLE') throw error
+  const countsBySource = new Map<string, Map<number, number>>()
+  for (const source of optionalActiveSources) {
+    const counts = new Map<number, number>()
+    countsBySource.set(source.field, counts)
+    if (rows.length) {
+      try {
+        const sourceRows = await query<any[]>(`SELECT device_id,COUNT(*) AS n FROM ${source.table} WHERE ${source.condition} AND device_id IN (?) GROUP BY device_id`, [rows.map(row => Number(row.id))])
+        for (const row of sourceRows) counts.set(Number(row.device_id), Number(row.n))
+      } catch (error: any) {
+        // 缺少可选模块沿用原设备列表，查询错误不冒充零个未结束采集。
+        if (error?.code !== 'ER_NO_SUCH_TABLE') throw error
+      }
     }
   }
-  return { rows: rows.map(row => ({ ...row, external_active_batches: externalCounts.get(Number(row.id)) || 0, active_sessions: Number(row.active_sessions) + (externalCounts.get(Number(row.id)) || 0) })) }
+  return { rows: rows.map(row => {
+    const activity = Object.fromEntries(optionalActiveSources.map(source => [source.field, countsBySource.get(source.field)!.get(Number(row.id)) || 0])) as Record<string, number>
+    const legacyCount = Number(row.active_sessions)
+    return { ...row, ...activity, legacy_active_sessions: legacyCount, active_sessions: Object.values(activity).reduce((sum, count) => sum + count, legacyCount) }
+  }) }
 }
 async function activation(conn: any,id: number,user: AuthUser,server: string) {
   // 更换激活码前必须先排空原设备，保留旧记录归属。
@@ -136,5 +152,5 @@ export async function deviceHistory(user: AuthUser,id: number) {
 export async function deviceContext(user: AuthUser,body?: any) {
   if(body){const n=Number(body.pending);if(Number.isSafeInteger(n)&&n>=0&&n<=10000000)await query('UPDATE production_device SET reported_pending=? WHERE id=?',[n,user.device_id])}
   const [device]=await query<any[]>(`SELECT ${publicColumns},e.name AS enterprise_name FROM production_device d JOIN enterprise e ON e.id=d.enterprise_id WHERE d.id=?`,[user.device_id])
-  return {ok:true,device,user:{id:0,role:'code_admin',enterprise_id:user.enterprise_id,name:device.enterprise_name+' / '+device.line_name,device_id:user.device_id}}
+  return {ok:true,serverTime:Date.now(),device,user:{id:0,role:'code_admin',enterprise_id:user.enterprise_id,name:device.enterprise_name+' / '+device.line_name,device_id:user.device_id}}
 }

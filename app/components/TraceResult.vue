@@ -72,12 +72,13 @@ const handleShare = async () => {
 // 🔁 三次收口，现由 `TraceBillEntry` 组件承担：
 //   ① 2026-09-23 内联实现删除 → 改走组件（未登录直达微信授权、支持 `bill=1` 回跳自动开表单）；
 //   ② 2026-09-23 入口从页头 `size="xs"` 小按钮移到页面底部操作区并撑满一行；
-//   ③ 2026-10-09 用户裁定「结果页主推记账」⇒ 入口**从底部再上移到横幅下方第一卡** —
+//   ③ 2026-10-09 用户裁定「结果页主推记账」⇒ 入口从底部再上移到横幅下方第一卡，
 //      正品页是全站最长的一页，底部位置多数用户滑不到。
 // 组件说明与各页预填口径见 `TraceBillEntry.vue` 顶部注释。
 </script>
 
 <template>
+  <div v-if="batch?.qualityStatus" class="mb-4 rounded-lg bg-warning/10 p-4 font-semibold" role="status">{{ batch.qualityStatus==='failed'?'质检不合格，请勿使用':'已采集生产资料，待质检确认' }}</div>
   <div class="pb-6 lg:mx-auto lg:w-full lg:max-w-2xl">
     <PageHeader title="追溯查询结果" :show-back="true">
       <template #right>
@@ -97,10 +98,8 @@ const handleShare = async () => {
     </div>
 
     <div class="-mt-4 space-y-4 px-4">
-      <!-- 记一笔账：主 CTA 置顶（2026-10-09 用户裁定「结果页主推记账」）——
-           看到「查询结果正常」的瞬间就是记账的最佳时机。原先入口只在页面最底部，
-           而正品页是全站最长的一页（产品+生产+原药+图片），多数用户根本滑不到那里。
-           预填口径不变：产品名/类别/剂型/生产日期自动带入，用户只补数量金额。 -->
+      <!-- 记一笔账：主入口置顶（2026-10-09 用户裁定「结果页主推记账」）。
+           产品名、类别、剂型和生产日期仍按查询结果预填，用户补充数量及金额。 -->
       <div class="rounded-xl border border-border bg-elevated p-4 shadow-sm">
         <div class="mb-3 flex items-center gap-2">
           <UIcon name="i-lucide-receipt-text" class="h-4 w-4 shrink-0 text-primary" />

@@ -6,7 +6,7 @@
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
-const { user, roleLabel, logout, canWrite, clearLocalSession } = useUser()
+const { user, roleLabel, logout, canWrite, canManageUsers, clearLocalSession } = useUser()
 
 // 后台停留期间检查会话；接口权限每次请求都校验，此检查负责及时清页面和提示。
 let sessionTimer: ReturnType<typeof setInterval> | undefined
@@ -46,7 +46,8 @@ onBeforeUnmount(() => {
 // 数据概览单独置顶（无组名），它是登录后的首页。
 // writeOnly：纯写流程页面（只读账号看进去只剩空白，直接在菜单层隐藏，2026-09-19）
 // platformOnly：仅平台管理员可见
-type MenuItem = { path: string; label: string; icon: string; writeOnly?: boolean; platformOnly?: boolean }
+// manageOnly：仅总部管理员与厂家主账号可见
+type MenuItem = { path: string; label: string; icon: string; writeOnly?: boolean; platformOnly?: boolean; manageOnly?: boolean }
 const MENU_GROUPS: { title?: string; items: MenuItem[] }[] = [
   {
     items: [
@@ -65,7 +66,7 @@ const MENU_GROUPS: { title?: string; items: MenuItem[] }[] = [
     items: [
       { path: '/admin/generator', label: '追溯码生成', icon: 'i-lucide-wand-2', writeOnly: true },
       { path: '/admin/collection', label: '追溯码上传', icon: 'i-lucide-factory', writeOnly: true },
-      { path: '/admin/production-tasks', label: '生产任务与审核', icon: 'i-lucide-scan-line' },
+      { path: '/admin/production-tasks', label: '生产任务', icon: 'i-lucide-clipboard-check' },
       { path: '/admin/codes', label: '码库管理', icon: 'i-lucide-qr-code' },
     ],
   },
@@ -95,8 +96,8 @@ const MENU_GROUPS: { title?: string; items: MenuItem[] }[] = [
   },
 ]
 
-/** 单条菜单可见性：平台专属看角色，纯写流程看写权限 */
-const canSee = (item: MenuItem) => (!item.platformOnly || user.value?.role === 'platform_admin') && (canWrite.value || !item.writeOnly)
+/** 单条菜单可见性：平台专属与管理入口看角色，纯写流程看写权限 */
+const canSee = (item: MenuItem) => (!item.manageOnly || canManageUsers.value) && (!item.platformOnly || user.value?.role === 'platform_admin') && (canWrite.value || !item.writeOnly)
 
 /** 按角色过滤后的分组：条目全被过滤掉的组整组隐藏（如只读账号看不到「系统」组里的核验工具） */
 const visibleGroups = computed(() =>

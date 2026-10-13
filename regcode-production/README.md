@@ -1,20 +1,30 @@
-# 农资315生产扫码 Android 2.2.0
+# 农资315生产扫码 Android 3.1.0
 
-Android 12 PDA 单产品追溯码生产采集。正式包名 cn.nz315.production.pda，versionCode 6，默认连接 https://www.nz315.cn。
+包名 `cn.nz315.production.pda`，versionCode 9，默认服务器 https://www.nz315.cn。支持Android12 UROVO i6310 Pro / CT58 广播和键盘扫码。
 
-## 设备认证
+## 个人账号流程
 
-管理员在“生产任务与审核 → 设备管理”添加设备，指定所属公司、生产线和名称，生成十分钟有效的一次性激活二维码。APK首次打开扫描该二维码，自动提交安装标识及型号，无需抄写设备号或输入工人账号。每台设备独立认证，互不挤下线。
+设备登记厂家和生产线，不绑定固定员工。每位工人用个人 `production_operator` 账号登录；同设备支持多个工人的加密离线授权。交班继续原批，扫码事件保留原工人和设备归属。工人不能调用管理员接口。
 
-设备标识不充当密码。256位随机设备凭证在激活请求之前持久化，以Android Keystore的AES-GCM密钥加密，供原生HTTP客户端使用，不传给网页脚本、不导出到采集备份。激活超时使用同一凭证重试；重启自动恢复认证。ANDROID_ID仅作为登记辅助字段。
+后台先按设备、产品分配具体码清单。工人选择缓存产品，填写生产日期、有效期和瓶盖批号，开始采集。本批使用开始时该设备该产品的全部预配码，不能中途扩大范围。首次联网完整下载本厂启用产品和设备预配码，每15分钟更新缓存；下载中断保留旧快照。工人离线授权72小时，过期或设备时间明显回退停止新采集，已有记录保留。
 
-设备只能读取本公司本生产线任务、创建本机采集会话和同步本机事件，不能管理用户、审核、生成码或任意创建任务。后台管理员继续使用原账号登录，账号单登录规则不变。
+每扫一件提交SQLite事务（DELETE日志、synchronous=FULL）后才提示已保存。提取唯一完整32位数字码，保留前导零，网址不影响判断；按码去重，重复和异常保存原文与原因。随机10～15分钟同步，每批最多20条；事件UUID和序号保持不变。立即上传、恢复联网、重开和结束触发补传。Android前台服务支持熄屏上传，关机/强制停止时暂停，重开恢复。不要卸载或清除数据。
+
+云端已保存不代表已质检或正式绑定。实际采集码始终占用，管理员确认合格及合格证号后正式绑定。结束整批需收齐所有会话及结束序号，只能释放未扫描码；交班不结束整批。外码采集独立保存、分类、导出，不绑定生产，不消耗码池，不访问第三方网址。
+
+工人可导出本人本机JSON备份和本人外码UTF-8 TXT。本人备份仅含本人记录，不含密码或设备凭证。默认进入个人账号页面；该流程没有设置页或手动领码。
+
+## 两种流程的入口与归属保护
+
+个人账号登录页、首页与历史页的“外部原文采集与旧记录”进入原兼容页面；兼容页面可返回“个人账号采集与记录”。外部生产记录的独立工号采集，与个人账号的“外码分类采集”分别使用原独立外码API及新工人API，不能混用批次、去重口径或备份权限。独立工号不是个人登录身份。
+
+启动时存在原内部队列或原独立外码未确认批次，先显示兼容页面。两种历史均可查看和备份；新采集须先结束另一模式并收齐全部云端确认。切换页面会暂停扫码。任一队列尚未结束或缺少结束收据时，禁止换服务器及重新激活，不把历史归属改成当前厂家、设备或生产线。工人引擎的后台服务继续补传；Activity退出只停止原兼容队列的调度，重开恢复。
 
 启用、停用、编辑、逻辑删除、重新激活均记录管理历史。停止或凭证撤销后服务器拒绝绑定，联网检测到后本机停止采集。离线时无法实时获知管理员停用，已保存记录不自动删除。未结束的设备会话禁止调线、跨公司改派、删除或重新激活；可先恢复启用排空原队列。
 
 升级前账号采集的旧队列仍由原账号同步，全部完成并结束本机采集后才能激活设备。不得卸载应用或清除待上传记录。
 
-## 采集与同步
+## 原内部队列的采集与同步
 
 从扫码原文提取唯一完整32位追溯码，保留前导零，忽略域名、参数名和网址完整性。按码去重，缺位、多候选、未领用码记录原文和异常原因。
 
@@ -24,7 +34,7 @@ Android 12 PDA 单产品追溯码生产采集。正式包名 cn.nz315.production
 
 结束本机采集同时固定最后一个上传批次，所有记录及上传批次取得收据后才关闭会话；其他设备仍未结束时生产任务不能结束或审核。已有生产资料和原生产线快照不因改名调线改变。版本2完整JSON备份保留已结束和待上传记录、上传ID及序号范围，不含设备凭证。
 
-## 外部二维码采集
+## 独立工号的外部生产记录采集
 
 设备任务列表的“外部二维码采集”进入独立模式。先完成设备激活及一次联网验证，缓存可信的厂家、设备及生产流水线；填写本次工号后即可离线开始。流水线来自管理员登记，工号仅是业务字段，不能代表登录账号或个人身份。已有内部生产采集未结束时先排空原队列。
 
@@ -36,28 +46,28 @@ Android 12 PDA 单产品追溯码生产采集。正式包名 cn.nz315.production
 
 未完成外码队列禁止切换服务器、重新激活或改为账号认证；可信设备归属变化时暂停原队列，不挪到新厂家或新线。完成回包丢失后，同厂家同设备仅可复核旧批的完成收据，历史产线不改。设备停用或凭证失效时停止采集，全部原文及待传记录保留；凭证丢失时先备份，不能把未确认记录转换为新归属。
 
-完整本机JSON备份版本3继续保留原内部字段，并增加`external`中的全部外部批次、原文、事件及收据。两种队列按分页写出，备份不含设备凭证；该备份用于留证，尚无文件恢复导入。外码后端API及增量表须部署后才可在正式服务器上传；本轮不更新发布版本、签名或安装实机。
+兼容页面的完整本机JSON备份版本3继续保留原内部字段，并增加`external`中的全部独立外码批次、原文、事件及收据，不加入新工人表或其他工人的记录。两种原队列按分页写出，备份不含设备凭证；该备份用于留证，尚无文件恢复导入。外码后端API及增量表须部署后才可在正式服务器上传。本次合并沿用master的版本及签名配置；独立外码及本次合并包尚未安装实机，不能据历史个人账号验收认定已实机通过。
 
 ## 构建
 
-需要JDK17、Android SDK35和build-tools35.0.0。使用随源码提供的Gradle wrapper。
+JDK17、Android SDK35 / build-tools35.0.0，使用项目Gradle wrapper：
 
 ```powershell
 .\build.ps1 -JavaHome 'C:\path\to\jdk-17' -AndroidSdk 'C:\path\to\Android\Sdk' -Online
 ```
 
-正式输出 app/build/outputs/apk/online/app-online.apk。沿用已交付版本签名才能覆盖升级并保留队列；密钥不包含在源码包中。不要卸载再安装。
+输出 `app/build/outputs/apk/online/app-online.apk`。覆盖更新须沿用原安装签名，密钥不在源码包内；新电脑的默认debug签名不能覆盖既有安装。
 
-## 独立实机测试
+## 独立实机验收
 
-deviceTest变体包名 cn.nz315.production.pda.devicetest，独立于正式应用，不影响正式队列。
+测试包名 `cn.nz315.production.pda.workertest`，与正式应用独立。先启动隔离测试服务器。
 
 ```powershell
-.\gradlew.bat :app:assembleDeviceTest :app:assembleDeviceTestAndroidTest -PpdaTestServer=http://127.0.0.1:38122
-adb reverse tcp:38122 tcp:38122
+.\gradlew.bat :collection-core:test :app:assembleDeviceTest :app:assembleDeviceTestAndroidTest -PpdaTestServer=http://127.0.0.1:38124
+adb reverse tcp:38124 tcp:38124
 adb install -r app/build/outputs/apk/deviceTest/app-deviceTest.apk
 adb install -r app/build/outputs/apk/androidTest/deviceTest/app-deviceTest-androidTest.apk
-adb shell am instrument -w cn.nz315.production.pda.devicetest.test/com.regcode.app.QueueStoreInstrumentation
+adb shell am instrument -w cn.nz315.production.pda.workertest.test/com.regcode.app.QueueStoreInstrumentation
 ```
 
 SQLite和Keystore测试只使用独立临时数据和密钥，测试后清理，不绑定业务码。正式构建不允许公网HTTP。
@@ -68,8 +78,11 @@ SQLite和Keystore测试只使用独立临时数据和密钥，测试后清理，
 - DeviceCredentials.java：Keystore加密凭证、幂等激活及凭证恢复。
 - ProductionClient.java：设备独立认证、受限接口、旧账号协议兼容。
 - CollectionSync.java：每批20条、逐条收据、重试及结束协调。
+- WorkerEngine.java、WorkerVault.java、WorkerSyncService.java：个人账号离线授权、产品缓存、工人归属和后台补传。
+- collection-core/WorkerStore.java：独立工人数据表、固定采集归属、个人备份及生产TXT导出。
 - ExternalCollectionSync.java 与 collection-core/ExternalQueueStore.java：外部码完整原文、企业范围查重、独立采集批次和离线补传。
 - QueueDatabase.java 与 collection-core/QueueStore.java：SQLite事务、码提取、去重和队列恢复。
 - app/src/main/assets/www/：激活、任务、连续采集和备份页面。
+- app/src/main/assets/worker/：默认个人账号登录、生产扫码、外码分类与本人记录页面。
 
-后端须部署配套设备增量补丁后才能在正式服务器激活2.2.0。旧版账号APK仍可用原接口。
+后端须同时部署配套个人账号、流水线任务及独立外码接口和增量表，再验正式服务器的激活、上传与导出。源码合并及本机构建不代表后台已部署；原账号队列保留原接口。

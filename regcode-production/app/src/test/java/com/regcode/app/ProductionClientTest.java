@@ -129,6 +129,24 @@ public class ProductionClientTest {
         }
         production.configure("https://www.nz315.cn/");
     }
+    @Test public void workerRoutesKeepDeviceIdentityAndBothQueueProtocols() throws Exception {
+        String id="3beff054-1b7d-4c72-8c25-e8937024b523";
+        String[] routes={"/api/device/operator/login","/api/device/operator/check","/api/device/line-progress","/api/device/worker-sessions","/api/device/worker-sessions/"+id+"/events","/api/device/worker-sessions/"+id+"/complete","/api/device/worker-runs/"+id+"/complete"};
+        for(String route:routes)assertEquals(0,client.request("POST",route,"{}").getInt("status"));
+        assertEquals(0,client.request("GET","/api/device/worker-cache?workflow=line","{}").getInt("status"));
+        client.deviceCredential("d".repeat(64));
+        for(String route:routes){assertEquals(200,client.request("POST",route,"{}").getInt("status"));assertEquals("Bearer "+"d".repeat(64),authorization.get());}
+        assertEquals(200,client.request("GET","/api/device/worker-cache?workflow=line","{}").getInt("status"));
+        assertEquals(0,client.request("POST","/api/device/worker-sessions/"+id+"/delete","{}").getInt("status"));
+        assertEquals(0,client.request("GET","/api/device/worker-runs/"+id+"/complete","{}").getInt("status"));
+    }
+    @Test public void restoringWorkerCredentialCannotSendOldDeviceTokenToAnotherServer() throws Exception {
+        String token="e".repeat(64);JSONObject credential=new JSONObject().put("server",base).put("credential",token).put("registered",true);
+        assertTrue(client.restoreRegisteredDevice(base,credential));client.request("GET","/api/device/context","{}");assertEquals("Bearer "+token,authorization.get());
+        assertFalse(client.restoreRegisteredDevice(base,credential.put("server","https://other.example")));client.request("GET","/api/device/context","{}");assertNull(authorization.get());assertFalse(client.hasSession());
+        assertFalse(client.restoreRegisteredDevice(base,credential.put("server",base).put("registered",false)));client.request("GET","/api/device/context","{}");assertNull(authorization.get());
+        client.deviceCredential(token);assertFalse(client.restoreRegisteredDevice(base,null));assertFalse(client.hasSession());
+    }
     @Test public void debugAllowsOnlyPrivateHttpAndCollectionEndpoints() throws Exception {
         for(String url:new String[]{"http://192.168.3.18:38121","http://10.0.0.2:38121","http://172.16.1.2:38121",base})client.configure(url);
         for(String url:new String[]{"http://93.184.216.34","http://public.example","http://172.32.0.1","http://192.168.999.1"}){

@@ -1,0 +1,63 @@
+name: nz315-docker-local
+services:
+  mysql:
+    image: ${DOCKER_MYSQL_IMAGE:-mysql:8.0-debian}
+    environment:
+      MYSQL_DATABASE: nz315_docker
+      MYSQL_USER: nz315
+      MYSQL_PASSWORD: ${DOCKER_DB_PASSWORD:?Run docker-start.ps1 first}
+      MYSQL_ROOT_PASSWORD: ${DOCKER_DB_ROOT_PASSWORD:?Run docker-start.ps1 first}
+      TZ: Asia/Shanghai
+    # The project uses triggers to prevent duplicate code allocation.
+    # Permit this database's scoped application user to create those triggers.
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--log-bin-trust-function-creators=1"]
+    volumes:
+      - database:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysql --protocol=TCP -h 127.0.0.1 -u \"$$MYSQL_USER\" \"$$MYSQL_DATABASE\" -e 'SELECT 1' >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  database-init:
+    build:
+      context: .
+      target: database-init
+    environment:
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_USER: nz315
+      DB_PASSWORD: ${DOCKER_DB_PASSWORD:?Run docker-start.ps1 first}
+      DB_NAME: nz315_docker
+      DOCKER_SEED_DEMO: ${DOCKER_SEED_DEMO:-1}
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  app:
+    build:
+      context: .
+      target: runtime
+    ports:
+      - "127.0.0.1:${DOCKER_APP_PORT:-3101}:3000"
+    environment:
+      NUXT_DB_HOST: mysql
+      NUXT_DB_PORT: "3306"
+      NUXT_DB_USER: nz315
+      NUXT_DB_PASSWORD: ${DOCKER_DB_PASSWORD:?Run docker-start.ps1 first}
+      NUXT_DB_NAME: nz315_docker
+      NUXT_SESSION_SECRET: ${DOCKER_SESSION_SECRET:?Run docker-start.ps1 first}
+      NUXT_PUBLIC_TRACE_BASE_URL: http://localhost:${DOCKER_APP_PORT:-3101}/trace?code=
+      TZ: Asia/Shanghai
+    volumes:
+      - backups:/app/backup
+    depends_on:
+      mysql:
+        condition: service_healthy
+      database-init:
+        condition: service_completed_successfully
+volumes:
+  database:
+  backups:

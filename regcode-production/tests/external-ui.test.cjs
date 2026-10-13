@@ -7,26 +7,28 @@ const os=require('node:os');
 const http=require('node:http');
 const {spawn}=require('node:child_process');
 const assets=path.resolve(__dirname,'../app/src/main/assets/www');
+const workerAssets=path.resolve(__dirname,'../app/src/main/assets/worker');
 const edge='C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 // 真实浏览器只连接隔离静态页面，模拟原生桥；持久队列与HTTP协议由JVM测试分别验证。
 const fixture=`(function(){'use strict';
 const context={server:'https://www.nz315.cn',enterpriseId:1,deviceId:2,enterpriseName:'隔离厂家',lineName:'一号流水线'},q={ok:true,batch:null,selection:null,deviceContext:context,deviceBlocked:false,queueCounts:{waiting:0},batchCounts:{pending:0,completed:0},counts:{},recent:[]};
 const events=[],archived=[],online=!new URLSearchParams(location.search).has('offline');let armed=false,sequence=0;
 window.__captured=[];window.__nativeCalls=[];window.__archived=archived;
-window.Native={settings:()=>JSON.stringify({server:context.server,mode:'broadcast',stripTerminator:true}),requestId:()=>crypto.randomUUID(),deviceInfo:()=>JSON.stringify({hasCredential:true,registered:true}),queue:()=>JSON.stringify({ok:true,session:null}),capturing:value=>{armed=value;},externalQueue:()=>JSON.stringify(q),resumeUpload(){},confirmed(){},rejected(){},exit(){},exportBackup(){window.__backup=true;},
+window.Native={settings:()=>JSON.stringify({server:context.server,mode:'broadcast',stripTerminator:true}),requestId:()=>crypto.randomUUID(),deviceInfo:()=>JSON.stringify({hasCredential:true,registered:true}),queue:()=>JSON.stringify({ok:true,session:null}),capturing:value=>{armed=value;},externalQueue:()=>JSON.stringify(q),resumeUpload(){},confirmed(){},rejected(){},exit(){},exportBackup(){window.__backup=true;},openWorkerApp(){location.href='/worker/index.html';},openLegacyApp(){location.href='/index.html';},
 request(id,method,url){setTimeout(()=>window.NzApi.receive(id,online?{status:200,body:url==='/api/device/context'?{ok:true,device:{id:2,enterprise_id:1,line_name:context.lineName},user:{id:0,device_id:2,enterprise_id:1,role:'code_admin',name:'隔离厂家'}}:{rows:[],total:0}}:{status:0,error:'隔离断网'}),0);},
 prepareExternal(worker){worker=worker.trim();if(!worker||worker.length>64)return JSON.stringify({ok:false,error:'请填写64字以内的工号'});q.selection={...context,workerNo:worker};return JSON.stringify(q);},
 collectExternal(raw){window.__nativeCalls.push('external');if(!armed)return JSON.stringify({ok:false,error:'已暂停'});window.__captured.push(raw);if(!q.batch||q.batch.state!=='open'){sequence=0;q.batch={id:crypto.randomUUID(),state:'open',worker_no:q.selection.workerNo};q.counts={collected:0,accepted:0,localDuplicates:0,duplicates:0,rejected:0};q.recent=[];}const localKind=events.includes(raw)?'duplicate':'valid';events.push(raw);q.counts[localKind==='valid'?'collected':'localDuplicates']++;q.queueCounts.waiting++;const event={eventId:crypto.randomUUID(),sequence:++sequence,rawCode:raw,capturedAt:new Date().toISOString(),localKind};q.recent.unshift({event,localKind,receipt:null});return JSON.stringify({ok:true,event});},
 collect(){throw new Error('外部采集不能调用内部码解析');},finishExternal(){if(!q.batch||q.batch.state!=='open')return JSON.stringify({...q,finishRequested:false});q.batch.state='sealed';archived.push(q.batch.id);q.batchCounts.pending++;return JSON.stringify({...q,finishRequested:true});},uploadExternal:()=>JSON.stringify({ok:true,message:'正在补传'}),configure:()=>'',};
+window.WorkerNative={scanning(value){armed=value;},snapshot:()=>JSON.stringify({ok:true,identity:new URLSearchParams(location.search).has('worker')?{id:1,name:'隔离工人'}:null,device:{enterpriseName:context.enterpriseName,name:'隔离设备'},allWaiting:0,message:'隔离测试',history:[],openRuns:[],products:[],pools:[]}),backup(){window.__workerBackup=true;},upload(){},call(){throw Error('此网页测试不创建工人业务记录');}};
 })();`;
 async function delay(ms){await new Promise(resolve=>setTimeout(resolve,ms));}
-test('真实网页覆盖外部入口、工号、原文、固定批次、暂停与离线入口',{skip:!fs.existsSync(edge),timeout:30000},async()=>{
+test('真实网页覆盖双模式入口、工号、原文、固定批次、暂停与离线入口',{skip:!fs.existsSync(edge),timeout:30000},async()=>{
   const server=http.createServer((request,response)=>{
-    const name=new URL(request.url,'http://localhost').pathname.slice(1)||'index.html';
+    const requested=new URL(request.url,'http://localhost').pathname.slice(1)||'index.html',worker=requested.startsWith('worker/'),name=worker?requested.slice(7):requested;
     if(name==='mock-native.js'){response.setHeader('Content-Type','text/javascript');response.end(fixture);return;}
-    if(!['index.html','app.js','core.js','app.css','favicon.svg'].includes(name)){response.writeHead(404).end();return;}
+    if(!(worker?['index.html','worker.js','worker.css']:['index.html','app.js','core.js','app.css','favicon.svg']).includes(name)){response.writeHead(404).end();return;}
     response.setHeader('Content-Type',name.endsWith('.html')?'text/html; charset=utf-8':name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':'image/svg+xml');
-    let data=fs.readFileSync(path.join(assets,name));if(name==='index.html')data=data.toString().replace('<script src="core.js">','<script src="mock-native.js"></script><script src="core.js">');response.end(data);
+    let data=fs.readFileSync(path.join(worker?workerAssets:assets,name));if(name==='index.html')data=data.toString().replace(worker?'<script src="worker.js">':'<script src="core.js">',worker?'<script src="/mock-native.js"></script><script src="worker.js">':'<script src="mock-native.js"></script><script src="core.js">');response.end(data);
   });
   await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const origin='http://127.0.0.1:'+server.address().port;
   const profile=fs.mkdtempSync(path.join(os.tmpdir(),'nz315-external-ui-')),browser=spawn(edge,['--headless=new','--disable-gpu','--no-first-run','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{stdio:'ignore',windowsHide:true});
@@ -47,6 +49,10 @@ test('真实网页覆盖外部入口、工号、原文、固定批次、暂停�
     await evaluate('window.PDAScanAdapter.onScan('+JSON.stringify(raw)+')');assert.deepEqual(await evaluate('window.__captured'),[raw]);assert.equal(await evaluate('document.getElementById("externalRecent").textContent.includes('+JSON.stringify(raw)+')'),true);assert.equal(await evaluate('document.querySelector("#externalRecent script")===null'),true);
     const first=await evaluate('JSON.parse(Native.externalQueue()).batch.id');await evaluate('document.getElementById("externalFinish").click();window.PDAScanAdapter.onScan("0000002")');assert.notEqual(await evaluate('JSON.parse(Native.externalQueue()).batch.id'),first);assert.deepEqual(await evaluate('window.__archived'),[first]);
     await evaluate('window.App.lifecycle(false);window.PDAScanAdapter.onScan("暂停不能采集")');assert.equal(await evaluate('window.__captured.length'),2);await evaluate('window.App.lifecycle(true)');assert.equal(await evaluate('document.getElementById("externalToggle").textContent'), '开始连续采集');
+    await evaluate('document.getElementById("externalBack").click();document.getElementById("workerEntry").click()');await wait('!!document.getElementById("legacyEntry")');assert.equal(await evaluate('document.getElementById("main").textContent.includes("工人登录")'),true);
+    await evaluate('document.getElementById("legacyEntry").click()');await wait('!!document.getElementById("externalEntry")');
+    await command('Page.navigate',{url:origin+'/worker/index.html?worker=1'});await wait('!!document.getElementById("external")');assert.equal(await evaluate('document.getElementById("external").textContent'),'外码分类采集（个人账号）');assert.equal(await evaluate('document.getElementById("legacyEntry").textContent'),'外部原文采集与旧记录');
+    await evaluate('document.getElementById("history").click()');assert.equal(await evaluate('!!document.getElementById("legacyEntry")'),true);await evaluate('document.getElementById("backup").click()');assert.equal(await evaluate('window.__workerBackup'),true);
     await command('Page.navigate',{url:origin+'/index.html?offline=1'});await wait('!!document.getElementById("verifyDevice")');await evaluate('[...document.querySelectorAll("button")].find(x=>x.textContent==="外部采集（可离线）").click()');assert.equal(await evaluate('!!document.getElementById("externalWorker")'),true);assert.deepEqual(errors,[]);
   }finally{
     if(ws)ws.close();browser.kill();await new Promise(resolve=>server.close(resolve));

@@ -6,6 +6,7 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.os.Bundle;
 import com.regcode.collection.QueueStore;
+import com.regcode.collection.WorkerStore;
 import org.json.JSONObject;
 import org.json.JSONArray;
 import java.io.File;
@@ -69,7 +70,30 @@ public final class QueueStoreInstrumentation extends Instrumentation {
             check(stopped&&queue.current().getInt("final_seq")==3,"stop did not freeze final sequence");
             driver.close();driver=new QueueDatabase(isolated);queue=new QueueStore(driver);
             check("closing".equals(queue.current().getString("phase"))&&queue.pending(20).length()==2,"stopped pending queue did not recover");
+            WorkerVault vault=new WorkerVault(credentialPrefs);
+            long now=System.currentTimeMillis();String pool=UUID.randomUUID().toString();
+            JSONObject workerA=new JSONObject().put("identity",new JSONObject().put("id",1).put("name","甲").put("username","workerA").put("deviceId",10)).put("grantId","grant-A").put("grant","token-A").put("deviceFingerprint","device-test").put("issuedAt",now).put("expiresAt",now+72*3600000L);
+            JSONObject workerB=new JSONObject(workerA.toString()).put("identity",new JSONObject().put("id",2).put("name","乙").put("username","workerB").put("deviceId",10)).put("grantId","grant-B").put("grant","token-B");
+            vault.online(workerA,"native-password-A");vault.online(workerB,"native-password-B");vault.logout();
+            check(!credentialPrefs.getString("workerVault","").contains("native-password")&&!credentialPrefs.getString("workerVault","").contains("token-A"),"worker vault leaked credentials");
+            vault=new WorkerVault(credentialPrefs);vault.offline("workerA","native-password-A",now,10,"device-test");check(vault.current().getJSONObject("identity").getInt("id")==1,"first worker offline identity wrong");
+            boolean expired=false;try{vault.offline("workerB","native-password-B",now+73*3600000L,10,"device-test");}catch(Exception expected){expired=true;}check(expired,"expired offline authorization accepted");
+            boolean rotated=false;try{vault.offline("workerB","native-password-B",now,10,"new-device");}catch(Exception expected){rotated=true;}check(rotated,"old worker authorization accepted after device rotation");
+            vault.offline("workerB","native-password-B",now,10,"device-test");check(vault.grant("grant-A").equals("token-A"),"handover lost old upload grant");
+            WorkerStore workers=new WorkerStore(driver);
+            workers.stage("native-cache","products",new JSONArray().put(new JSONObject().put("id",1).put("name","test")));
+            workers.stage("native-cache","pools",new JSONArray().put(new JSONObject().put("id",pool).put("product_id",1).put("state","ready")));
+            String codeB="00000000000000000000000000000002";
+            workers.stage("native-cache","codes",new JSONArray().put(new JSONObject().put("pool_id",pool).put("code",code).put("state","reserved")).put(new JSONObject().put("pool_id",pool).put("code",codeB).put("state","reserved")));
+            workers.commitCache(new JSONObject().put("id","native-cache").put("expiresAt",now+72*3600000L).put("products",1).put("pools",1).put("codes",2));
+            JSONObject context=new JSONObject().put("mode","production").put("productId",1).put("poolId",pool).put("batchNo","NATIVE").put("produceDate","2026-10-12").put("expireDate","2027-10-12");
+            String workerRun=workers.start(context,workerA,now).getString("id");String firstEvent=workers.capture(code,workerA,now+1).getString("eventId");workers.handover(1);workers.start(context,workerB,now+2);workers.capture(codeB,workerB,now+3);
+            check(workers.sessions().length()==2&&workers.snapshot(2).getJSONObject("counts").getInt("collected")==2,"worker handover changed counts");
+            driver.close();driver=new QueueDatabase(isolated);workers=new WorkerStore(driver);check(workerRun.equals(workers.currentRun().getString("id")),"worker run not durable");check(firstEvent.equals(workers.pending(workers.sessions().getJSONObject(0).getString("id"),20).getJSONObject(0).getString("eventId")),"retry event ID changed");
+            java.io.ByteArrayOutputStream workerBackup=new java.io.ByteArrayOutputStream();workers.backup(workerBackup,1);JSONObject ownBackup=new JSONObject(workerBackup.toString("UTF-8"));check(ownBackup.getJSONArray("events").length()==1&&!workerBackup.toString("UTF-8").contains("token-A"),"worker backup scope or secrets wrong");
+            vault.revokeCurrent();vault.logout();boolean revoked=false;try{vault.offline("workerB","native-password-B",now,10,"device-test");}catch(Exception expected){revoked=true;}check(revoked,"revoked worker authorization remained offline usable");
             result.putString("result","NATIVE_SQLITE_AND_KEYSTORE_PASSED: encrypted durable credential, response retry, credential rotation, initialization, durable transactions, leading zeros, URL dedupe, anomalies, reopen, partial receipts, complete backup, closing recovery");
+            result.putString("workerResult","NATIVE_WORKERS_PASSED: dynamic handover, two encrypted offline accounts, expiry, device rotation, durable events, own backup, revocation");
             outcome=Activity.RESULT_OK;
         }catch(Throwable error){android.util.Log.e("NZ315NativeTest","Native SQLite test failed",error);result.putString("result","NATIVE_SQLITE_FAILED: "+error);}
         finally{if(driver!=null)driver.close();testFile.delete();getTargetContext().deleteSharedPreferences(credentialTestName);try{java.security.KeyStore keys=java.security.KeyStore.getInstance("AndroidKeyStore");keys.load(null);keys.deleteEntry(credentialTestName);}catch(Exception ignored){}}
