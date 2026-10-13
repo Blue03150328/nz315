@@ -1,4 +1,4 @@
-import {lockMonitoredTask} from './production-monitor'
+import {lockMonitoredTask,completeMonitoredTask} from './production-monitor'
 import { createHash, randomUUID } from 'node:crypto'
 import type { AuthUser } from './auth'
 import { productionReviewer, transaction } from './production-task'
@@ -25,6 +25,10 @@ export async function deleteProductionTasks(user: AuthUser, input: unknown) {
     if (!inScope(tasks)) fail('所选任务不存在或不属于本企业', 404)
     const targets = tasks.filter(t => t.status !== 'deleted')
     for (const task of targets) {
+      // 旧版本可能已有完整结束标记却仍为进行中；只按实际收齐信号自动确认，不能人工提前结束。
+      if(task.status==='active'&&task.workflow==='line-team'&&await completeMonitoredTask(conn,task,user.id)){
+        const [[finished]]=await conn.query<any[]>('SELECT * FROM production_task WHERE id=?',[task.id]);Object.assign(task,finished)
+      }
       const [[usage]]=await conn.query<any[]>('SELECT (SELECT COUNT(*) FROM worker_run WHERE task_id=?)+(SELECT COUNT(*) FROM production_collection_session WHERE task_id=?)+(SELECT COUNT(*) FROM production_task_code WHERE task_id=?)+(SELECT COUNT(*) FROM production_collection_upload WHERE task_id=?) AS n',[task.id,task.id,task.id,task.id]);const empty=task.status==='active'&&!Number(usage.n)
       if (!empty&&(!['completed', 'approved'].includes(task.status) || !task.ended_at || (task.workflow === 'line-team' && !task.records_confirmed_at))) {
         fail(`任务“${task.name}”尚未结束或记录未确认收齐，请等待设备完整结束并同步`)
