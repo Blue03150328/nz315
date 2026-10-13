@@ -1,6 +1,6 @@
 import { workerTracePreview } from '../utils/worker-production'
 // 扫码查询接口（H5）：/trace?code=xxx —— 真实查询链路（PRD 5.9）
-// 流程：格式校验 → 查 trace_code → 写扫码日志(scan_log) → 异常判定（作废/冻结优先）→ 联查产品/批次 → 返回展示数据
+// 流程：按网址分类 → 校验及查实际生产记录 → 未生产提示 / 已生产查询日志与异常判定 → 返回展示数据
 import { query, execute } from '../utils/db'
 import { clientIpOf } from '../utils/audit'
 import { backfillScanGeo, peekIpGeo } from '../utils/ip-geo'
@@ -10,6 +10,7 @@ import { lookupRegistryByCode } from '../utils/registry-lookup'
 import { collectSourceSnapshot } from '../utils/source-snapshot'
 import { allowRequest } from '../utils/rate-limit'
 import { extractTraceCode } from '#shared/utils/trace-code'
+import { internalTraceCodeOf, isTraceWebsiteUrl } from '#shared/utils/internal-trace-url'
 import { chinaDate, effectiveProduction, isExpired } from '#shared/utils/production-info'
 import type { TraceOutcome, TraceResultType } from '#shared/types/trace'
 
@@ -39,7 +40,9 @@ export default defineEventHandler(async (event) => {
   setHeader(event, 'Cache-Control', 'no-store')
   let code = String(getQuery(event).code || '')
   const sourceUrl = String(getQuery(event).source || '').trim()
-  const canFetch = /^https?:\/\//i.test(sourceUrl) && sourceUrl.length <= 2048
+  const internalCode = internalTraceCodeOf(sourceUrl, String(useRuntimeConfig().public.traceBaseUrl))
+  const hasSourceUrl = /^https?:\/\//i.test(sourceUrl)
+  const canFetch = hasSourceUrl && !isTraceWebsiteUrl(sourceUrl, String(useRuntimeConfig().public.traceBaseUrl)) && sourceUrl.length <= 2048
   let sourceSnapshot: Awaited<ReturnType<typeof collectSourceSnapshot>> | undefined
   const collect = async () => {
     let platform: string | undefined
@@ -47,6 +50,7 @@ export default defineEventHandler(async (event) => {
     if (!allowRequest('source-scan:' + clientIpOf(event), 20, 60000) || !allowRequest('source-scan-global', 60, 60000)) return { fetchedAt: new Date().toISOString(), parserVersion: '', status: 'unavailable' as const, message: '来源查询过于频繁，请稍后重试', comparisons: [], saved: false, sourceUrl, platform }
     return collectSourceSnapshot(sourceUrl, code)
   }
+  if (!code && internalCode) code = internalCode
   if (!code && canFetch) {
     // 先从来源网址提码，避免外页抓取失败连带短路登记资料比对。
     code = extractTraceCode(sourceUrl)
@@ -58,6 +62,16 @@ export default defineEventHandler(async (event) => {
   // 基础响应
   const baseOutcome = { code, formattedCode: fmt(code), formatValid }
 
+  if (internalCode && internalCode !== code) {
+    return { ...baseOutcome, resultType: 'not-found', status: null, abnormalFlag: 0,
+      queryCount: 0, firstQuery: false, recentScans: [],
+      reasons: ['扫码网址中的追溯码与查询码不一致，请重新扫码'], generatedReport: null } satisfies TraceOutcome
+  }
+
+  const pendingOutcome = (): TraceOutcome => ({ ...baseOutcome, resultType: 'internal-pending',
+    status: null, abnormalFlag: 0, queryCount: 0, firstQuery: false, recentScans: [],
+    reasons: ['农资315内部码尚无生产记录'], generatedReport: null })
+
   // 1) 格式校验：非 32 位数字 → 查无此码
   if (!formatValid) {
     const out: TraceOutcome = {
@@ -68,9 +82,12 @@ export default defineEventHandler(async (event) => {
     return out
   }
 
-  // 2) 查码：本平台签发的追溯码优先
-  const [tc] = await query<any[]>('SELECT * FROM trace_code WHERE code = ? LIMIT 1', [code])
+  // 2) 网址决定内外分类；纯数字手输保留查库兼容，外站网址不因同码值转成内部码。
+  const [tc] = !hasSourceUrl || internalCode
+    ? await query<any[]>('SELECT * FROM trace_code WHERE code = ? LIMIT 1', [code]) : []
   if (!tc) {
+    // 只识别网址，不创建码或生产记录，也不把本站页面当外站抓取。
+    if (internalCode) return pendingOutcome()
     // 2.1) 非本平台码 → 登记资料库（pesticide_reg）兜底比对（2026-09-22）
     // 消费者扫到的码大多不是本平台签发的，只回「未查询到」等于什么都没告诉他；
     // 32 位单元识别码是全国统一结构，前 8 位（类别+登记证后六位+生产类型）可直接与
@@ -111,6 +128,12 @@ export default defineEventHandler(async (event) => {
     }
     return out
   }
+
+  // 生成留档不是已生产；实际采集绑定或工人有效采集的资料才用于正常展示。
+  const [productionBatch] = Number(tc.abnormal_flag) === 0 && tc.batch_id ? await query<any[]>('SELECT * FROM batch WHERE id = ? LIMIT 1', [tc.batch_id]) : []
+  const batchInfo = Number(tc.abnormal_flag) === 0
+    ? (productionBatch ? effectiveProduction(tc, productionBatch) : await workerTracePreview(Number(tc.id))) : undefined
+  if (!batchInfo && Number(tc.abnormal_flag) === 0) return pendingOutcome()
 
   // 3) 写扫码日志（扫码不改变码状态，仅记录；PRD 5.9 H5 业务规则2）
   // 已登录消费者的扫码归属到本人，支撑个人中心「我的查询记录」；未登录时 consumer_id 为空，不影响任何原有逻辑
@@ -163,7 +186,6 @@ export default defineEventHandler(async (event) => {
   const [prod] = tc.product_id ? await query<any[]>(
     `SELECT p.*, s.spec_name, s.net_content, s.content_unit, s.pack_unit
      FROM product p LEFT JOIN product_spec s ON p.spec_id = s.id WHERE p.id = ? LIMIT 1`, [tc.product_id]) : []
-  const [batch] = tc.batch_id ? await query<any[]>('SELECT * FROM batch WHERE id = ? LIMIT 1', [tc.batch_id]) : []
   // 原药（母药）信息多行（product_original 表，复配产品可多条；1049 制剂展示用）
   const originals = tc.product_id ? await query<any[]>(
     `SELECT po.reg_no, po.company, COALESCE(po.ingredient, pr.ingredient_main, pr.product_name) AS ingredient
@@ -186,10 +208,6 @@ export default defineEventHandler(async (event) => {
     labelImage: prod.label_image || '',
     manualImage: prod.manual_image || '',
   } : undefined
-
-  // 批次信息展示：单码字段修正只写 trace_code 覆盖列（produce_date/quality_cert_no/expire_date/qc_result），
-  // 扫码展示 COALESCE 优先码级值（批次码明细单行修改功能，2026-09-04），未覆盖时回退批次级数据
-  const batchInfo = batch ? effectiveProduction(tc, batch) : await workerTracePreview(Number(tc.id))
 
   const status: 'bound' | 'generated' = Number(tc.status) === 2 ? 'bound' : 'generated'
 
@@ -237,7 +255,7 @@ export default defineEventHandler(async (event) => {
     return out
   }
 
-  // 10) 正常结果（已绑定完整展示 / 已生成提示未绑定）
+  // 10) 正常结果（正式绑定或工人已采集，保留真实生产与质检状态）
   const out: TraceOutcome = {
     ...baseOutcome, resultType: 'genuine', status, abnormalFlag: 0,
     queryCount, firstQuery, product, batch: batchInfo || null, recentScans: scans,

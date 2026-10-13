@@ -30,7 +30,7 @@ const navigateRaw = (raw: string) => {
   const code = extractTraceCode(raw)
   if (!/^\d{32}$/.test(code) && !isHttpUrl(raw)) return false
   const query = new URLSearchParams({ code })
-  if (isHttpUrl(raw)) query.set('source', raw.trim())
+  query.set('source', raw.trim())
   router.push('/trace?' + query.toString())
   return true
 }

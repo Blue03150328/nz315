@@ -73,5 +73,26 @@ try {
     const outsider = await user('enterprise_admin', other.insertId), otherCookie = (await request('/api/auth/login', '', { username: outsider.username, password })).cookie
     assert.equal((await request('/api/admin/external-collections/' + sessionId, otherCookie)).status, 404)
   })
+  await check('按网址识别未入库内部码，管理投影保留原文且不虚构生产记录', async () => {
+    const nextRun = randomUUID(), nextSession = randomUUID()
+    const codes = ['00000000000000000000000000000011', '00000000000000000000000000000012', '00000000000000000000000000000013']
+    ok(await request('/api/device/worker-sessions', secret, { runId: nextRun, sessionId: nextSession, context: { mode: 'external' }, grant: grant.grant, startedAt: new Date().toISOString() }))
+    const rawCodes = ['https://www.nz315.cn/trace?code=' + codes[0], 'https://outside.test/trace?code=' + codes[1], codes[2]]
+    const incoming = rawCodes.map((rawCode, i) => ({ eventId: randomUUID(), sequence: i + 1, rawCode, kind: 'valid', capturedAt: new Date().toISOString() }))
+    const receipts = ok(await request('/api/device/worker-sessions/' + nextSession + '/events', secret, { events: incoming })).receipts
+    assert.deepEqual(receipts.map(x => x.classification), ['internal', 'external', 'unparsed'])
+    assert.deepEqual(receipts.map(x => x.state), ['saved', 'saved', 'saved'])
+    const detail = ok(await request('/api/admin/external-collections/' + nextSession, cookie))
+    assert.equal(detail.batch.accepted_count, 3)
+    assert.deepEqual(detail.rows.map(x => x.raw_code), rawCodes)
+    const [[stored]] = await db.query('SELECT COUNT(*) AS n FROM trace_code WHERE code IN (?,?,?)', codes)
+    assert.equal(stored.n, 0)
+    const pending = ok(await request('/api/trace?' + new URLSearchParams({ code: codes[0], source: rawCodes[0] })))
+    assert.equal(pending.resultType, 'internal-pending')
+    const cached = ok(await request('/api/device/worker-cache?kind=products&workflow=line', secret))
+    assert.equal(cached.traceBaseUrl, 'https://www.nz315.cn/trace?code=')
+    ok(await request('/api/device/worker-sessions/' + nextSession + '/complete', secret, { lastSequence: 3, stoppedAt: new Date().toISOString() }))
+    ok(await request('/api/device/worker-runs/' + nextRun + '/complete', secret, { sessions: [{ id: nextSession, lastSequence: 3 }] }))
+  })
   console.log('工人外码管理对接：' + checks + '组真实接口通过')
 } finally { await db.end() }
