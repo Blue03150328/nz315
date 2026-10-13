@@ -1,6 +1,21 @@
 package com.regcode.collection;
 import org.json.*;import org.junit.Test;import static org.junit.Assert.*;import java.util.*;import java.io.*;
 public class WorkerStoreTest {
+ @Test public void externalTxtPreservesRawUrlsAndOfflineRecords()throws Exception{try(QueueStoreTest.Jdbc db=new QueueStoreTest.Jdbc(":memory:")){
+  WorkerStore w=new WorkerStore(db);JSONObject r=w.start(new JSONObject().put("mode","external"),profile(1),1);
+  String raw=" https://vendor.example/full/path?other=value&code="+A+"&keep=中文#section ";
+  w.capture(raw,profile(1),2);w.capture("https://different.example/?id="+A,profile(1),3);
+  String multiline="原始内容\r\n第二行&key=value";w.capture(multiline,profile(1),4);w.capture(multiline,profile(1),5);
+  JSONObject exported=w.externalExport(r.getString("id"),1);assertEquals(2,exported.getInt("count"));assertEquals(raw+"\r\n"+multiline+"\r\n",exported.getString("text"));
+  assertEquals(4,w.snapshot(1).getLong("allWaiting"));assertThrows(Exception.class,()->w.externalExport(r.getString("id"),2));
+  w.finish(1);assertEquals(exported.toString(),w.externalExport(r.getString("id"),1).toString());
+ }}
+ @Test public void externalExportRejectsProductionAndKeepsWorkerScope()throws Exception{try(QueueStoreTest.Jdbc db=new QueueStoreTest.Jdbc(":memory:")){
+  WorkerStore w=ready(db);JSONObject production=w.start(context(),profile(1),1);assertThrows(Exception.class,()->w.externalExport(production.getString("id"),1));w.finish(1);
+  JSONObject run=w.start(new JSONObject().put("mode","external"),profile(1),2);w.capture("worker-one-url",profile(1),3);w.handover(1);w.resume(run.getString("id"),profile(2),4);w.capture("worker-two-url",profile(2),5);
+  assertEquals("worker-one-url\r\n",w.externalExport(run.getString("id"),1).getString("text"));assertEquals("worker-two-url\r\n",w.externalExport(run.getString("id"),2).getString("text"));
+  assertTrue(w.snapshot(1).getJSONArray("history").getJSONObject(0).has("startedAt"));
+ }}
  static final String A="00000000000000000000000000000001",B="00000000000000000000000000000002",POOL=UUID.randomUUID().toString();
  static JSONObject profile(int id){return new JSONObject().put("identity",new JSONObject().put("id",id).put("name","worker"+id).put("deviceId",10)).put("grantId","grant"+id);}
  static JSONObject context(){return new JSONObject().put("mode","production").put("productId",1).put("poolId",POOL).put("batchNo","A").put("produceDate","2026-10-12").put("expireDate","2027-10-12");}

@@ -27,6 +27,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.io.OutputStream;
 import com.regcode.collection.QueueStore;
+import com.regcode.collection.ProductionExportName;
 import com.regcode.collection.ExternalQueueStore;
 
 /** 基于来件的WebView和PDA广播接入，页面收口为联网生产扫码。 */
@@ -76,7 +77,7 @@ public class MainActivity extends Activity {
                 if (code == null && action != null && action.equals(preferences.getString("action", ""))) code = intent.getStringExtra(preferences.getString("extra", "scannerdata"));
                 if (code != null && !code.trim().isEmpty()) {
                     // 原始码经过JSON编码，禁止用字符串拼接把二维码文本当成脚本执行。
-                    evaluate("window.PDAScanAdapter&&window.PDAScanAdapter.onScan(" + JSONObject.quote(scanPayload(code)) + "," + JSONObject.quote(action) + ")");
+                    evaluate("window.PDAScanAdapter&&window.PDAScanAdapter.onScan(" + JSONObject.quote(page.endsWith("/worker/index.html")?code:scanPayload(code)) + "," + JSONObject.quote(action) + ")");
                 }
             } catch (RuntimeException ignored) { notifyText("扫码广播数据格式不正确，请核对设备输出设置"); }
         }
@@ -332,7 +333,18 @@ public class MainActivity extends Activity {
             evaluate("window.WorkerApi&&window.WorkerApi.receive("+JSONObject.quote(id)+","+result+")");
         });}
         @JavascriptInterface public void backup(){try{final long user=workerEngine.userId();runOnUiThread(()->{if(choosingBackup)return;workerBackupUser=user;workerBackup=true;openDocument(BACKUP_DOCUMENT,"application/json","nz315-worker-backup-"+System.currentTimeMillis()+".json");});}catch(Exception e){notifyText(e.getMessage());}}
-        @JavascriptInterface public void txt(String runId){workerEngine.async(()->{try{JSONObject current=workerEngine.snapshot();boolean production=false;JSONArray history=current.getJSONArray("history");for(int i=0;i<history.length();i++){JSONObject row=history.getJSONObject(i);if(runId.equals(row.getString("id"))&&"production".equals(row.getString("mode")))production=true;}pendingExport=production?workerEngine.exportProduction(runId):workerEngine.download(runId);runOnUiThread(()->openDocument(WORKER_TEXT,"text/plain","nz315-records-"+runId+".txt"));}catch(Exception e){notifyText(e.getMessage());}});}
+        @JavascriptInterface public void txt(String runId){workerEngine.async(()->{
+            try{
+                JSONObject current=workerEngine.snapshot(),record=null;JSONArray history=current.getJSONArray("history");
+                for(int i=0;i<history.length();i++){JSONObject row=history.getJSONObject(i);if(runId.equals(row.getString("id")))record=row;}
+                if(record==null)throw new Exception("未找到本人的采集记录");
+                boolean production="production".equals(record.getString("mode"));
+                JSONObject external=production?null:workerEngine.exportExternal(runId);
+                String text=production?workerEngine.exportProduction(runId):external.getString("text");
+                String name=production?ProductionExportName.create(record.getJSONObject("context"),current.getJSONObject("identity"),runId,System.currentTimeMillis()):ProductionExportName.external(current.getJSONObject("identity"),runId,external.getInt("count"),System.currentTimeMillis());
+                runOnUiThread(()->{if(choosingBackup)return;pendingExport=text;openDocument(WORKER_TEXT,"text/plain",name);});
+            }catch(Exception e){notifyText(e.getMessage());}
+        });}
     }
     @SuppressWarnings("deprecation") private void openDocument(int request,String type,String name){if(choosingBackup)return;try{choosingBackup=true;startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(type).putExtra(Intent.EXTRA_TITLE,name),request);}catch(RuntimeException e){choosingBackup=false;notifyText("文件保存界面不可用，本机记录保留");}}
 }

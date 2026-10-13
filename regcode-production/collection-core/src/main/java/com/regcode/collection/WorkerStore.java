@@ -123,7 +123,7 @@ public final class WorkerStore {
  public synchronized JSONObject snapshot(long userId)throws Exception{
   JSONObject out=new JSONObject().put("run",currentRun()==null?JSONObject.NULL:currentRun()).put("cache",new JSONObject(meta("cache","{}"))).put("products",catalog("products")).put("pools",catalog("pools"));
   JSONArray open=new JSONArray();for(JSONObject row:db.rows("SELECT id FROM ww_run WHERE state='open' AND EXISTS(SELECT 1 FROM ww_session s WHERE s.run_id=ww_run.id AND s.user_id=?) ORDER BY rowid DESC",userId))open.put(run(row.getString("id")));out.put("openRuns",open);
-  JSONArray history=new JSONArray();for(JSONObject row:db.rows("SELECT DISTINCT r.id FROM ww_run r JOIN ww_session s ON s.run_id=r.id WHERE s.user_id=? ORDER BY r.rowid DESC LIMIT 50",userId))history.put(run(row.getString("id")).put("summary",runSummary(row.getString("id"),userId)));out.put("history",history);
+  JSONArray history=new JSONArray();for(JSONObject row:db.rows("SELECT r.id,MIN(s.started_at) AS started_at,MAX(s.stopped_at) AS stopped_at FROM ww_run r JOIN ww_session s ON s.run_id=r.id WHERE s.user_id=? GROUP BY r.id ORDER BY r.rowid DESC LIMIT 50",userId))history.put(run(row.getString("id")).put("summary",runSummary(row.getString("id"),userId)).put("startedAt",row.get("started_at")).put("stoppedAt",row.get("stopped_at")));out.put("history",history);
   String runId=meta("currentRun","");JSONObject counts=db.rows("SELECT COUNT(*) AS total,COALESCE(SUM(kind='valid' AND (receipt IS NULL OR result='saved')),0) AS collected,COALESCE(SUM(receipt IS NULL),0) AS waiting,COALESCE(SUM(result='saved'),0) AS saved,COALESCE(SUM((kind='duplicate' OR result='duplicate') AND (result IS NULL OR result<>'exception')),0) AS duplicates,COALESCE(SUM(kind='invalid' OR result='exception'),0) AS exceptions FROM ww_event WHERE run_id=?",runId).get(0);
   out.put("counts",counts).put("allWaiting",db.rows("SELECT COUNT(*) AS n FROM ww_event WHERE receipt IS NULL").get(0).getLong("n"));JSONArray recent=new JSONArray();for(JSONObject e:db.rows("SELECT e.payload,e.receipt FROM ww_event e JOIN ww_session s ON s.id=e.session_id WHERE e.run_id=? AND s.user_id=? ORDER BY e.rowid DESC LIMIT 30",runId,userId))recent.put(new JSONObject().put("event",new JSONObject(e.getString("payload"))).put("receipt",e.isNull("receipt")?JSONObject.NULL:new JSONObject(e.getString("receipt"))));return out.put("recent",recent);
  }
@@ -138,6 +138,17 @@ public final class WorkerStore {
     JSONArray events=new JSONArray();for(JSONObject e:db.rows("SELECT payload FROM ww_event WHERE session_id=? ORDER BY seq",s.getString("id")))events.put(new JSONObject(e.getString("payload")));
     result.put(new JSONObject().put("grantId",s.getString("grant_id")).put("sessionId",s.getString("id")).put("startedAt",s.getString("started_at")).put("stoppedAt",s.isNull("stopped_at")?JSONObject.NULL:s.getString("stopped_at")).put("finalSequence",s.isNull("final_seq")?JSONObject.NULL:s.getInt("final_seq")).put("run",new JSONObject().put("id",runId).put("context",r.getJSONObject("context")).put("sealed",!"open".equals(r.getString("state"))).put("sessions",manifest)).put("events",events));
    }if(result.length()==0)throw new Exception("只能导出自己的工人记录");return result;
+  });
+ }
+ /** 本机原文导出独立于上传收据，只读取本人外码记录，原文不缩减为码值。 */
+ public synchronized JSONObject externalExport(String runId,long userId)throws Exception{
+  return db.transaction(()->{
+   JSONObject r=run(runId);if(r==null||!"external".equals(r.getString("mode")))throw new Exception("请选择外码采集记录");
+   if(db.rows("SELECT id FROM ww_session WHERE run_id=? AND user_id=? LIMIT 1",runId,userId).isEmpty())throw new Exception("只能导出本人的外码记录");
+   LinkedHashMap<String,String> unique=new LinkedHashMap<>();
+   for(JSONObject row:db.rows("SELECT e.dedup,e.payload FROM ww_event e JOIN ww_session s ON s.id=e.session_id WHERE e.run_id=? AND s.user_id=? AND e.kind='valid' ORDER BY e.rowid",runId,userId))unique.putIfAbsent(row.getString("dedup"),new JSONObject(row.getString("payload")).getString("rawCode"));
+   StringBuilder text=new StringBuilder();for(String raw:unique.values())text.append(raw).append("\r\n");
+   return new JSONObject().put("text",text.toString()).put("count",unique.size());
   });
  }
  public synchronized void backup(OutputStream output,long userId)throws Exception{

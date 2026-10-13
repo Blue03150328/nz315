@@ -14,10 +14,16 @@ export function activationServer(event: any) {
 export function deviceManager(user: AuthUser) { if (!['enterprise_admin','platform_admin'].includes(user.role) || user.device_id) fail('仅厂家管理员和总部管理员可管理设备',403) }
 function scope(user: AuthUser, row: any) { if (!row || (user.role !== 'platform_admin' && Number(row.enterprise_id) !== Number(user.enterprise_id))) fail('设备不存在或不属于本企业',404) }
 const text = (value: any, label: string) => { if (typeof value !== 'string' || !value.trim() || value.trim().length > 100) fail(label+'请填写1至100字',400); return value.trim() }
-// 列表统计与设备改派守卫共用状态范围，避免工人采集仍占用时列表显示为零。
+// 列表和设备改派共用判断；完整结束的旧审核批次不再算作未上传，保留审核与码占用。
 const optionalActiveSources = [
-  { table: 'worker_pool', condition: "state IN ('ready','active','review')", field: 'worker_active_pools' },
-  { table: 'worker_run', condition: "state='active'", field: 'worker_active_runs' },
+  { table: 'worker_pool', condition: `state IN ('ready','active') OR (state='review' AND NOT EXISTS (
+      SELECT 1 FROM worker_run wr WHERE wr.pool_id=worker_pool.id AND wr.state='sealed'
+      AND EXISTS (SELECT 1 FROM worker_session s WHERE s.run_id=wr.id)
+      AND NOT EXISTS (SELECT 1 FROM worker_session s WHERE s.run_id=wr.id
+        AND (s.state<>'completed' OR s.final_sequence IS NULL OR s.final_sequence<>s.last_sequence))
+    ))`, field: 'worker_active_pools' },
+  { table: 'worker_run', condition: `state='active' OR EXISTS (SELECT 1 FROM worker_session s WHERE s.run_id=worker_run.id
+      AND (s.state<>'completed' OR s.final_sequence IS NULL OR s.final_sequence<>s.last_sequence))`, field: 'worker_active_runs'  },
   { table: 'external_collection_batch', condition: "state='active'", field: 'external_active_batches' },
 ] as const
 async function activeCount(conn: any, id: number) {
@@ -25,7 +31,7 @@ async function activeCount(conn: any, id: number) {
   let active = Number(r.n)
   for (const source of optionalActiveSources) {
     try {
-      const [[row]] = await conn.query(`SELECT COUNT(*) AS n FROM ${source.table} WHERE device_id=? AND ${source.condition}`, [id])
+      const [[row]] = await conn.query(`SELECT COUNT(*) AS n FROM ${source.table} WHERE device_id=? AND (${source.condition})`, [id])
       active += Number(row.n)
     } catch (error: any) {
       // 旧库尚未安装可选采集模块时仍可管理原设备；其他数据库错误必须报出。
@@ -52,7 +58,7 @@ export async function listDevices(user: AuthUser) {
     countsBySource.set(source.field, counts)
     if (rows.length) {
       try {
-        const sourceRows = await query<any[]>(`SELECT device_id,COUNT(*) AS n FROM ${source.table} WHERE ${source.condition} AND device_id IN (?) GROUP BY device_id`, [rows.map(row => Number(row.id))])
+        const sourceRows = await query<any[]>(`SELECT device_id,COUNT(*) AS n FROM ${source.table} WHERE (${source.condition}) AND device_id IN (?) GROUP BY device_id`, [rows.map(row => Number(row.id))])
         for (const row of sourceRows) counts.set(Number(row.device_id), Number(row.n))
       } catch (error: any) {
         // 缺少可选模块沿用原设备列表，查询错误不冒充零个未结束采集。
@@ -117,7 +123,7 @@ export async function changeDevice(user: AuthUser,id: number,body: any,server: s
       if(!row.credential_hash)fail('设备尚未激活，请生成激活二维码')
       await conn.execute("UPDATE production_device SET status='enabled' WHERE id=?",[id]);await audit(conn,id,user.id,action,{})
     }else if(action==='delete'){
-      if(await activeCount(conn,id))fail('有未结束采集，请同步全部记录并结束后再删除')
+      if(await activeCount(conn,id))fail('还有未结束的采集或待处理的旧预配码，请同步并结束采集、处理预配码后再删除')
       await conn.execute("UPDATE production_device SET status='deleted',deleted_at=NOW(),credential_hash=NULL,instance_id=NULL WHERE id=?",[id])
       await conn.execute('UPDATE production_device_activation SET revoked_at=NOW() WHERE device_id=? AND revoked_at IS NULL',[id])
       await audit(conn,id,user.id,action,{})
