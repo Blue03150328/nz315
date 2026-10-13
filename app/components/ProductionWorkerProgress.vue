@@ -1,24 +1,29 @@
 <script setup lang="ts">
-const props=defineProps<{taskId:number}>()
-const {canManageUsers}=useUser(),toast=useToast()
-async function resolve(event:any,action:string){const reason=prompt(action==='bind'?'确认此件已投产，按该工人本次产品和生产资料绑定。请填写核对依据：':'确认此件未投入生产，保留原文和核对记录。请填写核对依据：');if(!reason?.trim())return;try{await $fetch(`/api/admin/production-tasks/${props.taskId}/worker-exceptions`,{method:'POST',body:{eventId:event.id,action,reason}});await refresh()}catch(e:any){toast.add({title:e?.data?.statusMessage||'核对未确认，请重试',color:'error'})}}
-const userId=ref(0),page=ref(1),state=ref('')
+const props=defineProps<{taskId:number}>(),{user}=useUser()
+const userId=ref(0),page=ref(1),state=ref(''),keyword=ref('')
 const {data,pending,error,refresh}=await useFetch<any>(()=>`/api/admin/production-tasks/${props.taskId}/worker-progress`,{query:{userId,page,state}})
 watch([userId,state],()=>{page.value=1})
-const clock=(ms:any,fallback:any)=>ms?new Date(Number(ms)).toLocaleString('sv-SE',{timeZone:'Asia/Shanghai',hour12:false}):(fallback||'-')
-const captureTime=(v:any)=>v?new Date(String(v).replace(' ','T')+'Z').toLocaleString('sv-SE',{timeZone:'Asia/Shanghai',hour12:false}):'-'
+const obj=(v:any)=>typeof v==='string'?JSON.parse(v):v||{}
+const clock=(v:any)=>v?new Date(Number(v)).toLocaleString('sv-SE',{timeZone:'Asia/Shanghai',hour12:false}):'-'
 const labels:Record<string,string>={saved:'已生产',duplicate:'重复',exception:'异常'}
+const columns=[{key:'device_name',label:'设备',width:150},{key:'username',label:'员工工号',width:130},{key:'worker_name',label:'员工姓名',width:130},{key:'product_name',label:'产品',width:240},{key:'trademark',label:'商标',width:130},{key:'content',label:'成分含量',width:140},{key:'dosage',label:'剂型',width:120},{key:'spec_name',label:'规格',width:120},{key:'registration_no',label:'登记证号',width:150},{key:'batchNo',label:'生产批号',width:150},{key:'produceDate',label:'生产日期',width:130},{key:'expireDate',label:'有效期至',width:130},{key:'local_valid',label:'本机有效码',width:130},{key:'cloud_valid',label:'云端有效码',width:130},{key:'cloud_duplicate',label:'云端重复码',width:130},{key:'cloud_exception',label:'云端异常码',width:130},{key:'local_duplicate',label:'本机重复码',width:130},{key:'local_exception',label:'本机异常码',width:130},{key:'local_pending',label:'待上传',width:120},{key:'started',label:'开始时间',width:200},{key:'stopped',label:'停止时间',width:200},{key:'liveState',label:'采集状态',width:170},{key:'lastSeen',label:'最近上报',width:200},{key:'actions',label:'操作',width:130}]
+const records=computed(()=>(data.value?.sessions||[]).map((s:any)=>{const identity=obj(s.identity_json),context=obj(s.context_json);return {...s,username:identity.username,worker_name:identity.name,...context,started:clock(s.started_ms),stopped:clock(s.stopped_ms),lastSeen:clock(s.heartbeat_ms),local_pending:s.state==='completed'?0:s.local_pending??'未上报',liveState:s.run_state==='sealed'&&s.state==='completed'?'已结束':s.state==='completed'?'待结束同步':!s.heartbeat_ms||Date.now()-Number(s.heartbeat_ms)>=90000?'离线／状态未知':s.capture_state==='running'?'采集中':s.capture_state==='paused'?'已暂停':'已结束待同步'}}).filter((r:any)=>(!userId.value||Number(r.user_id)===userId.value)&&(!keyword.value||[r.worker_name,r.username,r.device_name,r.product_name,r.trademark,r.batchNo].some(v=>String(v||'').includes(keyword.value.trim())))))
+const events=computed(()=>(data.value?.events||[]).map((e:any)=>({...e,result:labels[e.result_state],captureTime:new Date(String(e.captured_at).replace(' ','T')+'Z').toLocaleString('sv-SE',{timeZone:'Asia/Shanghai',hour12:false})})))
+const eventColumns=[{key:'code',label:'追溯码',width:300},{key:'raw_code',label:'扫码原文',width:500},{key:'result',label:'结果',width:120},{key:'reason',label:'原因',width:400},{key:'worker_name',label:'员工姓名',width:130},{key:'device_name',label:'设备',width:130},{key:'captureTime',label:'采集时间',width:200},{key:'received_at',label:'上传时间',width:200}]
+let timer:ReturnType<typeof setInterval>|undefined
+function startRefresh(){clearInterval(timer);timer=setInterval(()=>{if(document.visibilityState==='visible')void refresh()},10000)}
+onMounted(startRefresh)
+onActivated(startRefresh)
+onDeactivated(()=>{clearInterval(timer);timer=undefined})
+onBeforeUnmount(()=>clearInterval(timer))
 </script>
-<template>
- <div class="space-y-4">
-  <div class="flex justify-between"><h3 class="font-semibold">员工进度 · {{ data?.task?.lineName }}</h3><UButton variant="outline" :loading="pending" @click="refresh()">刷新</UButton></div>
-  <p class="text-sm text-muted">显示服务器已收到的记录；离线记录自动上传或TXT导入后补齐。员工可以更换设备和生产线。</p>
-  <p v-if="error" class="text-error">加载失败，请重试。</p><p v-else-if="!data?.rows?.length">暂无带工人身份的采集记录。</p>
-  <div class="overflow-x-auto"><table class="b-table"><thead><tr><th>员工 / 工号</th><th>有效生产</th><th>重复</th><th>异常</th><th>设备数量</th><th>最后上传 / 状态</th><th>操作</th></tr></thead><tbody><tr v-for="r in data?.rows||[]" :key="r.user_id"><td>{{ r.name }} / {{ r.username }}</td><td>{{ r.collected }}</td><td>{{ r.duplicates }}</td><td>{{ r.exceptions }}</td><td>{{ r.devices }}</td><td>{{ clock(r.last_uploaded_ms,r.last_uploaded) }}<br>{{ r.active_sessions ? '采集或待结束同步' : '本机采集已结束' }}</td><td><UButton variant="outline" size="sm" @click="userId=Number(r.user_id)">查看详情</UButton></td></tr></tbody></table></div>
-  <p v-if="data?.legacyRecords" class="text-sm text-muted">另有 {{ data.legacyRecords }} 条历史设备记录，未记录真实工人身份，保留在原设备采集明细中。</p>
-  <template v-if="userId"><div class="flex flex-wrap items-center gap-3"><h4>员工扫码详情</h4><select v-model="state" class="rounded border p-2"><option value="">全部</option><option v-for="(label,key) in labels" :key="key" :value="key">{{ label }}</option></select><UButton variant="outline" @click="userId=0">收起详情</UButton></div>
-   <div class="overflow-x-auto"><table class="b-table"><thead><tr><th>追溯码 / 原文</th><th>结果 / 原因</th><th>员工 / 设备</th><th>采集 / 上传时间</th><th>异常核对</th></tr></thead><tbody><tr v-for="e in data?.events||[]" :key="e.id"><td class="max-w-md break-all">{{ e.code||'-' }}<br>{{ e.raw_code }}</td><td>{{ labels[e.result_state] }}<br>{{ e.reason||'-' }}</td><td>{{ e.worker_name }} / {{ e.device_name }}</td><td>{{ captureTime(e.captured_at) }}<br>{{ e.received_at }}</td><td><span v-if="e.resolution_state">{{ e.resolution_state==='unused'?'确认未投产':e.resolution_state==='bound'?'核对后已绑定':'核对为重复' }}：{{ e.resolution_reason }}</span><div v-else-if="canManageUsers&&e.result_state==='exception'"><UButton v-if="e.code" size="sm" variant="outline" @click="resolve(e,'bind')">确认已投产</UButton><UButton size="sm" color="warning" variant="outline" @click="resolve(e,'unused')">确认未投产</UButton></div><span v-else>-</span></td></tr></tbody></table></div>
-   <div class="flex gap-3"><UButton :disabled="page<=1||pending" variant="outline" @click="page--">上一页</UButton><span>第 {{ page }} 页，共 {{ data?.total||0 }} 条</span><UButton :disabled="page*100>=(data?.total||0)||pending" variant="outline" @click="page++">下一页</UButton></div>
-  </template>
- </div>
-</template>
+<template><div class="space-y-4">
+ <div class="flex flex-wrap items-center gap-3 justify-between"><h3 class="font-semibold">设备与员工进度 · {{ data?.task?.lineName }}</h3><UButton variant="outline" :loading="pending" @click="refresh()">刷新</UButton></div>
+ <div class="flex flex-wrap gap-4"><span v-for="(label,key) in {runningDevices:'运行',pausedDevices:'暂停',offlineDevices:'离线',pendingDevices:'待同步',endedDevices:'已结束'}" :key="key">{{ label }} <strong>{{ data?.monitor?.[key]||0 }}</strong></span></div>
+ <div class="flex gap-3"><UInput v-model="keyword" placeholder="查询工号、姓名、设备、产品或批号" class="min-w-80"/><UButton v-if="userId" variant="outline" @click="userId=0">全部员工</UButton></div>
+ <p class="text-sm text-muted">一行对应一名工人的一次采集。本机数量来自最近心跳，云端数量以服务器收到的记录为准。设备离线时数量可能尚未更新。</p>
+ <p v-if="error" class="text-error">加载失败，请重试。</p>
+ <ProductionGrid :columns="columns" :rows="records" row-key="session_id" :storage-key="'production-worker-columns:'+user?.id"><template #cell-actions="{row}"><UButton variant="outline" size="xs" @click="userId=Number(row.user_id)">扫码详情</UButton></template></ProductionGrid>
+ <p v-if="data?.legacyRecords" class="text-sm text-muted">另有 {{ data.legacyRecords }} 条历史设备记录未记录个人工号，原记录保留。</p>
+ <template v-if="userId"><div class="flex gap-3 items-center"><h4>员工扫码详情</h4><select v-model="state" class="rounded border p-2"><option value="">全部结果</option><option v-for="(label,key) in labels" :key="key" :value="key">{{ label }}</option></select></div><ProductionGrid :columns="eventColumns" :rows="events" row-key="id" :storage-key="'production-event-columns:'+user?.id"/><div class="flex gap-3"><UButton :disabled="page<=1||pending" variant="outline" @click="page--">上一页</UButton><span>第 {{ page }} 页，共 {{ data?.total||0 }} 条</span><UButton :disabled="page*100>=(data?.total||0)||pending" variant="outline" @click="page++">下一页</UButton></div></template>
+</div></template>

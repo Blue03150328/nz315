@@ -1,3 +1,4 @@
+import {lockMonitoredTask,completeMonitoredTask} from './production-monitor'
 import { lineCache, openLineSession, lineEvent, offlineExportKey } from './line-production'
 import { randomBytes, randomUUID, createHash } from 'node:crypto'
 import type { AuthUser } from './auth'
@@ -61,12 +62,14 @@ export async function workerCache(device:AuthUser,params:any){
  let snapshot:any
  if(params.id){[snapshot]=await query<any[]>('SELECT * FROM worker_cache WHERE id=? AND device_id=? AND expires_at>?',[String(params.id),device.device_id,Date.now()]);if(!snapshot)fail('缓存快照已过期，请重新下载',410)}
  else {
-  const products=await query<any[]>('SELECT p.id,p.name,p.registration_no,p.reg_category,p.produce_type,p.shelf_life,p.spec_id,s.spec_name,s.spec_code FROM product p LEFT JOIN product_spec s ON s.id=p.spec_id WHERE p.enterprise_id=? AND p.status=1 ORDER BY p.id',[device.enterprise_id])
+  const products=await query<any[]>('SELECT p.id,p.name,p.trademark,p.content,p.dosage,p.registration_no,p.reg_category,p.produce_type,p.shelf_life,p.spec_id,s.spec_name,s.spec_code FROM product p LEFT JOIN product_spec s ON s.id=p.spec_id WHERE p.enterprise_id=? AND p.status=1 ORDER BY p.id',[device.enterprise_id])
   for(const product of products)product.code_head=headOf(product)
   const pools=await query<any[]>("SELECT id,product_id,state FROM worker_pool WHERE device_id=? AND state IN ('ready','active') ORDER BY created_at",[device.device_id])
   const codes=await query<any[]>("SELECT c.pool_id,c.code,c.state,p.product_id FROM worker_pool_code c JOIN worker_pool p ON p.id=c.pool_id WHERE p.device_id=? AND p.state IN ('ready','active') ORDER BY p.id,c.code_id",[device.device_id])
   if(params.workflow==='line'){const line=await lineCache(device);pools.splice(0,pools.length,...line.pools);codes.splice(0,codes.length,...line.codes)}
-  snapshot={id:randomUUID(),created_at:Date.now(),expires_at:Date.now()+72*3600000,data_json:{products,pools,codes,stockVersion:params.workflow==='line'?2:0}}
+  const lines=await query<any[]>("SELECT DISTINCT line_name FROM production_task WHERE enterprise_id=? AND workflow='line-team' AND line_name<>'' AND status<>'deleted' UNION SELECT line_name FROM production_line_runtime WHERE enterprise_id=? ORDER BY line_name",[device.enterprise_id,device.enterprise_id]);
+  if(params.workflow==='line'&&params.monitor==='1')for(const line of lines)if(!pools.some(p=>p.line_name===line.line_name&&p.autoLine))pools.push({id:'auto:'+line.line_name,line_name:line.line_name,task_name:line.line_name,task_id:0,autoLine:true});
+  snapshot={id:randomUUID(),created_at:Date.now(),expires_at:Date.now()+72*3600000,data_json:{products,pools,codes,stockVersion:params.workflow==='line'?(params.monitor==='1'?3:2):0}}
   await execute('INSERT INTO worker_cache(id,device_id,created_at,expires_at,data_json) VALUES(?,?,?,?,?)',[snapshot.id,device.device_id,snapshot.created_at,snapshot.expires_at,JSON.stringify(snapshot.data_json)])
  }
  const data=json(snapshot.data_json),kind=['products','pools','codes'].includes(params.kind)?params.kind:'products',offset=Math.max(0,Number(params.offset)||0),limit=kind==='codes'?1000:200,rows=data[kind].slice(offset,offset+limit)
@@ -133,6 +136,7 @@ export async function syncWorkerEvents(device:AuthUser,sessionId:string,body:any
    await lockProductionDevice(conn,device)
    const [[seed]]=await conn.query<any[]>('SELECT r.* FROM worker_run r JOIN worker_session s ON s.run_id=r.id WHERE s.id=? AND s.device_id=?',[sessionId,device.device_id]);if(!seed)fail('工人采集会话不存在',404)
    if(seed.product_id)await conn.query('SELECT id FROM product WHERE id=? FOR UPDATE',[seed.product_id])
+   if(seed.task_id)await lockMonitoredTask(conn,Number(seed.task_id))
    const [[run]]=await conn.query<any[]>('SELECT * FROM worker_run WHERE id=? FOR UPDATE',[seed.id]),[[s]]=await conn.query<any[]>('SELECT * FROM worker_session WHERE id=? FOR UPDATE',[sessionId])
    const [[prior]]=await conn.query<any[]>('SELECT * FROM worker_event WHERE session_id=? AND sequence_no=?',[sessionId,event.sequence])
    if(prior){if(prior.id!==event.eventId||prior.payload_hash!==hash(event))fail('相同事件标识或序号包含不同内容');return eventReceipt(prior)}
@@ -168,8 +172,10 @@ export async function syncWorkerEvents(device:AuthUser,sessionId:string,body:any
 }
 function eventReceipt(e:any){return {eventId:e.id,sequence:Number(e.sequence_no),code:e.code||null,state:e.result_state,classification:e.classification||null,reason:e.reason}}
 export async function finishWorkerSession(device:AuthUser,id:string,body:any){return transaction(async conn=>{
- await lockProductionDevice(conn,device);const [[s]]=await conn.query<any[]>('SELECT * FROM worker_session WHERE id=? AND device_id=? FOR UPDATE',[collectionId(id),device.device_id]);if(!s)fail('会话不存在',404)
+ await lockProductionDevice(conn,device);const [[seed]]=await conn.query<any[]>('SELECT r.* FROM worker_run r JOIN worker_session s ON s.run_id=r.id WHERE s.id=? AND s.device_id=?',[collectionId(id),device.device_id]);if(!seed)fail('会话不存在',404);if(seed.product_id)await conn.query('SELECT id FROM product WHERE id=? FOR UPDATE',[seed.product_id]);if(seed.task_id)await lockMonitoredTask(conn,Number(seed.task_id));
+ const [[s]]=await conn.query<any[]>('SELECT * FROM worker_session WHERE id=? AND device_id=? FOR UPDATE',[id,device.device_id]);
  if(!Number.isSafeInteger(body.lastSequence)||Number(s.last_sequence)!==body.lastSequence)fail('尚有未收到的采集记录，不能结束')
+ if(Number(s.reported_sequence||0)>body.lastSequence)fail('设备上报还有未收到的采集记录，不能结束')
  const [[run]]=await conn.query<any[]>('SELECT * FROM worker_run WHERE id=?',[s.run_id])
  if(s.final_sequence!=null&&Number(s.final_sequence)!==body.lastSequence)fail('结束序号不一致')
  const stop=body.stoppedAt?new Date(String(body.stoppedAt)):null
@@ -182,11 +188,12 @@ export async function finishWorkerSession(device:AuthUser,id:string,body:any){re
  await conn.execute("UPDATE worker_session SET state='completed',final_sequence=?,stopped_at=COALESCE(stopped_at,?),stopped_ms=COALESCE(stopped_ms,?),completed_at=COALESCE(completed_at,NOW(3)) WHERE id=?",[body.lastSequence,stop,stop?.getTime()??null,id]);await projectWorkerCodeUsage(conn,id);await audit(conn,{...device,id:s.user_id},'handover',s.run_id,{sessionId:id,lastSequence:body.lastSequence});return {ok:true,sessionId:id,lastSequence:body.lastSequence}
 })}
 export async function finishWorkerRun(device:AuthUser,id:string,body:any){return transaction(async conn=>{
- await lockProductionDevice(conn,device);const [[run]]=await conn.query<any[]>('SELECT * FROM worker_run WHERE id=? AND device_id=? FOR UPDATE',[collectionId(id),device.device_id]);if(!run)fail('批次不存在',404)
+ await lockProductionDevice(conn,device);const [[seed]]=await conn.query<any[]>('SELECT * FROM worker_run WHERE id=? AND device_id=?',[collectionId(id),device.device_id]);if(!seed)fail('批次不存在',404);if(seed.product_id)await conn.query('SELECT id FROM product WHERE id=? FOR UPDATE',[seed.product_id]);const task=seed.task_id?await lockMonitoredTask(conn,Number(seed.task_id)):null;const [[run]]=await conn.query<any[]>('SELECT * FROM worker_run WHERE id=? FOR UPDATE',[id]);
  const [sessions]=await conn.query<any[]>('SELECT * FROM worker_session WHERE run_id=? FOR UPDATE',[id]),given=body.sessions
- if(!Array.isArray(given)||given.length!==sessions.length||sessions.some(s=>s.state!=='completed'||!given.some(g=>g.id===s.id&&g.lastSequence===Number(s.last_sequence))))fail('全部工人记录及结束序号尚未确认，不能释放余码')
+ if(!Array.isArray(given)||given.length!==sessions.length||sessions.some(s=>s.state!=='completed'||s.final_sequence==null||Number(s.final_sequence)!==Number(s.last_sequence)||!given.some(g=>g.id===s.id&&g.lastSequence===Number(s.last_sequence))))fail('全部工人记录及结束序号尚未确认，不能释放余码')
  if(run.state==='active'){await conn.execute("UPDATE worker_run SET state='sealed',ended_at=NOW(),final_sessions=? WHERE id=?",[JSON.stringify(given),id]);if(run.pool_id)await conn.execute("UPDATE worker_pool SET state='review' WHERE id=?",[run.pool_id]);await audit(conn,device,'end_batch',id,{sessions:given})}
- return {ok:true,runId:id,state:'sealed'}
+ const taskEnded=await completeMonitoredTask(conn,task,Number(sessions[0]?.user_id||0));
+ return {ok:true,runId:id,state:'sealed',taskEnded}
 })}
 export async function workerAdminList(user:AuthUser,params:any){
  deviceManager(user);const conds=['1=1'],args:any[]=[]
@@ -224,6 +231,7 @@ async function allRunsSealed(conn:PoolConnection,r:any){
 }
 export async function reviewWorkerRun(user:AuthUser,id:string,body:any){deviceManager(user);return transaction(async conn=>{
  const [[seed]]=await conn.query<any[]>('SELECT * FROM worker_run WHERE id=?',[collectionId(id)]);scope(user,seed);if(seed.product_id)await conn.query('SELECT id FROM product WHERE id=? FOR UPDATE',[seed.product_id])
+   if(seed.task_id)await lockMonitoredTask(conn,Number(seed.task_id))
  const [[run]]=await conn.query<any[]>('SELECT * FROM worker_run WHERE id=? FOR UPDATE',[collectionId(id)]);scope(user,run);await allRunsSealed(conn,run)
  if(run.mode!=='production')fail('外码采集不涉及生产审核')
  const reason=String(body.reason||'').trim().slice(0,500)
@@ -277,4 +285,16 @@ export async function exportWorkerTxt(user:AuthUser,id:string,classification?:st
  const rows=await query<any[]>(`SELECT e.raw_code FROM worker_event e JOIN worker_session s ON s.id=e.session_id WHERE ${conds.join(' AND ')} ORDER BY e.received_at,e.sequence_no`,args)
  await execute('INSERT INTO worker_audit(enterprise_id,actor_id,run_id,action,detail) VALUES(?,?,?,?,?)',[r.enterprise_id,user.id,id,'export_txt',JSON.stringify({classification:classification||'all',count:rows.length})])
  return '\uFEFF'+rows.map(e=>String(e.raw_code).replace(/\r/g,'\\r').replace(/\n/g,'\\n')).join('\r\n')+(rows.length?'\r\n':'')
+}
+
+export async function workerHeartbeat(device:AuthUser,id:string,body:any){
+ collectionId(id);const version=Number(body.version),sequence=Number(body.sequence),values=['valid','duplicate','exception','pending'].map(k=>Number(body[k]));
+ if(!Number.isSafeInteger(version)||version<=0||!Number.isSafeInteger(sequence)||sequence<0||values.some(n=>!Number.isSafeInteger(n)||n<0||n>1000000000)||(values[0]! + values[1]! + values[2]!) !== sequence||values[3]!>sequence||!['running','paused','ended'].includes(body.state))fail('设备状态格式无效',400)
+ return transaction(async conn=>{
+  await lockProductionDevice(conn,device);const [[seed]]=await conn.query<any[]>('SELECT r.* FROM worker_run r JOIN worker_session s ON s.run_id=r.id WHERE s.id=? AND s.device_id=?',[id,device.device_id]);if(!seed)fail('采集会话不存在',404);if(seed.task_id)await lockMonitoredTask(conn,Number(seed.task_id));
+  const [[s]]=await conn.query<any[]>('SELECT * FROM worker_session WHERE id=? FOR UPDATE',[id]);if(s.state==='completed'||version<=Number(s.report_version))return {ok:true,ignored:true};
+  const [[u]]=await conn.query<any[]>('SELECT u.status,u.role,u.enterprise_id,u.session_epoch,g.user_version FROM worker_grant g JOIN user u ON u.id=g.user_id WHERE g.id=?',[s.grant_id]);if(!u||u.status!==1||u.role!=='production_operator'||Number(u.enterprise_id)!==Number(device.enterprise_id)||u.session_epoch!==u.user_version)fail('工人权限已失效，请重新登录',403);
+  if(sequence<Number(s.last_sequence)||sequence<Number(s.reported_sequence||0))return {ok:true,ignored:true};
+  await conn.execute('UPDATE worker_session SET heartbeat_ms=?,report_version=?,capture_state=?,reported_sequence=?,local_valid=?,local_duplicate=?,local_exception=?,local_pending=? WHERE id=?',[Date.now(),version,body.state,sequence,...values,id]);return {ok:true,serverTime:Date.now()}
+ })
 }

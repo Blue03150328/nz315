@@ -79,16 +79,16 @@ async function activation(conn: any,id: number,user: AuthUser,server: string) {
   if(row.deleted_at)fail('已删除设备不能激活，请新建登记')
   const token=randomBytes(32).toString('hex')
   await conn.execute('UPDATE production_device_activation SET revoked_at=NOW() WHERE device_id=? AND revoked_at IS NULL',[id])
-  await conn.execute('INSERT INTO production_device_activation(device_id,token_hash,expires_at,created_by) VALUES (?,?,DATE_ADD(NOW(),INTERVAL 10 MINUTE),?)',[id,deviceHash(token),user.id])
+  await conn.execute('INSERT INTO production_device_activation(device_id,token_hash,expires_at,created_by) VALUES (?,?,DATE_ADD(NOW(),INTERVAL 5 MINUTE),?)',[id,deviceHash(token),user.id])
   await conn.execute("UPDATE production_device SET status='pending',credential_hash=NULL,instance_id=NULL,reported_pending=NULL WHERE id=?",[id])
   await audit(conn,id,user.id,'activation',{})
-  return {ok:true,id,activationCode:'NZ315-DEVICE:'+Buffer.from(JSON.stringify({v:1,server,token})).toString('base64url'),expiresIn:600}
+  return {ok:true,id,activationCode:'NZ315-DEVICE:'+Buffer.from(JSON.stringify({v:1,server,token})).toString('base64url'),expiresIn:300}
 }
 export async function addDevice(user: AuthUser, body: any, server: string) {
   deviceManager(user)
   const enterpriseId=user.role==='platform_admin'?Number(body.enterpriseId):Number(user.enterprise_id)
   if(!Number.isSafeInteger(enterpriseId)||enterpriseId<=0)fail('请选择已入驻企业',400)
-  const name=text(body.name,'设备名称'),line=text(body.lineName,'生产线')
+  const name=text(body.name,'设备名称'),line=''
   return transaction(async conn=>{
     const [[ent]]=await conn.query<any[]>('SELECT id,status FROM enterprise WHERE id=?',[enterpriseId]);if(!ent||Number(ent.status)!==1)fail('企业不存在或已停用',400)
     const [r]:any=await conn.execute('INSERT INTO production_device(enterprise_id,name,line_name,created_by) VALUES (?,?,?,?)',[enterpriseId,name,line,user.id])
@@ -105,10 +105,10 @@ export async function changeDevice(user: AuthUser,id: number,body: any,server: s
     const action=String(body.action||'')
     if(action==='activate')return activation(conn,id,user,server)
     if(action==='edit'){
-      const name=text(body.name,'设备名称'),line=text(body.lineName,'生产线'),enterpriseId=user.role==='platform_admin'?Number(body.enterpriseId):Number(user.enterprise_id)
+      const name=text(body.name,'设备名称'),line='',enterpriseId=user.role==='platform_admin'?Number(body.enterpriseId):Number(user.enterprise_id)
       if(!Number.isSafeInteger(enterpriseId)||enterpriseId<=0)fail('所属企业无效',400)
-      const changed=enterpriseId!==Number(row.enterprise_id)||line!==row.line_name
-      if(changed&&await activeCount(conn,id))fail('有未结束采集，请同步并结束后再调换公司或生产线')
+      const changed=enterpriseId!==Number(row.enterprise_id)
+      if(changed&&await activeCount(conn,id))fail('有未结束采集，请同步并结束后再调换公司')
       const [[ent]]=await conn.query<any[]>('SELECT id,status FROM enterprise WHERE id=?',[enterpriseId]);if(!ent||Number(ent.status)!==1)fail('企业不存在或已停用',400)
       if(enterpriseId!==Number(row.enterprise_id)){
         await conn.execute("UPDATE production_device SET enterprise_id=?,name=?,line_name=?,status='pending',credential_hash=NULL,instance_id=NULL WHERE id=?",[enterpriseId,name,line,id])

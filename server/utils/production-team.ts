@@ -1,3 +1,4 @@
+import {taskMonitorRows,monitorSummary,lineName as canonicalLineName} from './production-monitor'
 import {createHash,randomUUID} from 'node:crypto'
 import type {AuthUser} from './auth'
 import {query} from './db'
@@ -23,9 +24,10 @@ export async function teamOptions(user:AuthUser,keyword=''){
 }
 export async function createTeamTask(user:AuthUser,body:any){
  if(!productionReviewer(user))fail('仅管理员可创建生产线任务和安排人员',403)
- const name=String(body.name||'').trim(),lineName=String(body.lineName||'').trim(),sourceId=Number(body.sourceUploadBatchId||0),requestId=String(body.requestId||'')
+ const name=String(body.name||'').trim(),lineName=canonicalLineName(body.lineName),sourceId=Number(body.sourceUploadBatchId||0),requestId=String(body.requestId||'')
  if(!name||name.length>100||!lineName||lineName.length>100||!Number.isSafeInteger(sourceId)||sourceId<0||!/^[-a-f0-9]{36}$/i.test(requestId))fail('请填写任务名称、生产线和操作员',400)
- if(!Array.isArray(body.operatorIds)||!body.operatorIds.length)fail('请选择生产操作员',400)
+ if(!Array.isArray(body.operatorIds))body.operatorIds=[]
+ if(sourceId&&!body.operatorIds.length)fail('历史码文件任务须选择生产操作员',400)
  const hash=createHash('sha256').update(JSON.stringify({name,lineName,sourceId,...(!sourceId?{enterpriseId:body.enterpriseId||null}:{}),operatorIds:[...new Set(body.operatorIds.map(Number))].sort()})).digest('hex')
  return transaction(async conn=>{
   const [[prior]]=await conn.query<any[]>('SELECT id,request_hash FROM production_task WHERE created_by=? AND request_id=?',[user.id,requestId]);if(prior){if(prior.request_hash!==hash)fail('同一提交标识内容发生变化');return {ok:true,id:prior.id,duplicate:true}}
@@ -33,8 +35,11 @@ export async function createTeamTask(user:AuthUser,body:any){
    const enterpriseId=user.role==='platform_admin'?Number(body.enterpriseId):Number(user.enterprise_id)
    if(!Number.isSafeInteger(enterpriseId)||enterpriseId<=0)fail('请选择生产线所属厂家',400)
    const [[enterprise]]=await conn.query<any[]>('SELECT id,status FROM enterprise WHERE id=? FOR UPDATE',[enterpriseId]);if(!enterprise||enterprise.status!==1)fail('厂家不存在或已停用',400)
-   const ids=await members(conn,user,enterpriseId,body.operatorIds)
+   const ids=body.operatorIds.length?await members(conn,user,enterpriseId,body.operatorIds):[]
+   const lineKey=createHash('sha256').update(lineName.normalize('NFKC').replace(/\s+/g,' ').toLowerCase()).digest('hex');await conn.execute('INSERT IGNORE INTO production_line_runtime(enterprise_id,line_key,line_name) VALUES(?,?,?)',[enterpriseId,lineKey,lineName]);await conn.query('SELECT line_key FROM production_line_runtime WHERE enterprise_id=? AND line_key=? FOR UPDATE',[enterpriseId,lineKey]);
+   const [[active]]=await conn.query<any[]>("SELECT id FROM production_task WHERE enterprise_id=? AND line_name=? AND workflow='line-team' AND product_id IS NULL AND status='active' FOR UPDATE",[enterpriseId,lineName]);if(active)fail('这条生产线已有进行中任务，工人可直接加入');
    const [created]:any=await conn.execute("INSERT INTO production_task(enterprise_id,product_id,batch_id,name,line_name,request_id,request_hash,created_by,workflow) VALUES(?,NULL,NULL,?,?,?,?,?,'line-team')",[enterpriseId,name,lineName,requestId,hash,user.id])
+   await conn.execute('UPDATE production_line_runtime SET current_task_id=? WHERE enterprise_id=? AND line_key=?',[created.insertId,enterpriseId,lineKey]);
    for(const id of ids)await conn.execute('INSERT INTO production_task_member(task_id,user_id) VALUES(?,?)',[created.insertId,id])
    await conn.execute("INSERT INTO production_task_change(task_id,actor_id,action,request_id,request_hash,detail) VALUES(?,?,'create',?,?,?)",[created.insertId,user.id,requestId,hash,JSON.stringify({operatorIds:ids,productChosenByWorker:true})])
    return {ok:true,id:created.insertId,total:0}
@@ -57,7 +62,7 @@ export async function createTeamTask(user:AuthUser,body:any){
 export async function teamTasks(user:AuthUser,q:any={}){
  const page=Math.max(1,Number(q.page)||1),size=20,conds:string[]=["t.status<>'deleted'"],args:any[]=[]
  if(user.role!=='platform_admin'){conds.push('t.enterprise_id=?');args.push(user.enterprise_id)}
- if(q.keyword){conds.push("(t.name LIKE ? OR t.line_name LIKE ? OR u.file_name LIKE ? OR p.name LIKE ? OR p.registration_no LIKE ? OR EXISTS(SELECT 1 FROM production_task_member m JOIN user op ON op.id=m.user_id WHERE m.task_id=t.id AND (op.name LIKE ? OR op.username LIKE ?)))");args.push(...Array(7).fill('%'+String(q.keyword).trim()+'%'))}
+ if(q.keyword){conds.push("(t.name LIKE ? OR t.line_name LIKE ? OR u.file_name LIKE ? OR p.name LIKE ? OR p.registration_no LIKE ? OR EXISTS(SELECT 1 FROM production_task_member m JOIN user op ON op.id=m.user_id WHERE m.task_id=t.id AND (op.name LIKE ? OR op.username LIKE ?)) OR EXISTS(SELECT 1 FROM worker_run kr LEFT JOIN product kp ON kp.id=kr.product_id LEFT JOIN production_device kd ON kd.id=kr.device_id JOIN worker_session ks ON ks.run_id=kr.id WHERE kr.task_id=t.id AND (kp.name LIKE ? OR kp.trademark LIKE ? OR kp.registration_no LIKE ? OR JSON_UNQUOTE(JSON_EXTRACT(kr.context_json,'$.batchNo')) LIKE ? OR kd.name LIKE ? OR JSON_UNQUOTE(JSON_EXTRACT(ks.identity_json,'$.name')) LIKE ? OR JSON_UNQUOTE(JSON_EXTRACT(ks.identity_json,'$.username')) LIKE ?)))");args.push(...Array(14).fill('%'+String(q.keyword).trim()+'%'))}
  if(q.lineName){conds.push('t.line_name=?');args.push(String(q.lineName))}
  if(q.status==='history')conds.push("t.workflow<>'line-team'")
  else if(q.status&&q.status!=='all'){conds.push("t.workflow='line-team' AND t.status=?");args.push(String(q.status))}
@@ -66,9 +71,10 @@ export async function teamTasks(user:AuthUser,q:any={}){
  if(q.dateTo){const time=Date.parse(String(q.dateTo)+'T00:00:00+08:00');if(!Number.isFinite(time))fail('查询结束日期无效',400);conds.push('UNIX_TIMESTAMP(t.created_at)<?');args.push(time/1000+86400)}
  const where=conds.length?' WHERE '+conds.join(' AND '):''
  const [count]=await query<any[]>('SELECT COUNT(*) AS n FROM production_task t LEFT JOIN product p ON p.id=t.product_id LEFT JOIN upload_batch u ON u.id=t.source_upload_id'+where,args)
- const rows=await query<any[]>(`SELECT t.*,(SELECT GROUP_CONCAT(DISTINCT sp.name SEPARATOR ' / ') FROM worker_run sr JOIN product sp ON sp.id=sr.product_id WHERE sr.task_id=t.id AND sr.mode='production') AS actual_product_names,p.name AS product_name,p.registration_no,spec.spec_name AS product_spec_name,u.file_name,(SELECT COUNT(*) FROM production_task_code d WHERE d.task_id=t.id) AS total,(SELECT COUNT(*) FROM production_task_code d WHERE d.task_id=t.id AND d.state='used') AS collected,(SELECT COUNT(*) FROM worker_event e JOIN worker_session s ON s.id=e.session_id JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=t.id AND e.result_state='duplicate') AS duplicates,(SELECT COUNT(*) FROM worker_event e JOIN worker_session s ON s.id=e.session_id JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=t.id AND e.result_state='exception') AS exceptions,(SELECT MIN(s.started_at) FROM worker_session s JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=t.id) AS started_at,(SELECT MAX(s.stopped_at) FROM worker_session s JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=t.id) AS stopped_at,(SELECT MIN(s.started_ms) FROM worker_session s JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=t.id) AS started_ms,(SELECT MAX(s.stopped_ms) FROM worker_session s JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=t.id) AS stopped_ms,(SELECT COUNT(*) FROM worker_session s JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=t.id AND s.state<>'completed') AS active_sessions FROM production_task t LEFT JOIN product p ON p.id=t.product_id LEFT JOIN product_spec spec ON spec.id=p.spec_id LEFT JOIN upload_batch u ON u.id=t.source_upload_id${where} ORDER BY t.id DESC LIMIT ? OFFSET ?`,[...args,size,(page-1)*size])
+ const rows=await query<any[]>(`SELECT t.*,(SELECT GROUP_CONCAT(DISTINCT sp.name SEPARATOR ' / ') FROM worker_run sr JOIN product sp ON sp.id=sr.product_id WHERE sr.task_id=t.id AND sr.mode='production') AS actual_product_names,p.name AS product_name,p.registration_no,spec.spec_name AS product_spec_name,u.file_name,(SELECT COUNT(*) FROM production_task_code d WHERE d.task_id=t.id) AS total,(SELECT COUNT(*) FROM production_task_code d WHERE d.task_id=t.id AND d.state='used') AS collected,(SELECT COUNT(*) FROM worker_event e JOIN worker_session s ON s.id=e.session_id JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=t.id AND e.result_state='duplicate') AS duplicates,(SELECT COUNT(*) FROM worker_event e JOIN worker_session s ON s.id=e.session_id JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=t.id AND e.result_state='exception') AS exceptions,(SELECT MIN(s.started_at) FROM worker_session s JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=t.id) AS started_at,(SELECT MAX(s.stopped_at) FROM worker_session s JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=t.id) AS stopped_at,(SELECT MIN(s.started_ms) FROM worker_session s JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=t.id) AS started_ms,(SELECT MAX(s.stopped_ms) FROM worker_session s JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=t.id) AS stopped_ms,(SELECT COUNT(*) FROM worker_session s JOIN worker_run r ON r.id=s.run_id WHERE r.task_id=t.id AND s.state<>'completed') AS active_sessions,(SELECT COUNT(*) FROM worker_run ar WHERE ar.task_id=t.id)+(SELECT COUNT(*) FROM production_collection_session ls WHERE ls.task_id=t.id) AS registered_runs FROM production_task t LEFT JOIN product p ON p.id=t.product_id LEFT JOIN product_spec spec ON spec.id=p.spec_id LEFT JOIN upload_batch u ON u.id=t.source_upload_id${where} ORDER BY t.id DESC LIMIT ? OFFSET ?`,[...args,size,(page-1)*size])
  if(rows.length){const ids=rows.map(t=>t.id),people=await query<any[]>('SELECT m.task_id,m.user_id,m.removed_at,op.name,op.username FROM production_task_member m JOIN user op ON op.id=m.user_id WHERE m.task_id IN (?) ORDER BY op.name',[ids]),counts=await query<any[]>("SELECT r.task_id,s.user_id,SUM(e.result_state='saved' OR e.resolution_state='bound') AS collected,SUM(e.result_state='duplicate') AS duplicates,SUM(e.result_state='exception') AS exceptions,MIN(s.started_at) AS started_at,MAX(s.stopped_at) AS stopped_at,MIN(s.started_ms) AS started_ms,MAX(s.stopped_ms) AS stopped_ms,COUNT(DISTINCT CASE WHEN s.state<>'completed' THEN s.id END) AS active_sessions FROM worker_run r JOIN worker_session s ON s.run_id=r.id LEFT JOIN worker_event e ON e.session_id=s.id WHERE r.task_id IN (?) GROUP BY r.task_id,s.user_id",[ids]);for(const row of rows)row.operators=people.filter(p=>Number(p.task_id)===Number(row.id)).map(p=>({...p,...counts.find(c=>Number(c.task_id)===Number(p.task_id)&&Number(c.user_id)===Number(p.user_id))}))}
- return {rows:rows.map(t=>({...t,can_delete:productionReviewer(user)&&['completed','approved'].includes(t.status)&&!!t.ended_at&&Number(t.active_sessions)===0})),total:Number(count.n),page,pageSize:size}
+ const monitored=await taskMonitorRows(rows.map(t=>Number(t.id)),false);for(const row of rows)row.monitor=monitorSummary(monitored.filter(m=>Number(m.task_id)===Number(row.id)));
+ return {rows:rows.map(t=>({...t,can_delete:productionReviewer(user)&&((['completed','approved'].includes(t.status)&&!!t.ended_at)||(t.status==='active'&&Number(t.registered_runs)===0&&Number(t.total)===0))&&Number(t.active_sessions)===0})),total:Number(count.n),page,pageSize:size}
 }
 export async function updateTeamTask(user:AuthUser,id:number,body:any){
  if(!productionReviewer(user))fail('仅管理员可编辑或结束生产线任务',403)
@@ -80,10 +86,7 @@ export async function updateTeamTask(user:AuthUser,id:number,body:any){
   const action=String(body.action||'edit')
   if(action==='complete'){
    if(task.status==='completed')return {ok:true,id,duplicate:true}
-   const [[pending]]=await conn.query<any[]>("SELECT COUNT(*) AS n FROM worker_run r WHERE r.task_id=? AND (r.state<>'sealed' OR EXISTS(SELECT 1 FROM worker_session s WHERE s.run_id=r.id AND (s.state<>'completed' OR s.final_sequence<>s.last_sequence)))",[id])
-   if(Number(pending.n))fail('还有工人或设备未结束采集、未上传完整记录和结束标记')
-   if(body.recordsComplete!==true)fail('请确认所有参与工人和设备的线上或TXT记录已经收齐')
-   await conn.execute("UPDATE production_task SET status='completed',ended_at=NOW(),records_confirmed_at=NOW(),records_confirmed_by=? WHERE id=?",[user.id,id])
+   fail('生产任务由参与设备完整上传并结束后自动结束，后台不能手动结束')
   }else if(action==='edit'){
    if(task.status==='completed')fail('任务已结束，不能更改人员安排')
    const name=String(body.name||task.name).trim(),line=String(body.lineName||task.line_name).trim();if(!name||name.length>100||!line||line.length>100)fail('任务名称和生产线必须为1至100字',400)

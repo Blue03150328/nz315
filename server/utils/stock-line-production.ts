@@ -1,3 +1,4 @@
+import {resolveAutomaticTask,lockMonitoredTask} from './production-monitor'
 import { createHash } from 'node:crypto'
 import { headOf } from './code-head'
 const fail=(message:string,statusCode=409):never=>{throw createError({statusCode,statusMessage:message})}
@@ -15,10 +16,11 @@ export async function openStockLineSession(conn:any,device:any,body:any,context:
  const [[p]]=await conn.query('SELECT p.*,s.spec_code FROM product p LEFT JOIN product_spec s ON s.id=p.spec_id WHERE p.id=? FOR UPDATE',[context.productId])
  if(!p||Number(p.enterprise_id)!==Number(device.enterprise_id)||Number(p.status)!==1)fail('请选择本厂启用的产品',403)
  if(!/^\d{11}$/.test(headOf(p)))fail('产品未配置有效的登记证或规格，请联系管理员')
- const [[task]]=await conn.query('SELECT * FROM production_task WHERE id=? FOR UPDATE',[context.taskId])
+ if(context.autoLine)await resolveAutomaticTask(conn,device,body,context,g)
+ const task=await lockMonitoredTask(conn,context.taskId)
  if(!task||task.workflow!=='line-team'||Number(task.enterprise_id)!==Number(device.enterprise_id))fail('生产线任务不存在或不属于本厂',403)
  const [[prior]]=await conn.query('SELECT * FROM worker_run WHERE id=? FOR UPDATE',[body.runId]),[[s]]=await conn.query('SELECT * FROM worker_session WHERE id=?',[body.sessionId])
- if(s){if(!prior||prior.device_id!==device.device_id||prior.context_hash!==hash(context)||s.run_id!==body.runId||s.grant_id!==g.id)fail('原采集身份或资料不一致');return {ok:true,runId:body.runId,sessionId:body.sessionId,identity:json(g.identity_json)}}
+ if(s){if(!prior||prior.device_id!==device.device_id||prior.context_hash!==hash(context)||s.run_id!==body.runId||s.grant_id!==g.id)fail('原采集身份或资料不一致');return {ok:true,runId:body.runId,sessionId:body.sessionId,identity:json(g.identity_json),context}}
  if(task.status!=='active')fail('生产线任务已结束，不能开始新采集')
  const [[member]]=await conn.query('SELECT UNIX_TIMESTAMP(added_at)*1000 AS added_ms,UNIX_TIMESTAMP(removed_at)*1000 AS removed_ms,removed_at FROM production_task_member WHERE task_id=? AND user_id=?',[task.id,g.user_id])
  const at=Date.parse(body.startedAt);if(!member||at<Number(member.added_ms)-60000||(member.removed_at&&at>Number(member.removed_ms)))fail('当前工人未安排在此生产线上',403)
@@ -33,7 +35,7 @@ export async function openStockLineSession(conn:any,device:any,body:any,context:
  }
  await conn.execute('INSERT INTO worker_session(id,run_id,device_id,user_id,grant_id,identity_json,started_at,started_ms) VALUES(?,?,?,?,?,?,?,?)',[body.sessionId,body.runId,device.device_id,g.user_id,g.id,JSON.stringify({...json(g.identity_json),lineName:task.line_name}),new Date(at),at])
  await conn.execute("INSERT INTO worker_audit(enterprise_id,actor_id,device_id,run_id,action,detail) VALUES(?,?,?,?,'join_stock_line',?)",[task.enterprise_id,g.user_id,device.device_id,body.runId,JSON.stringify({taskId:task.id,productId:p.id,context})])
- return {ok:true,runId:body.runId,sessionId:body.sessionId,identity:json(g.identity_json)}
+ return {ok:true,runId:body.runId,sessionId:body.sessionId,identity:json(g.identity_json),context}
 }
 
 /** 生产采集才入库；新码、归线、绑定和收据由调用方同事务提交。 */

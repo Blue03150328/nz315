@@ -1,3 +1,4 @@
+import { migrateProductionMonitorSchema } from './production-monitor-schema.mjs'
 // 专用上线增量：不运行演示初始化，不删除字段，不改变已有生产资料。
 import fs from 'node:fs'
 import { parseEnv } from 'node:util'
@@ -13,6 +14,7 @@ const db = await mysql.createConnection({ host: env.DB_HOST, port: Number(env.DB
 try {
   await migrateUsageBatchSchema(db)
   await migrateStockLineSchema(db)
+  await migrateProductionMonitorSchema(db)
   await migrateExternalCollectionSchema(db)
   const [pack] = await db.query("SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='product_spec' AND COLUMN_NAME='pack_quantity'")
   if (!pack.length) await db.query('ALTER TABLE product_spec ADD COLUMN pack_quantity INT UNSIGNED NOT NULL DEFAULT 1')

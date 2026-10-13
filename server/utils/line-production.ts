@@ -1,3 +1,4 @@
+import {taskMonitorRows,monitorSummary} from './production-monitor'
 import { createHash, createHmac, randomUUID } from 'node:crypto'
 import type { AuthUser } from './auth'
 import { query } from './db'
@@ -73,6 +74,7 @@ export async function lineCache(device:AuthUser){
 /** 由首码缓存匹配到具体任务；服务端重新核对公司、产品及不可变生产资料。 */
 export async function openLineSession(conn:any,device:AuthUser,body:any,context:any,g:any){
  if(context.stockWorkflow)return openStockLineSession(conn,device,body,context,g)
+ await conn.query('SELECT id FROM product WHERE id=? FOR UPDATE',[context.productId])
  const runId=collectionId(body.runId),sessionId=collectionId(body.sessionId)
  await conn.query('SELECT id FROM product WHERE id=? FOR UPDATE',[context.productId])
  if(context.taskId===0){
@@ -150,7 +152,7 @@ export async function lineWorkerProgress(user:AuthUser,taskId:number,params:any=
  const events=userId?await query<any[]>(`SELECT e.*,s.user_id,JSON_UNQUOTE(JSON_EXTRACT(s.identity_json,'$.name')) AS worker_name,JSON_UNQUOTE(JSON_EXTRACT(r.device_snapshot,'$.name')) AS device_name FROM worker_event e JOIN worker_session s ON s.id=e.session_id JOIN worker_run r ON r.id=s.run_id WHERE ${where} ORDER BY e.received_at DESC,e.id LIMIT 100 OFFSET ?`,[...args,(page-1)*100]):[]
  const [count]=userId?await query<any[]>(`SELECT COUNT(*) AS n FROM worker_event e JOIN worker_session s ON s.id=e.session_id JOIN worker_run r ON r.id=s.run_id WHERE ${where}`,args):[{n:0}]
  const [legacy]=await query<any[]>('SELECT COUNT(*) AS n FROM production_collection_event e JOIN production_collection_session s ON s.id=e.session_id WHERE s.task_id=?',[taskId])
- return {task:{id:task.id,name:task.name,lineName:task.line_name},rows,events,total:Number(count.n),page,legacyRecords:Number(legacy.n)}
+ const sessions=await taskMonitorRows([taskId]);return {task:{id:task.id,name:task.name,lineName:task.line_name},rows,sessions,monitor:monitorSummary(sessions),events,total:Number(count.n),page,legacyRecords:Number(legacy.n)}
 }
 export async function resolveLineException(user:AuthUser,taskId:number,body:any){
  if(!productionReviewer(user))fail('仅管理员可核对生产异常',403)

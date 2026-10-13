@@ -51,12 +51,12 @@ try{
   assert.equal(ok(await req('/api/admin/production-tasks/'+task.id+'?keyword='+codes[0],cookie)).filteredTotal,1);
   assert.equal(ok(await req('/api/admin/production-tasks/'+task.id+'/worker-progress?userId='+one.id+'&state=exception',cookie)).total,1);
  });
- await check('所有工人结束前后台拒绝结束，收到完整序号与结束时间后允许结束，不审核/转领码',async()=>{
+ await check('所有工人结束前后台拒绝结束，收到完整序号与结束时间后自动结束，不审核/转领码',async()=>{
   assert.equal((await req('/api/admin/production-lines/'+task.id,cookie,{action:'complete',recordsComplete:true},'PATCH')).status,409);
   const stoppedAt=new Date().toISOString();ok(await req('/api/device/worker-sessions/'+s2+'/complete',d2.secret,{lastSequence:1,stoppedAt}));ok(await req('/api/device/worker-runs/'+run2+'/complete',d2.secret,{sessions:[{id:s2,lastSequence:1}]}));
   assert.equal((await req('/api/admin/production-lines/'+task.id,cookie,{action:'complete',recordsComplete:true},'PATCH')).status,409);
   ok(await req('/api/device/worker-sessions/'+s1+'/complete',d1.secret,{lastSequence:3,stoppedAt}));ok(await req('/api/device/worker-runs/'+run1+'/complete',d1.secret,{sessions:[{id:s1,lastSequence:3}]}));
-  assert.equal((await req('/api/admin/production-lines/'+task.id,cookie,{action:'complete'},'PATCH')).status,409);
+  assert.equal(ok(await req('/api/admin/production-tasks/'+task.id,cookie)).task.status,'completed');assert.equal(ok(await req('/api/admin/production-lines/'+task.id,cookie,{action:'complete'},'PATCH')).duplicate,true);
   ok(await req('/api/admin/production-lines/'+task.id,cookie,{action:'complete',recordsComplete:true},'PATCH'));
   const [[states]]=await db.query("SELECT SUM(state='used') AS used,SUM(state='reserved') AS unscanned,SUM(state IN ('pending','released')) AS reviewed FROM production_task_code WHERE task_id=?",[task.id]);assert.equal(Number(states.used),2);assert.equal(Number(states.unscanned),1999);assert.equal(Number(states.reviewed),0);
   const progress=ok(await req('/api/admin/production-tasks/'+task.id+'/worker-progress',cookie));assert.ok(progress.rows.every(r=>r.stopped_at));

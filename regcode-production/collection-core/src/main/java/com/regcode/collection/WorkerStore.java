@@ -49,8 +49,8 @@ public final class WorkerStore {
     JSONObject product=null;JSONArray products=catalog("products");for(int i=0;i<products.length();i++)if(products.getJSONObject(i).getLong("id")==context.getLong("productId"))product=products.getJSONObject(i);
     if(product==null)throw new Exception("请选择本厂启用的产品");String head=product.optString("code_head");if(!head.matches("[0-9]{11}"))throw new Exception("产品未配置有效的登记证或规格，请联系管理员");
     JSONObject selected=null;JSONArray tasks=catalog("pools");for(int i=0;i<tasks.length();i++){JSONObject t=tasks.getJSONObject(i);if(t.optLong("task_id")!=context.getLong("taskId"))continue;JSONArray people=t.optJSONArray("memberIds");boolean assigned=people==null;for(int j=0;people!=null&&j<people.length();j++)if(people.getLong(j)==profile.getJSONObject("identity").getLong("id"))assigned=true;if(assigned)selected=t;}
-    if(selected==null)throw new Exception("请选择已安排你参与的生产线");
-    r=null;for(JSONObject row:db.rows("SELECT id,context FROM ww_run WHERE mode='production' AND state='open' ORDER BY rowid DESC")){JSONObject c=new JSONObject(row.getString("context"));if(!c.optBoolean("stockWorkflow")||c.optLong("productId")!=context.getLong("productId")||c.optLong("taskId")!=context.getLong("taskId")||db.rows("SELECT id FROM ww_session WHERE run_id=? AND user_id=? LIMIT 1",row.getString("id"),profile.getJSONObject("identity").getLong("id")).isEmpty())continue;for(String k:new String[]{"batchNo","produceDate","expireDate"})if(!c.getString(k).equals(context.getString(k)))throw new Exception("原批未结束，请继续原批，不能改生产资料");r=run(row.getString("id"));break;}
+    if(context.optBoolean("autoLine")){if(new JSONObject(meta("cache","{}")).optInt("stockVersion")<3)throw new Exception("请联网更新产品信息后再开工");String line=context.optString("lineName").trim();if(line.isEmpty()||line.length()>100)throw new Exception("请填写或选择生产线");selected=new JSONObject().put("line_name",line).put("task_name",line);}else if(selected==null)throw new Exception("请选择已安排你参与的生产线");
+    r=null;for(JSONObject row:db.rows("SELECT id,context FROM ww_run WHERE mode='production' AND state='open' ORDER BY rowid DESC")){JSONObject c=new JSONObject(row.getString("context"));if(!c.optBoolean("stockWorkflow")||c.optLong("productId")!=context.getLong("productId")||c.optLong("taskId")!=context.getLong("taskId")||(context.optBoolean("autoLine")&&!c.optString("lineName").equals(context.optString("lineName")))||db.rows("SELECT id FROM ww_session WHERE run_id=? AND user_id=? LIMIT 1",row.getString("id"),profile.getJSONObject("identity").getLong("id")).isEmpty())continue;for(String k:new String[]{"batchNo","produceDate","expireDate"})if(!c.getString(k).equals(context.getString(k)))throw new Exception("原批未结束，请继续原批，不能改生产资料");r=run(row.getString("id"));break;}
     if(r==null){String id=UUID.randomUUID().toString();JSONObject c=new JSONObject(context.toString()).put("codeHead",head).put("lineName",selected.getString("line_name")).put("taskName",selected.getString("task_name"));db.exec("INSERT INTO ww_run(id,pool_id,mode,context) VALUES(?,NULL,?,?)",id,mode,c.toString());
      r=run(id);
     }
@@ -95,6 +95,7 @@ public final class WorkerStore {
   return db.transaction(()->{
    if(raw==null||raw.trim().isEmpty()||raw.length()>4096)throw new Exception("扫码内容为空或过长，本次未保存");
    JSONObject r=currentRun(),s=currentSession(profile.getJSONObject("identity").getLong("id"));if(r==null||s==null||!"open".equals(r.getString("state")))throw new Exception("请先开始本批采集");
+   if(r.getJSONObject("context").optBoolean("autoLine")&&(r.getJSONObject("context").optLong("taskId")<=0||s.optInt("server_open")==0))throw new Exception("请联网登记生产线后开始采集，本次未保存");
    if(!s.getString("grant_id").equals(profile.getString("grantId")))throw new Exception("工人授权已更换，请重新进入本批");
    String code=QueueStore.codeOf(raw),kind="valid",reason="",key=code!=null?"code:"+code:"raw:"+raw.trim();
    if("production".equals(r.getString("mode"))&&r.getJSONObject("context").optBoolean("lineWorkflow")&&!r.getJSONObject("context").optBoolean("stockWorkflow")&&code!=null){
@@ -142,7 +143,7 @@ public final class WorkerStore {
   JSONObject out=new JSONObject().put("run",currentRun()==null?JSONObject.NULL:currentRun()).put("cache",new JSONObject(meta("cache","{}"))).put("products",catalog("products")).put("pools",catalog("pools"));
   JSONArray open=new JSONArray();for(JSONObject row:db.rows("SELECT id FROM ww_run WHERE state='open' AND EXISTS(SELECT 1 FROM ww_session s WHERE s.run_id=ww_run.id AND s.user_id=?) ORDER BY rowid DESC",userId))open.put(run(row.getString("id")));out.put("openRuns",open);
   JSONArray history=new JSONArray();for(JSONObject row:db.rows("SELECT r.id,MIN(s.started_at) AS started_at,MAX(s.stopped_at) AS stopped_at FROM ww_run r JOIN ww_session s ON s.run_id=r.id WHERE s.user_id=? GROUP BY r.id ORDER BY r.rowid DESC LIMIT 50",userId))history.put(run(row.getString("id")).put("summary",runSummary(row.getString("id"),userId)).put("startedAt",row.get("started_at")).put("stoppedAt",row.get("stopped_at")));out.put("history",history);
-  String runId=meta("currentRun","");JSONObject counts=db.rows("SELECT COUNT(*) AS total,COALESCE(SUM(kind='valid' AND (receipt IS NULL OR result='saved')),0) AS collected,COALESCE(SUM(receipt IS NULL),0) AS waiting,COALESCE(SUM(result='saved'),0) AS saved,COALESCE(SUM((kind='duplicate' OR result='duplicate') AND (result IS NULL OR result<>'exception')),0) AS duplicates,COALESCE(SUM(kind='invalid' OR result='exception'),0) AS exceptions FROM ww_event WHERE run_id=?",runId).get(0);
+  String runId=meta("currentRun","");JSONObject counts=db.rows("SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN result IS NOT NULL THEN result='saved' ELSE kind='valid' END),0) AS collected,COALESCE(SUM(receipt IS NULL),0) AS waiting,COALESCE(SUM(result='saved'),0) AS saved,COALESCE(SUM(CASE WHEN result IS NOT NULL THEN result='duplicate' ELSE kind='duplicate' END),0) AS duplicates,COALESCE(SUM(CASE WHEN result IS NOT NULL THEN result='exception' ELSE kind='invalid' END),0) AS exceptions FROM ww_event WHERE run_id=?",runId).get(0);
   out.put("counts",counts).put("allWaiting",db.rows("SELECT COUNT(*) AS n FROM ww_event WHERE receipt IS NULL").get(0).getLong("n"));JSONArray recent=new JSONArray();for(JSONObject e:db.rows("SELECT e.payload,e.receipt FROM ww_event e JOIN ww_session s ON s.id=e.session_id WHERE e.run_id=? AND s.user_id=? ORDER BY e.rowid DESC LIMIT 30",runId,userId))recent.put(new JSONObject().put("event",new JSONObject(e.getString("payload"))).put("receipt",e.isNull("receipt")?JSONObject.NULL:new JSONObject(e.getString("receipt"))));return out.put("recent",recent);
  }
  public synchronized JSONObject runSummary(String id,long userId)throws Exception{
@@ -173,5 +174,25 @@ public final class WorkerStore {
   db.transaction(()->{Writer writer=new OutputStreamWriter(output,StandardCharsets.UTF_8);writer.write("{\"format\":\"nz315-worker-backup\",\"version\":1,\"events\":[");long last=0;boolean first=true;
    while(true){List<JSONObject> rows=db.rows("SELECT e.rowid AS record_row,e.*,s.identity,r.context,r.mode FROM ww_event e JOIN ww_session s ON s.id=e.session_id JOIN ww_run r ON r.id=e.run_id WHERE s.user_id=? AND e.rowid>? ORDER BY e.rowid LIMIT 500",userId,last);if(rows.isEmpty())break;for(JSONObject r:rows){last=r.getLong("record_row");r.remove("record_row");if(!first)writer.write(',');first=false;writer.write(r.toString());}}
    writer.write("]}");writer.flush();return null;});
+ }
+
+ /** 首次联网登记前禁止收码；丢失响应时使用原run/session重试。 */
+ public synchronized void automaticOpened(String id,JSONObject context)throws Exception{
+  db.transaction(()->{JSONObject s=db.rows("SELECT * FROM ww_session WHERE id=?",id).get(0),r=run(s.getString("run_id")),old=r.getJSONObject("context");
+   if(!old.optBoolean("autoLine")||context.optLong("taskId")<=0)throw new Exception("生产线登记收据无效");
+   for(String key:new String[]{"productId","batchNo","produceDate","expireDate"})if(!String.valueOf(old.get(key)).equals(String.valueOf(context.get(key))))throw new Exception("生产资料收据不一致");
+   if(old.optLong("taskId")>0&&old.getLong("taskId")!=context.getLong("taskId"))throw new Exception("生产线任务收据不一致");
+   old.put("taskId",context.getLong("taskId")).put("lineName",context.getString("lineName")).put("taskName",context.getString("lineName"));
+   db.exec("UPDATE ww_run SET context=? WHERE id=?",old.toString(),r.getString("id"));db.exec("UPDATE ww_session SET server_open=1 WHERE id=?",id);return null;
+  });
+ }
+ public synchronized JSONArray heartbeatReports(boolean capturing,long userId)throws Exception{
+  JSONArray reports=new JSONArray();String current=meta("currentRun","");
+  for(JSONObject s:db.rows("SELECT s.*,r.context FROM ww_session s JOIN ww_run r ON r.id=s.run_id WHERE s.state<>'completed' AND s.server_open=1")){
+   JSONObject c=new JSONObject(s.getString("context"));if(!c.optBoolean("autoLine"))continue;
+   JSONObject counts=db.rows("SELECT COUNT(*) AS sequence,COALESCE(SUM(CASE WHEN result IS NOT NULL THEN result='saved' ELSE kind='valid' END),0) AS valid,COALESCE(SUM(CASE WHEN result IS NOT NULL THEN result='duplicate' ELSE kind='duplicate' END),0) AS duplicate,COALESCE(SUM(CASE WHEN result IS NOT NULL THEN result='exception' ELSE kind='invalid' END),0) AS exception,COALESCE(SUM(receipt IS NULL),0) AS pending FROM ww_event WHERE session_id=?",s.getString("id")).get(0);
+   long version=Long.parseLong(meta("heartbeatVersion:"+s.getString("id"),"0"))+1;putMeta("heartbeatVersion:"+s.getString("id"),Long.toString(version));
+   counts.put("version",version).put("sessionId",s.getString("id")).put("state",!"active".equals(s.getString("state"))?"ended":capturing&&s.getLong("user_id")==userId&&s.getString("run_id").equals(current)?"running":"paused");reports.put(counts);
+  }return reports;
  }
 }

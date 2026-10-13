@@ -1,3 +1,4 @@
+import {lockMonitoredTask,completeMonitoredTask} from './production-monitor'
 import { createHash } from 'node:crypto'
 import type { PoolConnection } from 'mysql2/promise'
 import type { AuthUser } from './auth'
@@ -66,7 +67,8 @@ export async function syncCollection(user: AuthUser, taskId: number, rawId: stri
   for (const event of events!) {
     try {
       const result = await transaction(async conn => {
-        const task = await lockedTask(conn, user, taskId), session = await lockedSession(conn, user, taskId, id!)
+        const [[seed]]=await conn.query<any[]>('SELECT product_id,workflow FROM production_task WHERE id=?',[taskId]);if(seed?.workflow==='line-team'){if(seed.product_id)await conn.query('SELECT id FROM product WHERE id=? FOR UPDATE',[seed.product_id]);await lockMonitoredTask(conn,taskId)}
+    const task = await lockedTask(conn, user, taskId), session = await lockedSession(conn, user, taskId, id!)
         const upload = uploadId ? await lockedProductionUpload(conn, user, taskId, id!, uploadId, event.sequence) : null
         const payloadHash = hash(event)
         const [[prior]] = await conn.query<any[]>('SELECT * FROM production_collection_event WHERE session_id=? AND sequence_no=? FOR UPDATE', [id!, event.sequence])
@@ -115,6 +117,7 @@ export async function completeCollection(user: AuthUser, taskId: number, rawId: 
   const last = Number(body.lastSequence)
   if (!Number.isSafeInteger(last) || last < 0 || last > 10000000 || typeof body.endTask !== 'boolean') fail('最终采集序号或结束选项不正确', 400)
   return transaction(async conn => {
+    const [[seed]]=await conn.query<any[]>('SELECT product_id,workflow FROM production_task WHERE id=?',[taskId]);if(seed?.workflow==='line-team'){if(seed.product_id)await conn.query('SELECT id FROM product WHERE id=? FOR UPDATE',[seed.product_id]);await lockMonitoredTask(conn,taskId)}
     const task = await lockedTask(conn, user, taskId), session = await lockedSession(conn, user, taskId, id!)
     if (session.state === 'completed') {
       if (last !== Number(session.last_sequence)) fail('结束收据与设备最终序号不一致')
@@ -129,7 +132,8 @@ export async function completeCollection(user: AuthUser, taskId: number, rawId: 
     await conn.execute("UPDATE production_collection_session SET state='completed',completed_at=NOW() WHERE id=?", [id!])
     const [[active]] = await conn.query<any[]>("SELECT COUNT(*) AS n FROM production_collection_session WHERE task_id=? AND state='active'", [taskId])
     let ended = false, taskStatus = task.status
-    if (body.endTask && !Number(active.n) && (Number(task.created_by) === Number(user.id) || productionReviewer(user) || user.device_id)) {
+    if(task.workflow==='line-team'){ended=await completeMonitoredTask(conn,task,Number(session.user_id||task.created_by));taskStatus=ended?'completed':task.status}
+    else if (body.endTask && !Number(active.n) && (Number(task.created_by) === Number(user.id) || productionReviewer(user) || user.device_id)) {
       const result = await endProductionInTransaction(conn, user, taskId, task); ended = true; taskStatus = result.status
     }
     const result = { ok: true, sessionId: id!, state: 'completed', lastSequence: last, taskEnded: ended, taskStatus, otherDevices: Number(active.n), accepted: Number(session.accepted_count), duplicates: Number(session.duplicate_count), rejected: Number(session.rejected_count) }
