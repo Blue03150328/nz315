@@ -1,5 +1,7 @@
 # AGENTS.md — AI 协作指南（项目 Memory 系统）
 
+> **2026-10-13 安卓3.1.6生产后入库**：用户纠正流程，生成不入库、生产采集上传才建码。stockWorkflow不要求码/产品已入库，校验所选本厂启用产品11位头及唯一32位码；新码/来源/归线/绑定/收据同事务，异常不建码、已生产不覆盖。cache stockVersion2+code_head，本机SQLite先保存并支持未知正确码，旧stock原会话续用；旧异常不自动改成功。增量worker_run.upload_batch_id一列，来源只首个有效新码创建。108单测/4跳过、tsc/build、8新＋8旧线＋5外码真实隔离组、98 JVM/5桥接/Android构建Lint通过。发布/实机状态以capture-create-20261013-3.1.6/state及.full-release.json核验，见安卓3.1.6说明。
+
 > **2026-10-13 安卓3.1.5生产线与产品解耦**：用户确认新任务取消码文件，仅名称/生产线/人员，工人选本厂启用已入库产品。新stockWorkflow产品/日期在run/batch，扫码事务归线并校验全局占用，旧批不能覆盖；旧任务/接口/队列保留。缓存完整stockVersion1才可新开工，同线多产品码库按采集独立快照展示、禁整线更正。108单测/4跳过、严格类型/build、新7及旧26组隔离接口、4浏览器、95 JVM/5桥接/Android构建Lint通过。增量只任务产品可空及码库两元数据列，不改原业务行；发布/实机状态以stock-line-20261013-3.1.5/state及.full-release.json为准。见docs/production-line/安卓3.1.5-已入库产品自主选择.md。
 
 

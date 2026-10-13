@@ -13,6 +13,7 @@ export const workerDDL = [
 export async function migrateWorkerSchema(db) {
  for(const sql of workerDDL)await db.query(sql)
  await migrateLineSchema(db)
+ const [collectionRoot]=await db.query("SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='worker_run' AND COLUMN_NAME='upload_batch_id'");if(!collectionRoot.length)await db.query('ALTER TABLE worker_run ADD COLUMN upload_batch_id BIGINT NULL')
  const [effective]=await db.query("SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='worker_run' AND COLUMN_NAME='effective_context'");if(!effective.length)await db.query('ALTER TABLE worker_run ADD COLUMN effective_context JSON NULL')
  for(const column of ['device_snapshot','product_snapshot']){const [found]=await db.query('SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?',['worker_run',column]);if(!found.length)await db.query(`ALTER TABLE worker_run ADD COLUMN ${column} JSON NULL`)}
  await db.query("INSERT INTO production_code_reservation(code_id,owner_kind,owner_id) SELECT active_code_id,'legacy',CAST(task_id AS CHAR) FROM production_task_code WHERE active_code_id IS NOT NULL ON DUPLICATE KEY UPDATE code_id=VALUES(code_id)")

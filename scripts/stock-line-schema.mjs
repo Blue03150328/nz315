@@ -1,5 +1,7 @@
 // 生产线任务不再固定产品，历史产品与码归属保留。
 export async function migrateStockLineSchema(db) {
+  const [run]=await db.query("SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='worker_run'")
+  if(run.length){const [column]=await db.query("SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='worker_run' AND COLUMN_NAME='upload_batch_id'");if(!column.length)await db.query('ALTER TABLE worker_run ADD COLUMN upload_batch_id BIGINT NULL')}
   const [rows] = await db.query("SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='production_task' AND COLUMN_NAME='product_id'")
   if (rows[0]?.IS_NULLABLE === 'NO') await db.query('ALTER TABLE production_task MODIFY product_id BIGINT NULL')
   for (const [column, definition] of [['product_id', 'BIGINT NULL'], ['production_snapshot', 'JSON NULL']]) {

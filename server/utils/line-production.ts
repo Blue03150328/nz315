@@ -67,7 +67,7 @@ export async function lineCache(device:AuthUser){
  for(const pool of pools)(pool as any).memberIds=pool.workflow==='line-team'?assigned.filter(m=>Number(m.task_id)===Number(pool.task_id)).map(m=>Number(m.user_id)):null
  const codes=await query<any[]>("SELECT d.task_id,d.code,d.state,t.product_id FROM production_task_code d JOIN production_task t ON t.id=d.task_id WHERE t.enterprise_id=? AND t.status='active' AND d.active_code_id IS NOT NULL ORDER BY t.id,d.code_id",[device.enterprise_id])
  const stock=await query<any[]>(`SELECT c.code,c.product_id,c.status,c.abnormal_flag,r.owner_kind,r.owner_id FROM trace_code c
-  LEFT JOIN production_code_reservation r ON r.code_id=c.id WHERE c.enterprise_id=? AND c.upload_batch_id IS NOT NULL ORDER BY c.id`,[device.enterprise_id])
+  LEFT JOIN production_code_reservation r ON r.code_id=c.id WHERE c.enterprise_id=? ORDER BY c.id`,[device.enterprise_id])
  return {pools,codes:[...codes.map(c=>({...c,pool_id:taskPoolId(c.task_id)})),...stock.map(c=>({...c,pool_id:'stock:'+c.product_id,state:Number(c.status)===1&&!Number(c.abnormal_flag)?'reserved':'unavailable'}))]}
 }
 /** 由首码缓存匹配到具体任务；服务端重新核对公司、产品及不可变生产资料。 */

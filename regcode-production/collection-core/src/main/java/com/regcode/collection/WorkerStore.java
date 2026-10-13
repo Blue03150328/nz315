@@ -45,14 +45,14 @@ public final class WorkerStore {
   return db.transaction(()->{
    String mode=context.getString("mode"),pool=null;JSONObject r;
    if("production".equals(mode)&&context.optBoolean("stockWorkflow")){
-    JSONObject cache=new JSONObject(meta("cache","{}"));if(cache.optLong("expiresAt")<now)throw new Exception("已入库产品缓存已过期，请联网更新");if(cache.optInt("stockVersion")<1)throw new Exception("产品码缓存正在升级，请联网等待完整下载后开始");
-    boolean stocked=false;JSONArray products=catalog("products");for(int i=0;i<products.length();i++)if(products.getJSONObject(i).getLong("id")==context.getLong("productId"))stocked=true;
-    if(!stocked)throw new Exception("请选择本厂已入库产品");
+    JSONObject cache=new JSONObject(meta("cache","{}"));if(cache.optLong("expiresAt")<now)throw new Exception("产品缓存已过期，请联网更新");if(cache.optInt("stockVersion")<2)throw new Exception("产品校验资料正在升级，请联网等待完整下载后开始");
+    JSONObject product=null;JSONArray products=catalog("products");for(int i=0;i<products.length();i++)if(products.getJSONObject(i).getLong("id")==context.getLong("productId"))product=products.getJSONObject(i);
+    if(product==null)throw new Exception("请选择本厂启用的产品");String head=product.optString("code_head");if(!head.matches("[0-9]{11}"))throw new Exception("产品未配置有效的登记证或规格，请联系管理员");
     JSONObject selected=null;JSONArray tasks=catalog("pools");for(int i=0;i<tasks.length();i++){JSONObject t=tasks.getJSONObject(i);if(t.optLong("task_id")!=context.getLong("taskId"))continue;JSONArray people=t.optJSONArray("memberIds");boolean assigned=people==null;for(int j=0;people!=null&&j<people.length();j++)if(people.getLong(j)==profile.getJSONObject("identity").getLong("id"))assigned=true;if(assigned)selected=t;}
     if(selected==null)throw new Exception("请选择已安排你参与的生产线");
     r=null;for(JSONObject row:db.rows("SELECT id,context FROM ww_run WHERE mode='production' AND state='open' ORDER BY rowid DESC")){JSONObject c=new JSONObject(row.getString("context"));if(!c.optBoolean("stockWorkflow")||c.optLong("productId")!=context.getLong("productId")||c.optLong("taskId")!=context.getLong("taskId")||db.rows("SELECT id FROM ww_session WHERE run_id=? AND user_id=? LIMIT 1",row.getString("id"),profile.getJSONObject("identity").getLong("id")).isEmpty())continue;for(String k:new String[]{"batchNo","produceDate","expireDate"})if(!c.getString(k).equals(context.getString(k)))throw new Exception("原批未结束，请继续原批，不能改生产资料");r=run(row.getString("id"));break;}
-    if(r==null){String id=UUID.randomUUID().toString();JSONObject c=new JSONObject(context.toString()).put("lineName",selected.getString("line_name")).put("taskName",selected.getString("task_name"));db.exec("INSERT INTO ww_run(id,pool_id,mode,context) VALUES(?,NULL,?,?)",id,mode,c.toString());
-     JSONArray codes=catalog("codes");for(int i=0;i<codes.length();i++){JSONObject code=codes.getJSONObject(i);String owner=code.optString("owner_kind","");if(!code.getString("pool_id").startsWith("stock:")||code.optLong("product_id")!=c.getLong("productId")||!"reserved".equals(code.optString("state"))||(!owner.isEmpty()&&!("legacy".equals(owner)&&Long.toString(c.getLong("taskId")).equals(code.optString("owner_id")))))continue;db.exec("INSERT OR IGNORE INTO ww_allowed(run_id,code) VALUES(?,?)",id,code.getString("code"));}r=run(id);
+    if(r==null){String id=UUID.randomUUID().toString();JSONObject c=new JSONObject(context.toString()).put("codeHead",head).put("lineName",selected.getString("line_name")).put("taskName",selected.getString("task_name"));db.exec("INSERT INTO ww_run(id,pool_id,mode,context) VALUES(?,NULL,?,?)",id,mode,c.toString());
+     r=run(id);
     }
    }else if("production".equals(mode)&&context.optBoolean("lineWorkflow")){
     JSONObject info=new JSONObject(meta("cache","{}"));if(info.optLong("expiresAt")<now)throw new Exception("产品及任务码缓存已过期，请联网更新");
@@ -109,9 +109,17 @@ public final class WorkerStore {
     }
    }
    if(!"valid".equals(kind)){}
-   else if("production".equals(r.getString("mode"))&&(code==null||db.rows("SELECT code FROM ww_allowed WHERE run_id=? AND code=?",r.getString("id"),code).isEmpty())){kind="invalid";reason=r.getJSONObject("context").optBoolean("stockWorkflow")?"缺位、多候选、未入库、非所选产品或已占用的码":"缺位、多候选、未领用到本任务或其他产品的码";}
-   else if(r.getJSONObject("context").optBoolean("lineWorkflow")&&r.getJSONObject("context").optLong("taskId")>0&&!db.rows("SELECT event_id FROM ww_line_usage WHERE code=? AND task_id=? LIMIT 1",code,r.getJSONObject("context").getLong("taskId")).isEmpty()){kind="duplicate";reason="此任务在本设备已采集过该码，保留重复记录";}
-   else if(!db.rows("SELECT id FROM ww_event WHERE run_id=? AND dedup=? AND kind='valid' LIMIT 1",r.getString("id"),key).isEmpty()){kind="duplicate";reason="重复扫码，保留记录但不重复计数";}
+   else if("production".equals(r.getString("mode"))&&r.getJSONObject("context").optBoolean("stockWorkflow")){
+    JSONObject c=r.getJSONObject("context");String head=c.optString("codeHead");if(head.isEmpty()){JSONArray products=catalog("products");for(int i=0;i<products.length();i++)if(products.getJSONObject(i).getLong("id")==c.getLong("productId"))head=products.getJSONObject(i).optString("code_head");if(!head.matches("[0-9]{11}"))throw new Exception("请联网更新产品校验资料后重扫，本次未保存");c.put("codeHead",head);db.exec("UPDATE ww_run SET context=? WHERE id=?",c.toString(),r.getString("id"));}
+    if(code==null||!code.startsWith(head)){kind="invalid";reason="缺位、多候选或不符合所选产品的登记证、规格";}
+    else if(db.rows("SELECT event_id FROM ww_line_usage WHERE code=? AND task_id=?",code,c.getLong("taskId")).isEmpty()){
+     JSONObject cache=new JSONObject(meta("cache","{}"));List<JSONObject> known=db.rows("SELECT data FROM ww_catalog WHERE snapshot=? AND kind='codes' AND key=?",cache.optString("id"),"stock:"+c.getLong("productId")+":"+code);
+     if(!known.isEmpty()){JSONObject inventory=new JSONObject(known.get(0).getString("data"));String owner=inventory.optString("owner_kind","");if(!"reserved".equals(inventory.optString("state"))||(!owner.isEmpty()&&!("legacy".equals(owner)&&Long.toString(c.getLong("taskId")).equals(inventory.optString("owner_id"))))){kind="invalid";reason="此码已有生产资料、处于异常状态或已被其他任务占用";}}
+    }
+   }
+   else if("production".equals(r.getString("mode"))&&(code==null||db.rows("SELECT code FROM ww_allowed WHERE run_id=? AND code=?",r.getString("id"),code).isEmpty())){kind="invalid";reason="缺位、多候选、未领用到本任务或其他产品的码";}
+   if("valid".equals(kind)&&r.getJSONObject("context").optBoolean("lineWorkflow")&&r.getJSONObject("context").optLong("taskId")>0&&!db.rows("SELECT event_id FROM ww_line_usage WHERE code=? AND task_id=? LIMIT 1",code,r.getJSONObject("context").getLong("taskId")).isEmpty()){kind="duplicate";reason="此任务在本设备已采集过该码，保留重复记录";}
+   else if("valid".equals(kind)&&!db.rows("SELECT id FROM ww_event WHERE run_id=? AND dedup=? AND kind='valid' LIMIT 1",r.getString("id"),key).isEmpty()){kind="duplicate";reason="重复扫码，保留记录但不重复计数";}
    JSONObject event=new JSONObject().put("eventId",UUID.randomUUID().toString()).put("sequence",s.getInt("next_seq")).put("rawCode",raw).put("code",code==null?JSONObject.NULL:code).put("kind",kind).put("reason",reason).put("capturedAt",new java.time.format.DateTimeFormatterBuilder().appendInstant(3).toFormatter().format(Instant.ofEpochMilli(now)));
    if("external".equals(r.getString("mode"))){JSONObject cache=new JSONObject(meta("cache","{}"));event.put("classification",TraceUrlPolicy.classification(raw,cache.optString("traceBaseUrl",TraceUrlPolicy.DEFAULT_BASE)));}
    db.exec("INSERT INTO ww_event(id,session_id,run_id,seq,code,dedup,kind,payload) VALUES(?,?,?,?,?,?,?,?)",event.getString("eventId"),s.getString("id"),r.getString("id"),s.getInt("next_seq"),code,key,kind,event.toString());
