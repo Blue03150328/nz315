@@ -7,7 +7,7 @@ import type { CodeImportForm } from '#shared/types/code-import'
 const { canWrite } = useUser()
 
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
-useHead({ title: '生产采集' })
+useHead({ title: '追溯码离线上传' })
 
 const toast = useToast()
 const fileName = ref('')
@@ -107,21 +107,20 @@ const resetPage = () => {
     <!-- 页面标题区 -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="b-page-title">生产采集</h1>
+        <h1 class="b-page-title">追溯码离线上传</h1>
         <p class="b-page-desc">上传码文件或扫码链接清单（TXT/CSV）→ 校验 → 填写批次三要素导入（自动建档/匹配，码置「已绑定」）</p>
       </div>
-      <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetPage">重置</UButton>
+      <div class="flex flex-wrap gap-2">
+        <UButton to="/admin/generator" variant="outline" color="neutral" icon="i-lucide-arrow-left">返回追溯码生成</UButton>
+        <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetPage">重置</UButton>
+      </div>
     </div>
 
+    <OfflineProductionImport v-if="canWrite" />
     <CodeImportInput v-model="pasteText" :file-name="fileName" :parsing="parsing" :can-write="canWrite" @file="handleFile" @parse="doParse" />
     <template v-if="parseResult">
       <CodeImportPreview :result="parseResult" />
       <CodeImportBatchForm v-model="importForm" :products="productData?.rows || []" :valid-count="parseResult.validCount" :importing="importing" :parsing="parsing" :can-write="canWrite" @submit="doImport" />
     </template>
-    <div v-if="canWrite" class="b-card">
-      <div class="b-card-head"><h2 class="b-card-title">离线生产记录</h2></div>
-      <div class="b-card-body"><p class="b-help">需要恢复扫描仪导出的完整生产记录时，可进入离线 TXT 导入页面。</p></div>
-      <div class="b-card-foot justify-end"><UButton to="/admin/collection/offline" color="neutral" variant="outline" icon="i-lucide-file-up">导入离线生产记录 TXT</UButton></div>
-    </div>
   </div>
 </template>

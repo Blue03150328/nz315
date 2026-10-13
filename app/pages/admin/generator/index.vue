@@ -510,6 +510,12 @@ const downloadOfflineTool = async () => {
       </div>
     </div>
 
+    <div v-if="canWrite" class="b-card">
+      <div class="b-card-head"><h2 class="b-card-title">追溯码离线上传</h2></div>
+      <div class="b-card-body"><p class="b-help">需要上传离线码文件或扫描仪导出的生产记录时，进入离线上传页面。</p></div>
+      <div class="b-card-foot justify-end"><UButton to="/admin/collection" color="neutral" variant="outline" icon="i-lucide-file-up">进入追溯码离线上传</UButton></div>
+    </div>
+
     <!-- 大数量生成二次确认（阈值 20 万条，见 shared/utils/code-limits.ts）：
          50 万条一次生成时，全部码值会留在当前页面内存中（导出 urls.txt 约 31MB、CSV 约 80MB），
          确认框先把返回体积、导出体积与耗时讲清楚，避免误操作、避免低配机卡死 -->
