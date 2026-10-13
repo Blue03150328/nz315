@@ -13,13 +13,13 @@ const edge='C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 const fixture=`(function(){'use strict';
 const context={server:'https://www.nz315.cn',enterpriseId:1,deviceId:2,enterpriseName:'隔离厂家',lineName:'一号流水线'},q={ok:true,batch:null,selection:null,deviceContext:context,deviceBlocked:false,queueCounts:{waiting:0},batchCounts:{pending:0,completed:0},counts:{},recent:[]};
 const events=[],archived=[],online=!new URLSearchParams(location.search).has('offline');let armed=false,sequence=0;
-window.__captured=[];window.__nativeCalls=[];window.__archived=archived;
+window.__captured=[];window.__nativeCalls=[];window.__archived=archived;window.__registrationRequired=new URLSearchParams(location.search).has('deleted');window.__unconfirmed=false;
 window.Native={settings:()=>JSON.stringify({server:context.server,mode:'broadcast',stripTerminator:true}),requestId:()=>crypto.randomUUID(),deviceInfo:()=>JSON.stringify({hasCredential:true,registered:true}),queue:()=>JSON.stringify({ok:true,session:null}),capturing:value=>{armed=value;},externalQueue:()=>JSON.stringify(q),resumeUpload(){},confirmed(){},rejected(){},exit(){},exportBackup(){window.__backup=true;},openWorkerApp(){location.href='/worker/index.html';},openLegacyApp(){location.href='/index.html';},
 request(id,method,url){setTimeout(()=>window.NzApi.receive(id,online?{status:200,body:url==='/api/device/context'?{ok:true,device:{id:2,enterprise_id:1,line_name:context.lineName},user:{id:0,device_id:2,enterprise_id:1,role:'code_admin',name:'隔离厂家'}}:{rows:[],total:0}}:{status:0,error:'隔离断网'}),0);},
 prepareExternal(worker){worker=worker.trim();if(!worker||worker.length>64)return JSON.stringify({ok:false,error:'请填写64字以内的工号'});q.selection={...context,workerNo:worker};return JSON.stringify(q);},
 collectExternal(raw){window.__nativeCalls.push('external');if(!armed)return JSON.stringify({ok:false,error:'已暂停'});window.__captured.push(raw);if(!q.batch||q.batch.state!=='open'){sequence=0;q.batch={id:crypto.randomUUID(),state:'open',worker_no:q.selection.workerNo};q.counts={collected:0,accepted:0,localDuplicates:0,duplicates:0,rejected:0};q.recent=[];}const localKind=events.includes(raw)?'duplicate':'valid';events.push(raw);q.counts[localKind==='valid'?'collected':'localDuplicates']++;q.queueCounts.waiting++;const event={eventId:crypto.randomUUID(),sequence:++sequence,rawCode:raw,capturedAt:new Date().toISOString(),localKind};q.recent.unshift({event,localKind,receipt:null});return JSON.stringify({ok:true,event});},
 collect(){throw new Error('外部采集不能调用内部码解析');},finishExternal(){if(!q.batch||q.batch.state!=='open')return JSON.stringify({...q,finishRequested:false});q.batch.state='sealed';archived.push(q.batch.id);q.batchCounts.pending++;return JSON.stringify({...q,finishRequested:true});},uploadExternal:()=>JSON.stringify({ok:true,message:'正在补传'}),configure:()=>'',};
-window.WorkerNative={scanning(value){armed=value;},snapshot:()=>JSON.stringify({ok:true,identity:new URLSearchParams(location.search).has('worker')?{id:1,name:'隔离工人'}:null,device:{enterpriseName:context.enterpriseName,name:'隔离设备'},allWaiting:0,message:'隔离测试',history:[],openRuns:[],products:[],pools:[]}),backup(){window.__workerBackup=true;},upload(){},call(){throw Error('此网页测试不创建工人业务记录');}};
+window.WorkerNative={scanning(value){armed=value;},snapshot:()=>JSON.stringify({ok:true,identity:new URLSearchParams(location.search).has('worker')?{id:1,name:'隔离工人'}:null,device:{enterpriseName:context.enterpriseName,name:'隔离设备'},registrationRequired:window.__registrationRequired,unconfirmedWork:window.__unconfirmed,allWaiting:0,message:'隔离测试',history:[],openRuns:[],products:[],pools:[]}),backup(){window.__workerBackup=true;},upload(){},call(){throw Error('此网页测试不创建工人业务记录');}};
 })();`;
 async function delay(ms){await new Promise(resolve=>setTimeout(resolve,ms));}
 test('真实网页覆盖双模式入口、工号、原文、固定批次、暂停与离线入口',{skip:!fs.existsSync(edge),timeout:30000},async()=>{
@@ -53,6 +53,14 @@ test('真实网页覆盖双模式入口、工号、原文、固定批次、暂�
     await evaluate('document.getElementById("legacyEntry").click()');await wait('!!document.getElementById("externalEntry")');
     await command('Page.navigate',{url:origin+'/worker/index.html?worker=1'});await wait('!!document.getElementById("external")');assert.equal(await evaluate('document.getElementById("external").textContent'),'外码采集');assert.equal(await evaluate('document.getElementById("legacyEntry").textContent'),'外部原文采集与旧记录');
     await evaluate('document.getElementById("history").click()');assert.equal(await evaluate('!!document.getElementById("legacyEntry")'),true);await evaluate('document.getElementById("backup").click()');assert.equal(await evaluate('window.__workerBackup'),true);
+    await evaluate('document.getElementById("historyBack").click();window.__registrationRequired=true;window.__unconfirmed=true');await wait('!!document.getElementById("activationInput")');
+    assert.equal(await evaluate('document.getElementById("companyLabel").textContent'),'农资315 · 设备激活');
+    assert.equal(await evaluate('document.getElementById("deviceLabel").textContent'),'设备未登记');
+    assert.equal(await evaluate('document.getElementById("main").textContent.includes("未上传记录")'),true);
+    await evaluate('document.getElementById("activationHistory").click();document.getElementById("backup").click()');
+    assert.equal(await evaluate('window.__workerBackup'),true);await delay(1200);assert.equal(await evaluate('!!document.getElementById("backup")'),true);
+    await command('Page.navigate',{url:origin+'/worker/index.html?deleted=1'});await wait('!!document.getElementById("activationInput")');
+    assert.equal(await evaluate('document.getElementById("loginForm")===null'),true);
     await command('Page.navigate',{url:origin+'/index.html?offline=1'});await wait('!!document.getElementById("verifyDevice")');await evaluate('[...document.querySelectorAll("button")].find(x=>x.textContent==="外部采集（可离线）").click()');assert.equal(await evaluate('!!document.getElementById("externalWorker")'),true);assert.deepEqual(errors,[]);
   }finally{
     if(ws)ws.close();browser.kill();await new Promise(resolve=>server.close(resolve));

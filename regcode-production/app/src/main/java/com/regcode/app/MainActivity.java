@@ -118,7 +118,7 @@ public class MainActivity extends Activity {
         webView.loadUrl(page);
     }
 
-    @Override protected void onResume() { super.onResume(); foreground = true; registerScanner(); evaluate("window.App&&window.App.lifecycle(true)"); }
+    @Override protected void onResume() { super.onResume(); foreground = true; if(workerEngine!=null)workerEngine.checkDeviceSoon(); registerScanner(); evaluate("window.App&&window.App.lifecycle(true)"); }
     @Override protected void onPause() { foreground = false; capturing=false;if(workerEngine!=null)workerEngine.captureEnabled(false); unregisterScanner(); evaluate("window.App&&window.App.lifecycle(false)"); super.onPause(); }
     @Override protected void onDestroy() { unregisterScanner(); if(sync!=null)sync.stop();if(externalSync!=null)externalSync.stop(); executor.shutdownNow(); if (tone != null) tone.release(); if (webView != null) { webView.removeJavascriptInterface("Native");webView.removeJavascriptInterface("WorkerNative"); webView.destroy(); webView = null; } super.onDestroy(); }
     @Override @SuppressWarnings("deprecation") public void onBackPressed() { evaluate("window.App&&window.App.back()"); }
@@ -194,7 +194,7 @@ public class MainActivity extends Activity {
             catch (Exception ignored) { return "{}"; }
         }
         @JavascriptInterface public String deviceInfo(){
-            try{JSONObject data=deviceCredentials.read();boolean exists=data!=null&&preferences.getString("server",BuildConfig.DEFAULT_SERVER).equals(data.optString("server"));return new JSONObject().put("hasCredential",exists).put("registered",exists&&data.optBoolean("registered")).put("pendingActivation",exists&&!data.optBoolean("registered")&&data.has("activationCode")).toString();}
+            try{JSONObject data=deviceCredentials.read();boolean exists=data!=null&&preferences.getString("server",BuildConfig.DEFAULT_SERVER).equals(data.optString("server"));boolean invalid=workerEngine!=null&&workerEngine.registrationRequired();return new JSONObject().put("hasCredential",exists).put("registered",exists&&data.optBoolean("registered")&&!invalid).put("registrationRequired",invalid).put("pendingActivation",exists&&!data.optBoolean("registered")&&data.has("activationCode")).toString();}
             catch(Exception ignored){return "{\"hasCredential\":false,\"error\":\"设备凭证不可用，请联系管理员重新激活\"}";}
         }
         // 地址必须先持久化，防止断电后待核对码被带到另一服务器；调用在JS桥线程执行。
