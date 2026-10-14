@@ -42,7 +42,7 @@ const batchFields = computed(() => {
     { label: '生产批次', value: b?.batchNo || '-' },
     { label: '有效期至', value: b?.expireDate || '-' },
     { label: '质检结果', value: b?.qcResult || '-' },
-    { label: '质量合格证号', value: b?.qualityCertNo || '-' },
+    { label: '质量合格检测证', value: b?.qualityCertNo || '-' },
   ]
 })
 
