@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { productWithSpec } from '#shared/utils/product-name'
 // 追溯码生成（PRD 5.5.1：离线生成工具 Web 版——生成不入库，导出文件后经生产采集导入）
 // 自定义段配置对齐 PRD 3.2：时间戳段 + 随机数字段 + 校验位段；导出命名对齐 PRD 5.5.1 强制命名规范
 // 二维码图片输出对齐合规第一条（QR/DM 码制，供印刷厂赋码）：2026-09-15 起改为「下载官方离线工具、本机生成」，服务端不再渲染 PNG
@@ -60,7 +61,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload)
 const selectedProduct = computed(() => (productData.value?.rows || []).find((p: any) => Number(p.id) === Number(form.productId)))
 const productOptions = computed(() => (productData.value?.rows || []).map((p: any) => ({
   value: Number(p.id),
-  label: p.name + ' · ' + (p.spec_name || '规格未填写') + '（' + p.registration_no + '）',
+  label: productWithSpec(p) + '（' + p.registration_no + '）',
 })))
 
 // 码第 1-11 位实时预览（1049 强制结构）

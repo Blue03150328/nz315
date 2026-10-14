@@ -23,14 +23,14 @@ test('只有001～999三位字符串可以手动选号', () => {
 })
 
 test('中文和英文单位及乘号别名归为同一成组规格，避免别名重复导入', () => {
-  const expected = { name: '500毫升/瓶×10', net: 500, unit: '毫升', pack: '瓶', quantity: 10 }
-  for (const value of ['500毫升/瓶×10', '500ml/瓶✖10', ' 500 ML / 瓶 x 10 ', '500毫升/瓶*10']) assert.deepEqual(parseSpecification(value), expected)
-  assert.equal(parseSpecification('0.5kg/袋×20').name, '0.5千克/袋×20')
+  const expected = { name: '500毫升×10瓶', net: 500, unit: '毫升', pack: '瓶', quantity: 10 }
+  for (const value of ['500毫升×10瓶', '500ml✖10瓶', '500毫升/瓶×10', '500ml/瓶✖10', ' 500 ML / 瓶 x 10 ', '500毫升/瓶*10']) assert.deepEqual(parseSpecification(value), expected)
+  assert.equal(parseSpecification('0.5kg/袋×20').name, '0.5千克×20袋')
 })
 
 test('旧单件规格保持名称及数量1，省略编辑数量时保留原数量', () => {
   assert.equal(parseSpecification('200毫升/瓶').quantity, 1)
-  assert.equal(formatSpecification(200, '毫升', '瓶', 1), '200毫升/瓶')
+  assert.equal(formatSpecification(200, '毫升', '瓶', 1), '200毫升×1瓶')
   const { packQuantity: ignored, ...legacy } = body
   assert.equal(parseSpecInput(legacy).packQuantity, 1)
   assert.equal(parseSpecInput(legacy, 10).packQuantity, 10)
