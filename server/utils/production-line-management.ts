@@ -62,7 +62,7 @@ export async function saveProductionLine(user:AuthUser,body:any,editing=false){
   const [[old]]=await conn.query<any[]>('SELECT * FROM production_line_runtime WHERE enterprise_id=? AND line_key=? FOR UPDATE',[enterpriseId,originalKey])
   if(!editing&&old)fail('此厂家已存在同名生产线')
   if(editing&&!old){
-   const [historical]=await conn.query<any[]>("SELECT line_name FROM production_task WHERE enterprise_id=? AND line_name<>''",[enterpriseId])
+   const [historical]=await conn.query<any[]>("SELECT line_name FROM production_task WHERE enterprise_id=? AND line_name<>'' AND status<>'deleted'",[enterpriseId])
    if(!historical.some(t=>keyOf(t.line_name)===originalKey))fail('生产线不存在',404)
    if(originalKey!==key)fail('已有生产记录的生产线须保留原名称，可以修改负责人')
   }
@@ -71,8 +71,8 @@ export async function saveProductionLine(user:AuthUser,body:any,editing=false){
    if(Number(used.n)||old.current_task_id)fail('已有生产记录的生产线须保留原名称，可以修改负责人')
   }
   const [[duplicate]]=await conn.query<any[]>('SELECT line_key FROM production_line_runtime WHERE enterprise_id=? AND line_key=?',[enterpriseId,key]);if(duplicate&&(!editing||originalKey!==key))fail('此厂家已存在同名生产线')
-  // 旧任务中的同名生产线也不能重复创建。
-  if(!editing){const [history]=await conn.query<any[]>('SELECT line_name FROM production_task WHERE enterprise_id=?',[enterpriseId]);if(history.some(t=>keyOf(t.line_name)===key))fail('此厂家已存在同名生产线，请编辑现有生产线')}
+  // 与列表可见范围一致：仅删除任务留下的名字不占用新产线，历史资料仍保留。
+  if(!editing){const [history]=await conn.query<any[]>("SELECT line_name FROM production_task WHERE enterprise_id=? AND status<>'deleted'",[enterpriseId]);if(history.some(t=>keyOf(t.line_name)===key))fail('此厂家已存在同名生产线，请编辑现有生产线')}
   if(old)await conn.execute('UPDATE production_line_runtime SET line_key=?,line_name=?,supervisor_name=? WHERE enterprise_id=? AND line_key=?',[key,name,supervisor,enterpriseId,originalKey])
   else await conn.execute('INSERT INTO production_line_runtime(enterprise_id,line_key,line_name,supervisor_name) VALUES(?,?,?,?)',[enterpriseId,key,name,supervisor])
   await conn.execute('INSERT INTO operation_log(enterprise_id,user_id,module,action,content,result) VALUES(?,?,?,?,?,1)',[enterpriseId,user.id,'生产线管理',editing?'修改':'新增',JSON.stringify({before:old?{lineName:old.line_name,supervisorName:old.supervisor_name||''}:null,after:{lineName:name,supervisorName:supervisor}})])
