@@ -43,6 +43,7 @@ export const useQrScanner = () => {
   let lastDecodeAt = 0
   let stopped = true
   let decoding = false   // 帧解码进行中标记（防并发重入）
+  let sessionId = 0      // 每次启动/停止递增，丢弃已结束相机的异步结果
   let resultCb: ((code: string, raw?: string) => void) | null = null
   let rawResultCb: ((raw: string) => void) | null = null
   // 原生扫码器实例（惰性创建；能力不足时为 null 走 zxing 兜底）
@@ -162,16 +163,20 @@ export const useQrScanner = () => {
 
   // 解码循环（RAF 节流 + 防重入：上一帧解码未完成时跳过，避免并发叠加）
   const loop = async () => {
-    if (stopped || phase.value !== 'scanning' || decoding) return
+    if (stopped || phase.value !== 'scanning') return
     rafId = requestAnimationFrame(loop)
+    // 等待原生识别或解码分包时也必须续订下一帧，否则画面正常但识别永久停止。
+    if (decoding) return
     const now = Date.now()
     if (now - lastDecodeAt < FRAME_GAP_MS) return
     lastDecodeAt = now
     const cv = grabFrame()
     if (!cv) return
     decoding = true
+    const currentSession = sessionId
     try {
       const raw = await decodeCanvasRaw(cv)
+      if (stopped || currentSession !== sessionId || phase.value !== 'scanning') return
       if (raw) {
         const code = traceCodeOf(raw)
         if (code) hitCode(code, raw)
@@ -179,6 +184,8 @@ export const useQrScanner = () => {
         return
       }
       // 非追溯码内容静默忽略，继续扫描
+    } catch {
+      // 单帧/解码分包暂时失败不终止扫描，下一帧继续尝试。
     } finally {
       decoding = false
     }
@@ -200,6 +207,7 @@ export const useQrScanner = () => {
   }
 
   const stopLoop = () => {
+    sessionId++
     stopped = true
     if (rafId) { cancelAnimationFrame(rafId); rafId = 0 }
   }
@@ -246,28 +254,37 @@ export const useQrScanner = () => {
     }
     phase.value = 'starting'
     errorMsg.value = ''
+    const currentSession = ++sessionId
     try {
-      stream = await md.getUserMedia({
+      const acquiredStream = await md.getUserMedia({
         audio: false,
         video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
       })
+      if (currentSession !== sessionId) {
+        acquiredStream.getTracks().forEach(t => t.stop())
+        return
+      }
+      stream = acquiredStream
       if (!videoEl) { stopStream(); return }
       videoEl.srcObject = stream
       // 等待首帧可绘制后再进入取景循环
       await new Promise<void>((resolve) => {
         const t0 = Date.now()
         const chk = () => {
-          if (videoEl && videoEl.videoWidth > 0) resolve()
+          if (currentSession !== sessionId || (videoEl && videoEl.videoWidth > 0)) resolve()
           else if (Date.now() - t0 > 8000) resolve() // 超时兜底（仍会尝试取帧）
           else setTimeout(chk, 120)
         }
         chk()
       })
+      if (currentSession !== sessionId) return
       stopped = false
       lastDecodeAt = 0
       phase.value = 'scanning'
       rafId = requestAnimationFrame(loop)
     } catch (e: any) {
+      if (currentSession !== sessionId) return
+      stopStream()
       phase.value = 'error'
       errorMsg.value = errText(e)
     }

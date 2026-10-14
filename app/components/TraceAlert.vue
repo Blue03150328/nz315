@@ -2,7 +2,6 @@
 import type { TraceOutcome } from '#shared/types/trace'
 
 const props = defineProps<{ outcome: TraceOutcome }>()
-const router = useRouter()
 const toast = useToast()
 
 // 各异常类型配置：标题/副标题/图标/横幅渐变
@@ -64,7 +63,7 @@ const copyCode = async () => {
 
 <template>
   <div class="pb-6 lg:mx-auto lg:w-full lg:max-w-2xl">
-    <PageHeader title="追溯查询结果" :show-back="true" />
+    <PageHeader title="追溯查询结果" :show-back="true" back-to="/" />
 
     <!-- 顶部异常横幅 -->
     <div class="bg-gradient-to-br px-5 py-8 text-white" :class="cfg.gradient">
@@ -166,8 +165,8 @@ const copyCode = async () => {
           size="lg"
           icon="i-lucide-message-square-warning"
         />
-        <UButton variant="outline" color="neutral" size="lg" icon="i-lucide-arrow-left" @click="router.back()">
-          返回
+        <UButton to="/" variant="outline" color="neutral" size="lg" icon="i-lucide-arrow-left">
+          返回首页
         </UButton>
       </div>
     </div>

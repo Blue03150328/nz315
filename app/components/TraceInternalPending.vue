@@ -5,7 +5,7 @@ defineProps<{ outcome: TraceOutcome }>()
 
 <template>
   <div class="space-y-4 px-4 pb-6 lg:mx-auto lg:w-full lg:max-w-2xl">
-    <PageHeader title="农资315 · 内部码查询" :show-back="true" />
+    <PageHeader title="农资315 · 内部码查询" :show-back="true" back-to="/" />
     <section class="rounded-xl border border-border bg-elevated p-5">
       <div class="flex items-center gap-2 text-lg font-semibold text-default">
         <UIcon name="i-lucide-link" class="h-5 w-5 text-primary" />

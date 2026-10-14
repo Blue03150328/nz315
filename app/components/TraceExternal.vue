@@ -60,7 +60,7 @@ const copyCode = async () => {
 
 <template>
   <div class="pb-6 lg:mx-auto lg:w-full lg:max-w-2xl">
-    <PageHeader title="农资315 · 外码查询" :show-back="true" />
+    <PageHeader title="农资315 · 外码查询" :show-back="true" back-to="/" />
     <div class="space-y-4 px-4">
       <!-- ① 结论：这个码是什么性质、要不要留意（页面的魂，不可删） -->
       <section class="rounded-xl border p-5" :class="summary.tone === 'success' ? 'border-green-200 bg-green-50 text-green-900' : summary.tone === 'warning' ? 'border-orange-200 bg-orange-50 text-orange-900' : 'border-slate-200 bg-slate-50 text-slate-800'">

@@ -20,7 +20,7 @@ useHead({
 
 <template>
   <div v-if="error" class="p-6">
-    <PageHeader title="查询失败" :show-back="true" />
+    <PageHeader title="查询失败" :show-back="true" back-to="/" />
     <div class="mt-10 text-center text-sm text-muted">
       查询服务暂时不可用，请稍后重试
     </div>

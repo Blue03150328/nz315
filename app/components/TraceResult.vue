@@ -2,7 +2,6 @@
 import type { TraceOutcome } from '#shared/types/trace'
 
 const props = defineProps<{ outcome: TraceOutcome }>()
-const router = useRouter()
 const toast = useToast()
 
 const product = computed(() => props.outcome.product)
@@ -80,7 +79,7 @@ const handleShare = async () => {
 <template>
   <div v-if="batch?.qualityStatus" class="mb-4 rounded-lg bg-warning/10 p-4 font-semibold" role="status">{{ batch.qualityStatus==='failed'?'质检不合格，请勿使用':'已采集生产资料，待质检确认' }}</div>
   <div class="pb-6 lg:mx-auto lg:w-full lg:max-w-2xl">
-    <PageHeader title="追溯查询结果" :show-back="true">
+    <PageHeader title="追溯查询结果" :show-back="true" back-to="/">
       <template #right>
         <UButton variant="ghost" color="neutral" square icon="i-lucide-share-2" aria-label="分享" @click="handleShare" />
       </template>
@@ -205,8 +204,8 @@ const handleShare = async () => {
       </div>
 
       <!-- 操作 -->
-      <UButton variant="outline" color="neutral" size="lg" icon="i-lucide-arrow-left" class="w-full" @click="router.back()">
-        返回
+      <UButton to="/" variant="outline" color="neutral" size="lg" icon="i-lucide-arrow-left" class="w-full">
+        返回首页
       </UButton>
       <p class="px-2 text-center text-xs text-muted">
         查询结果仅供参考，如有疑问请联系生产企业核实

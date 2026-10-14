@@ -51,7 +51,7 @@ const reasons = computed(() => {
 
 <template>
   <div class="pb-6 lg:mx-auto lg:w-full lg:max-w-2xl">
-    <PageHeader title="追溯查询结果" :show-back="true" />
+    <PageHeader title="追溯查询结果" :show-back="true" back-to="/" />
 
     <!-- 顶部红色横幅 -->
     <div class="bg-gradient-to-br from-destructive to-red-700 px-5 py-10 text-white">
@@ -149,8 +149,8 @@ const reasons = computed(() => {
 
       <!-- 操作 -->
       <div class="grid grid-cols-2 gap-3">
-        <UButton variant="outline" color="neutral" size="lg" icon="i-lucide-arrow-left" @click="router.back()">
-          返回
+        <UButton to="/" variant="outline" color="neutral" size="lg" icon="i-lucide-arrow-left">
+          返回首页
         </UButton>
         <UButton color="primary" size="lg" icon="i-lucide-rotate-ccw" @click="router.push('/')">
           重新查询
