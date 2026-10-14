@@ -2,11 +2,11 @@
 
 本配置用于 Linux 正式服务器，网站进 Docker，数据库继续使用服务器现有 MySQL。它与包含演示数据库的本机 `compose.yml` 分开，正式发布不运行 `docker-db-init.mjs`，也不上传本机业务数据库。
 
-2026-10-14最新网站镜像为`nz315-production:cc3a85c925c4`：保留`b20cf06`码库改版，移除生产任务顶部有效码汇总，表格的有效码列保留。115单测通过／4既有跳过，候选和正式HTTPS登录会话验证顶部四类设备汇总、码库接口及表格，容器healthy；无DDL或APK下载变更。
+2026-10-14 20:21（北京时间）最新网站镜像为 `nz315-production:07f98af4aa3d`：主仓生产管理拆分长期产线总览与操作员扫码任务，修复已删除历史线名误拦。125单测／5既有跳过、16组隔离SQL／HTTP、构建与页面交互通过，候选和正式HTTPS验证默认产线页、四设备汇总、操作员列、旧接口与鉴权；容器healthy。
 
-当前版本目录是`/var/www/.nz315-ui-20261014-cc3a85c9`，Compose文件为`compose.production.yml`。稳定操作入口`/var/www/nz315`的Compose和私有`.docker-deploy.env`已同步当前镜像，可使用下文日常管理命令；现役版本仍以`.docker-release.json`与容器交叉核对，旧.deploy-version不代表Docker现役。上一版完整码库更新的验收见[70号上线结果](handover/70-master整合推送与Docker上线（2026-10-14）.md)，该文中的b20cf06路径为历史发布／回滚版本。
+当前版本目录是 `/var/www/.nz315-management-20261014-07f98af4-r2`，Compose文件为 `compose.production.yml`。稳定操作入口 `/var/www/nz315` 的Compose和私有 `.docker-deploy.env` 已同步当前镜像，可使用下文管理命令；现役以 `.docker-release.json` 与容器交叉核对，旧.deploy-version不代表Docker现役。此前码库与扫码版本均保留在本版父提交中。
 
-本次回滚配置位于`/var/backups/nz315/ui-20261014-cc3a85c9/previous-compose.yml`及`previous.env`，回滚仅切应用镜像，不恢复业务数据库。原凭据、Nginx、公开APK与cynx均核验保持。
+本次有效备份位于 `/var/backups/nz315/management-20261014-07f98af4-r2`，包含完整 `database.sql.gz`、原42表指纹、`previous-compose.yml` 和 `previous.env`。回滚仅切回42c8b8c应用，不恢复业务数据库或删除新增负责人列。原凭据、Nginx、14个下载文件及cynx核验保持；本轮不发布或安装APK。详细回执见[生产管理上线说明](production-line/生产管理与产线总览-20261014.md)。
 
 ## 运行结构
 
@@ -45,7 +45,7 @@ NZ315_PORT=3100
 
 ## 数据库增量
 
-此次生产任务监控只新增 `production_line_runtime` 表及 `worker_session` 的8个心跳／上报字段。原业务资料、采集事件、收据和任务均保留，本地删除001测试线不会同步到正式库。
+当前生产管理增量只在已有 `production_line_runtime` 增加空默认 `supervisor_name`，未改42表原列数据。此前产线协调表和8个心跳字段已存在并保留；原业务资料、采集事件、收据和任务不变，本机业务数据不复制到正式库。
 
 暂停原网站写入后记录旧表原列的数据指纹，执行专用脚本：
 
