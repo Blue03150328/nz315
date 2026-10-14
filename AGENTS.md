@@ -1,5 +1,7 @@
 # AGENTS.md — AI 协作指南（项目 Memory 系统）
 
+> **2026-10-14 空任务删除补修已上线**：6fcf198已直推master，21:51北京时间Docker healthy，源／备份为line-draft-delete-20261014-6fcf1987。无DDL，完整备份和42表原字段指纹相同；凭据、Nginx、14下载和cynx保持。线上金丝鸟账号范围GET已验证001/002均can_delete=true、draftTaskCount=1、unfinishedTaskCount=0；21/22空任务仍active，实际删除等用户确认，不代删生产数据。23隔离组及5页面检查通过，Desktop主仓及本机Docker同步；未改APK。
+
 > **2026-10-14 空预建任务阻止产线删除补修**：线上核对金丝鸟001/002关联active空任务22/21“贵港厂区”，均零码／零设备采集；本地快照没有它们，不能归咎刷新缓存。统一GET及DELETE的emptyLineDraftSql：无产品／批次／来源／码／run／旧会话／上传才可随产线软删，保留成员和日志，确认框显示数量；真实活动或领码仍阻止，全批校验后清理。23隔离组、类型、生产及Docker构建通过，无DDL／APK改动；只更新可执行逻辑，生产数据等用户确认删除才处理。
 
 > **2026-10-14 产线删除已上线**：功能1a0e409已直推master并于21:14 Docker发布；沿用07f98af基础，Linux应用产物逐文件哈希核验后构建应用层。完整备份及42表原字段全量指纹相同，只有deleted_at／deleted_by新增空默认，未代用户删除真实线。候选／HTTPS确认选择、批量及单行入口、DELETE未登录401、旧查询及导航，healthy；原凭据／Nginx／14下载／cynx保持，未改APK。源及有效备份为line-delete-20261014-1a0e409c，降级07不识别删除标记可能重新显示，禁止以旧库覆盖业务。发布说明同步主仓。
