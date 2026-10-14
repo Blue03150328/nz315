@@ -2,7 +2,8 @@
 const props = defineProps<{ batchId: string | null }>()
 const open = defineModel<boolean>('open', { default: false })
 const emit = defineEmits<{ updated: [] }>()
-const { canWrite } = useUser()
+const { canWrite, user } = useUser()
+const columns=[{key:'sequence_no',label:'序号',width:100},{key:'raw_code',label:'溯源码原文',width:600},{key:'actions',label:'操作',width:130}]
 const { downloading, download } = useExternalCollectionExport()
 const toast = useToast()
 const detail = ref<any>(null), loading = ref(false), error = ref(''), page = ref(1), editing = ref(false)
@@ -56,6 +57,7 @@ const dateText = (value: unknown) => value ? String(value).slice(0, 10) : '待�
             <div><span class="b-help">产品</span><p class="b-strong break-all">{{ detail.batch.product_name_snapshot || '待补填' }}</p></div>
             <div><span class="b-help">生产批号</span><p class="b-strong break-all">{{ detail.batch.batch_no || '待补填' }}</p></div>
             <div><span class="b-help">生产日期</span><p class="b-strong">{{ dateText(detail.batch.produce_date) }}</p></div>
+<div v-if="detail.batch.expire_date"><span class="b-help">有效期至</span><p class="b-strong">{{ dateText(detail.batch.expire_date) }}</p></div>
             <div><span class="b-help">采集状态</span><p>{{ detail.batch.state === 'completed' ? '采集完成' : '正在采集／待补传' }}</p></div>
           </div>
           <div class="mt-4 flex flex-wrap items-center gap-2">
@@ -68,10 +70,7 @@ const dateText = (value: unknown) => value ? String(value).slice(0, 10) : '待�
           <p class="b-help mt-1">重复 {{ detail.batch.duplicate_count }} 条 · 异常 {{ detail.batch.rejected_count }} 条 · 设备：{{ detail.batch.device_name }}</p>
           <div class="b-card b-card-clip mt-4">
             <div class="b-card-head"><h3 class="b-card-title">本批溯源码</h3><span class="b-card-extra">共 {{ detail.total }} 条</span></div>
-            <div class="b-scroll-x"><table class="b-table b-table-grid"><thead><tr><th>序号</th><th>溯源码原文</th><th class="text-right">操作</th></tr></thead><tbody>
-              <tr v-for="(row, index) in detail.rows" :key="row.id"><td>{{ (page - 1) * pageSize + Number(index) + 1 }}</td><td class="max-w-xl"><span class="whitespace-pre-wrap break-all font-mono text-xs">{{ row.raw_code }}</span></td><td class="text-right"><UButton size="sm" color="neutral" variant="link" @click="copy(row.raw_code)">复制</UButton></td></tr>
-              <tr v-if="!detail.rows?.length"><td colspan="3" class="text-center">本批暂无已入库溯源码</td></tr>
-            </tbody></table></div>
+            <ProductionGrid :columns="columns" :rows="detail.rows||[]" row-key="id" :storage-key="'external-detail-columns:v1:'+user?.id"><template #cell-raw_code="{row}"><span :title="row.raw_code" class="font-mono">{{ row.raw_code }}</span></template><template #cell-actions="{row}"><UButton size="xs" variant="link" @click="copy(row.raw_code)">复制</UButton></template></ProductionGrid>
             <div class="b-pager"><span class="b-help">第 {{ page }} 页</span><ExternalPagination v-model:page="page" :total="detail.total" :items-per-page="pageSize" :disabled="loading" /></div>
           </div>
           <div class="b-modal-foot"><UButton color="neutral" variant="outline" @click="open = false">关闭</UButton></div>

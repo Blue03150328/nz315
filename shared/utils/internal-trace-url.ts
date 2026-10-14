@@ -42,3 +42,16 @@ export function traceUrlClassification(value: unknown, baseUrl = DEFAULT_TRACE_B
   if (internalTraceCodeOf(value, baseUrl)) return 'internal'
   return httpUrl(value) ? 'external' : 'unparsed'
 }
+
+/** 统一生产扫码先识别来源；本站坏链接不能绕过内部校验进入外码库。 */
+export function productionLabelOf(value: unknown, baseUrl = DEFAULT_TRACE_BASE_URL) {
+  const raw = String(value ?? '').trim()
+  if (/[\r\n\0]/.test(String(value))) return { classification: 'unparsed' as const, code: null, reason: '标签内容包含无效字符，原文保留待核对' }
+  const code = internalTraceCodeOf(raw, baseUrl)
+  if (code || /^\d{32}$/.test(raw)) return { classification: 'internal' as const, code: code || raw, reason: '' }
+  const url = httpUrl(raw)
+  if (!url || PLATFORM_HOSTS.has(url.hostname) || url.hostname === httpUrl(baseUrl)?.hostname || isTraceWebsiteUrl(raw, baseUrl) || (url.pathname === '/' && !url.search)) {
+    return { classification: 'unparsed' as const, code: null, reason: '来源无法识别或标签网址、路径、码格式不正确' }
+  }
+  return { classification: 'external' as const, code: null, reason: '' }
+}

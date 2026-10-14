@@ -279,6 +279,7 @@
   function exportBackup(){state.scanning=false;updateScanLabel();Native.exportBackup();}
   function readExternal(){const result=JSON.parse(Native.externalQueue());if(!result.ok)throw new Error(result.error || '本机外部队列不可用');state.external=result;return result;}
   function externalSetup(){
+    readExternal();if((!state.external.batch||state.external.batch.state!=='open')&&typeof Native.openWorkerApp==='function'){Native.openWorkerApp();return;}
     readQueue();if(state.queue.session){toast('请先完成本机内部生产采集及同步',true);queuePage();return;}
     let q;try{q=readExternal();}catch(error){toast(error.message,true);return;}
     const device=q.deviceContext,open=q.batch&&q.batch.state==='open',worker=open?q.batch.worker_no:q.selection&&q.selection.workerNo || '';

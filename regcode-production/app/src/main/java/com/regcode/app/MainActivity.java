@@ -256,7 +256,7 @@ public class MainActivity extends Activity {
         }
         @JavascriptInterface public String collectExternal(String raw){
             synchronized(collectionModeLock){
-            try{requireWorkerFinished();if(!foreground||!capturing)throw new Exception("扫码已暂停，请先开始外部采集");JSONObject credential=deviceCredentials.read();if(!client.deviceMode()||credential==null||!credential.optBoolean("registered")||!preferences.getString("server",BuildConfig.DEFAULT_SERVER).equals(credential.optString("server")))throw new Exception("设备凭证不可用，已停止采集；本机记录保留");return new JSONObject().put("ok",true).put("event",externalQueue.capture(scanPayload(raw))).toString();}catch(Exception error){capturing=false;return failure(error);}
+            try{requireWorkerFinished();if(!foreground||!capturing)throw new Exception("扫码已暂停，请先开始外部采集");JSONObject old=externalQueue.snapshot().optJSONObject("batch");if(old==null||!"open".equals(old.optString("state")))throw new Exception("旧采集已结束，请从生产扫码开始新采集；原记录保留");JSONObject credential=deviceCredentials.read();if(!client.deviceMode()||credential==null||!credential.optBoolean("registered")||!preferences.getString("server",BuildConfig.DEFAULT_SERVER).equals(credential.optString("server")))throw new Exception("设备凭证不可用，已停止采集；本机记录保留");return new JSONObject().put("ok",true).put("event",externalQueue.capture(scanPayload(raw))).toString();}catch(Exception error){capturing=false;return failure(error);}
             }
         }
         @JavascriptInterface public String finishExternal(){try{JSONObject finished=externalQueue.finish();if(finished!=null)externalSync.uploadNow();return new JSONObject(externalQueue()).put("finishRequested",finished!=null).toString();}catch(Exception error){return failure(error);}}

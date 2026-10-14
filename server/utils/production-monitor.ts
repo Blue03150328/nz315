@@ -53,6 +53,8 @@ export async function taskMonitorRows(ids:number[],details=true){
   s.id AS session_id,s.user_id,s.identity_json,s.state,s.started_ms,s.stopped_ms,s.heartbeat_ms,s.capture_state,s.reported_sequence,s.local_valid,s.local_duplicate,s.local_exception,s.local_pending,
   d.name AS device_name,p.name AS product_name,p.trademark,p.content,p.dosage,ps.spec_name,p.registration_no,
   (SELECT COUNT(*) FROM worker_event e WHERE e.session_id=s.id AND (e.result_state='saved' OR e.resolution_state='bound')) AS cloud_valid,
+  (SELECT COUNT(*) FROM worker_event e WHERE e.session_id=s.id AND (e.result_state='saved' OR e.resolution_state='bound') AND (e.classification='internal' OR e.classification IS NULL)) AS internal_count,
+  (SELECT COUNT(*) FROM worker_event e WHERE e.session_id=s.id AND e.result_state='saved' AND e.classification='external') AS external_count,
   (SELECT COUNT(*) FROM worker_event e WHERE e.session_id=s.id AND e.result_state='duplicate') AS cloud_duplicate,
   (SELECT COUNT(*) FROM worker_event e WHERE e.session_id=s.id AND e.result_state='exception') AS cloud_exception
   FROM worker_run r JOIN worker_session s ON s.run_id=r.id JOIN production_device d ON d.id=r.device_id

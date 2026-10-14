@@ -71,13 +71,6 @@ const MENU_GROUPS: { title?: string; items: MenuItem[] }[] = [
     ],
   },
   {
-    title: '外部追溯码',
-    items: [
-      { path: '/admin/external-production', label: '外部生产任务', icon: 'i-lucide-clipboard-list' },
-      { path: '/admin/external-codes', label: '外部码库管理', icon: 'i-lucide-scan-text' },
-    ],
-  },
-  {
     title: '监控',
     items: [
       { path: '/admin/batches', label: '效期预警', icon: 'i-lucide-boxes' },

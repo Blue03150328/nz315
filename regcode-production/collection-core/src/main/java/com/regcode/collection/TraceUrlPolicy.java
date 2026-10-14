@@ -51,4 +51,15 @@ public final class TraceUrlPolicy {
         if (codeOf(raw, base) != null) return "internal";
         return httpUri(raw) == null ? "unparsed" : "external";
     }
+
+    /** 新版生产先分类；历史外码分类与旧队列继续使用原规则。 */
+    public static String productionClassification(String raw, String base) {
+        if (raw == null || raw.matches("(?s).*[\\r\\n\\x00].*")) return "unparsed";
+        if (codeOf(raw, base) != null || raw.trim().matches("[0-9]{32}")) return "internal";
+        URI uri = httpUri(raw), expected = httpUri(base);
+        if (uri == null || "www.nz315.cn".equalsIgnoreCase(uri.getHost()) || "nz315.cn".equalsIgnoreCase(uri.getHost())) return "unparsed";
+        if (expected != null && uri.getHost().equalsIgnoreCase(expected.getHost())) return "unparsed";
+        if ((uri.getRawPath() == null || uri.getRawPath().isEmpty() || "/".equals(uri.getRawPath())) && (uri.getRawQuery() == null || uri.getRawQuery().isEmpty())) return "unparsed";
+        return "external";
+    }
 }

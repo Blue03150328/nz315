@@ -1,5 +1,5 @@
 // 列表地址保存已应用条件；输入中的草稿只在查询时写入地址。
-export function useAdminListRoute(filters: Record<string, any>, page: Ref<number>, refresh: () => unknown, numericKeys: string[] = []) {
+export function useAdminListRoute(filters: Record<string, any>, page: Ref<number>, refresh: () => unknown, numericKeys: string[] = [], preserveKeys: string[] = []) {
   const route = useRoute()
   const router = useRouter()
   const path = route.path
@@ -18,6 +18,11 @@ export function useAdminListRoute(filters: Record<string, any>, page: Ref<number
   const apply = async (nextPage = 1) => {
     page.value = nextPage
     const query: Record<string, string> = {}
+    // 来源切换与历史入口属于当前视图，查询、分页和重置均需保持。
+    for (const key of preserveKeys) {
+      const value = route.query[key]
+      if (typeof value === 'string' && value) query[key] = value
+    }
     for (const [key, value] of Object.entries(filters)) {
       if (value !== undefined && value !== null && value !== '') query[key] = String(value)
     }

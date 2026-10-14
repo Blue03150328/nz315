@@ -6,7 +6,9 @@ import { externalBatchRow, externalFail, externalScope, externalTransaction, req
 import { externalCollectionId, externalCsvRow, externalMetadataInput } from '../../shared/utils/external-collection-input'
 
 const beijing = (field: string) => `DATE_FORMAT(TIMESTAMPADD(SECOND,28800-TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),NOW()),${field}),'%Y-%m-%d %H:%i:%s.%f')`
-const columns = `b.*,e.name AS enterprise_name,sp.spec_name AS linked_spec_name,${beijing('b.created_at')} AS created_at,${beijing('b.completed_at')} AS completed_at`
+const columns = `b.*,e.name AS enterprise_name,COALESCE((SELECT JSON_UNQUOTE(JSON_EXTRACT(wr.product_snapshot,'$.specName')) FROM worker_session ws JOIN worker_run wr ON wr.id=ws.run_id WHERE ws.id=b.id LIMIT 1),sp.spec_name) AS linked_spec_name,
+  (SELECT JSON_UNQUOTE(JSON_EXTRACT(wr.context_json,'$.expireDate')) FROM worker_session ws JOIN worker_run wr ON wr.id=ws.run_id WHERE ws.id=b.id LIMIT 1) AS expire_date,
+  ${beijing('b.created_at')} AS created_at,${beijing('b.completed_at')} AS completed_at`
 const joins = ' FROM external_collection_batch b JOIN enterprise e ON e.id=b.enterprise_id LEFT JOIN product p ON p.id=b.product_id LEFT JOIN product_spec sp ON sp.id=p.spec_id'
 
 function paging(input: Record<string, any>) {

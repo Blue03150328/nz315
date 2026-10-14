@@ -6,7 +6,11 @@ import { productWithSpec } from '#shared/utils/product-name'
 // 数量一律精确显示（12,352张），不折算「万」。
 // Keep-Alive 页面缓存：菜单切换保留页面状态；刷新/登出自动清空；【重置】恢复初始。
 // 只读账号（viewer）在模板中隐藏全部写操作入口。
-const { canWrite } = useUser()
+const { canWrite, user } = useUser()
+const route = useRoute()
+const detailColumns=[{key:'code',label:'追溯码',width:340},{key:'product_name',label:'产品名称',width:260},{key:'status',label:'状态',width:120},{key:'abnormal_flag',label:'异常标记',width:210},{key:'produce_date',label:'生产日期',width:150},{key:'batch_no',label:'生产批号',width:160},{key:'expire_date',label:'有效期至',width:150},{key:'created_at',label:'上传时间',width:200},{key:'actions',label:'操作',width:240}]
+const externalSource = computed(() => route.query.source === 'external')
+const libraryColumns = [{key:'selection',label:'选择',width:90},{key:'productName',label:'产品名称',width:280},{key:'specName',label:'包装规格',width:180},{key:'batchNo',label:'生产批号',width:160},{key:'produceDate',label:'生产日期',width:150},{key:'codeTotal',label:'码数量',width:140},{key:'summary',label:'码状态',width:190},{key:'uploadAt',label:'上传时间',width:210},{key:'lineName',label:'上传产线',width:180},{key:'deviceName',label:'上传设备',width:180},{key:'actions',label:'操作',width:270}]
 
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
 useHead({ title: '码库管理' })
@@ -461,6 +465,9 @@ const flagBadge = (f: number) => {
 
 <template>
   <div class="space-y-4">
+    <div class="flex gap-3"><UButton :variant="externalSource?'outline':'solid'" to="/admin/codes">内部码</UButton><UButton :variant="externalSource?'solid':'outline'" to="/admin/codes?source=external">外部码</UButton></div>
+    <ExternalCollectionList v-if="externalSource" mode="codes" />
+    <template v-else>
     <!-- 页面标题区 -->
     <div class="flex items-center justify-between">
       <div>
@@ -526,61 +533,14 @@ const flagBadge = (f: number) => {
         <UButton v-if="canWrite" size="sm" variant="outline" icon="i-lucide-pencil" :disabled="!selectedCount || pending" @click="openEdit()">批量编辑</UButton>
       </div>
 
-      <div class="b-scroll-x">
-        <table class="b-table b-table-grid" aria-label="上传记录">
-          <thead>
-            <tr>
-              <th class="w-12"><span class="sr-only">选择上传批次</span></th>
-              <th>产品名称</th>
-              <th>包装规格</th>
-              <th>生产批号</th>
-              <th>生产日期</th>
-              <th class="text-right">码数量</th>
-              <th>码状态</th>
-              <th>上传时间</th>
-              <th>上传产线</th>
-              <th>上传设备</th>
-              <th class="text-right">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in batchRows" :key="row.id" :data-batch-id="row.id" :class="{ 'is-selected': isSelected(row) }">
-              <td><UCheckbox :model-value="isSelected(row)" :aria-label="'选择上传批次' + row.id" @update:model-value="toggleSelection(row)" /></td>
-              <td class="min-w-44">
-                <p class="break-words text-[13px] b-strong">{{ row.productName || '产品未记录' }}</p>
-              </td>
-              <td class="min-w-32"><span class="break-words" :class="{ 'text-[var(--b-text-muted)]': !row.specName }">{{ batchSpec(row) }}</span></td>
-              <td class="min-w-28">{{ row.batchNo || '-' }}</td>
-              <td class="min-w-28 whitespace-nowrap">{{ row.produceDate || '-' }}</td>
-              <td class="text-right whitespace-nowrap font-medium b-strong">{{ formatCodeQuantity(row.codeTotal) }}</td>
-              <td class="min-w-32">
-                <span class="b-tag" :class="SUMMARY_BADGE[row.summary] || 'b-tag-default'">{{ row.summary }}</span>
-                <p v-if="row.frozenCount + row.voidedCount > 0" class="b-card-extra mt-1 text-xs">正常 {{ row.normalCount }} / 冻结 {{ row.frozenCount }} / 作废 {{ row.voidedCount }}</p>
-              </td>
-              <td class="min-w-44 whitespace-nowrap">{{ uploadTime(row.uploadAt) }}</td>
-              <td class="min-w-32">
-                <p class="break-words">{{ row.lineName || '产线未记录' }}</p>
-              </td>
-              <td class="min-w-32"><p class="break-words">{{ row.deviceName || '设备未记录' }}</p></td>
-              <td>
-                <div class="flex min-w-64 flex-wrap justify-end gap-x-3 gap-y-1">
-                  <UButton variant="link" color="neutral" size="xs" icon="i-lucide-eye" @click="openDetail(row)">详细</UButton>
-                  <UButton v-if="row.canExport" variant="link" color="neutral" size="xs" icon="i-lucide-download" @click="openExport(row)">导出</UButton>
-                  <UButton v-if="canWrite" variant="link" color="neutral" size="xs" icon="i-lucide-pencil" @click="openEdit(row)">编辑</UButton>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="!pending && !batchRows.length">
-              <td colspan="11" class="b-empty">
-                <div class="b-empty-inner">
-                  <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
-                  <span class="text-sm">暂无上传记录，扫描仪点「完成本次上传」后才会在此记录；也可调整筛选条件后重试</span>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <div class="p-4"><ProductionGrid :columns="libraryColumns" :rows="batchRows" row-key="id" :storage-key="'internal-library-columns:v1:'+user?.id">
+        <template #cell-selection="{row}"><UCheckbox :model-value="isSelected(row)" :aria-label="'选择上传批次'+row.id" @update:model-value="toggleSelection(row)" /></template>
+        <template #cell-specName="{row}">{{ batchSpec(row) }}</template>
+        <template #cell-codeTotal="{row}">{{ formatCodeQuantity(row.codeTotal) }}</template>
+        <template #cell-summary="{row}"><span class="b-tag" :class="SUMMARY_BADGE[row.summary]||'b-tag-default'">{{ row.summary }}</span><p v-if="row.frozenCount+row.voidedCount>0" class="text-xs">正常 {{ row.normalCount }} / 冻结 {{ row.frozenCount }} / 作废 {{ row.voidedCount }}</p></template>
+        <template #cell-uploadAt="{row}">{{ uploadTime(row.uploadAt) }}</template>
+        <template #cell-actions="{row}"><div class="flex gap-2"><UButton size="xs" variant="link" @click="openDetail(row)">详细</UButton><UButton v-if="row.canExport" size="xs" variant="link" @click="openExport(row)">导出</UButton><UButton v-if="canWrite" size="xs" variant="link" @click="openEdit(row)">编辑</UButton></div></template>
+      </ProductionGrid></div>
 
       <!-- 分页区 -->
       <div v-if="data?.total" class="b-pager">
@@ -773,59 +733,12 @@ const flagBadge = (f: number) => {
               <UButton color="neutral" variant="outline" size="sm" @click="Object.assign(dFilters, { keyword: '', status: undefined, abnormalFlag: undefined }); onDetailSearch()">重置</UButton>
             </div>
 
-            <div class="b-scroll-x">
-              <table class="b-table b-table-grid">
-                <thead>
-                  <tr>
-                    <th>追溯码</th>
-                    <th>产品</th>
-                    <th>码状态</th>
-                    <th>异常标记</th>
-                    <th>生产日期</th>
-                    <th>生产批号</th>
-                    <th>有效期至</th>
-                    <th>码生成时间</th>
-                    <th class="text-right">操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="r in detailRows" :key="r.id">
-                    <td><span class="font-code text-[13px] b-strong">{{ r.code }}</span></td>
-                    <td>{{ r.product_name || '-' }}</td>
-                    <td><span class="b-tag" :class="statusBadge(r.status).cls">{{ statusBadge(r.status).label }}</span></td>
-                    <td>
-                      <span class="b-tag" :class="flagBadge(r.abnormal_flag).cls">{{ flagBadge(r.abnormal_flag).label }}</span>
-                      <div v-if="r.abnormal_reason" class="mt-0.5 max-w-44 truncate text-xs text-[var(--b-text-muted)]" :title="r.abnormal_reason">原因：{{ r.abnormal_reason }}</div>
-                    </td>
-                    <td>{{ r.produce_date || '-' }}</td>
-                    <td>{{ r.batch_no || '-' }}</td>
-                    <td>{{ r.expire_date || '-' }}</td>
-                    <td>{{ String(r.created_at).slice(0, 16) }}</td>
-                    <td>
-                      <div v-if="canWrite && Number(r.abnormal_flag) === 0" class="b-actions justify-end">
-                        <UButton variant="link" color="neutral" size="xs" @click="openRowFlag('freeze', r)">冻结</UButton>
-                        <span class="b-sep" />
-                        <UButton variant="link" color="error" size="xs" @click="openRowFlag('void', r)">作废</UButton>
-                      </div>
-                      <div v-else-if="canWrite && Number(r.abnormal_flag) === 1" class="b-actions justify-end">
-                        <UButton variant="link" color="neutral" size="xs" @click="openRowFlag('restore', r)">恢复正常</UButton>
-                      </div>
-                      <div v-else-if="canWrite" class="flex items-center justify-end gap-2">
-                        <span class="b-card-extra text-xs">已终态</span>
-                      </div>
-                    </td>
-                  </tr>
-                  <tr v-if="!detailRows.length">
-                    <td colspan="9" class="b-empty">
-                      <div class="b-empty-inner">
-                        <UIcon :name="detailLoading ? 'i-lucide-loader-circle' : 'i-lucide-inbox'" class="b-empty-icon h-8 w-8" :class="{ 'animate-spin': detailLoading }" />
-                        <span class="text-sm">{{ detailLoading ? '正在加载追溯码' : detailError ? '追溯码明细未加载，请重试' : '本批次暂无符合筛选条件的追溯码' }}</span>
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
+            <ProductionGrid :columns="detailColumns" :rows="detailRows" row-key="id" :storage-key="'internal-detail-columns:v1:'+user?.id">
+              <template #cell-status="{row}"><span class="b-tag" :class="statusBadge(row.status).cls">{{ statusBadge(row.status).label }}</span></template>
+              <template #cell-abnormal_flag="{row}"><span class="b-tag" :class="flagBadge(row.abnormal_flag).cls">{{ flagBadge(row.abnormal_flag).label }}</span><p v-if="row.abnormal_reason" :title="row.abnormal_reason" class="truncate text-xs">{{ row.abnormal_reason }}</p></template>
+              <template #cell-created_at="{row}">{{ String(row.created_at).slice(0,16) }}</template>
+              <template #cell-actions="{row}"><div v-if="canWrite" class="flex gap-2"><UButton v-if="Number(row.abnormal_flag)===0" size="xs" variant="link" @click="openRowFlag('freeze',row)">冻结</UButton><UButton v-if="Number(row.abnormal_flag)===0" size="xs" variant="link" color="error" @click="openRowFlag('void',row)">作废</UButton><UButton v-if="Number(row.abnormal_flag)===1" size="xs" variant="link" @click="openRowFlag('restore',row)">恢复正常</UButton><span v-if="Number(row.abnormal_flag)===2">已终态</span></div></template>
+            </ProductionGrid>
 
             <!-- 明细分页 -->
             <div v-if="detailTotal" class="b-pager">
@@ -872,5 +785,6 @@ const flagBadge = (f: number) => {
         </div>
       </template>
     </UModal>
+  </template>
   </div>
 </template>

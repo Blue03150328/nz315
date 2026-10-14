@@ -13,7 +13,7 @@ import { collectionId, collectionCode } from '../../shared/utils/collection-inpu
 import { workerContext, workerEvents } from '../../shared/utils/worker-input'
 import { ensureWorkerExternalBatch, projectWorkerExternalEvent } from './worker-external-management'
 import { projectWorkerCodeUsage } from '#scripts/worker-code-usage.mjs'
-import { traceUrlClassification } from '../../shared/utils/internal-trace-url'
+import { traceUrlClassification, productionLabelOf } from '../../shared/utils/internal-trace-url'
 const fail=(message:string,statusCode=409):never=>{throw createError({statusCode,statusMessage:message})}
 const hash=(x:any)=>createHash('sha256').update(typeof x==='string'?x:JSON.stringify(x)).digest('hex')
 const json=(x:any)=>typeof x==='string'?JSON.parse(x):x
@@ -73,7 +73,7 @@ export async function workerCache(device:AuthUser,params:any){
   await execute('INSERT INTO worker_cache(id,device_id,created_at,expires_at,data_json) VALUES(?,?,?,?,?)',[snapshot.id,device.device_id,snapshot.created_at,snapshot.expires_at,JSON.stringify(snapshot.data_json)])
  }
  const data=json(snapshot.data_json),kind=['products','pools','codes'].includes(params.kind)?params.kind:'products',offset=Math.max(0,Number(params.offset)||0),limit=kind==='codes'?1000:200,rows=data[kind].slice(offset,offset+limit)
- return {ok:true,id:snapshot.id,createdAt:Number(snapshot.created_at),expiresAt:Number(snapshot.expires_at),serverTime:Date.now(),stockVersion:Number(data.stockVersion||0),traceBaseUrl:String(useRuntimeConfig().public.traceBaseUrl),kind,rows,total:data[kind].length,next:offset+rows.length<data[kind].length?offset+rows.length:null,hash:hash(data)}
+ return {ok:true,id:snapshot.id,createdAt:Number(snapshot.created_at),expiresAt:Number(snapshot.expires_at),serverTime:Date.now(),stockVersion:Number(data.stockVersion||0),productionScanVersion:1,traceBaseUrl:String(useRuntimeConfig().public.traceBaseUrl),kind,rows,total:data[kind].length,next:offset+rows.length<data[kind].length?offset+rows.length:null,hash:hash(data)}
 }
 export async function assignWorkerPool(user:AuthUser,body:any){
  deviceManager(user);const deviceId=Number(body.deviceId),productId=Number(body.productId),quantity=Number(body.quantity),requestId=collectionId(body.requestId)
@@ -130,7 +130,10 @@ export async function openWorkerSession(device:AuthUser,body:any,verifiedGrant?:
  })
 }
 export async function syncWorkerEvents(device:AuthUser,sessionId:string,body:any){
- collectionId(sessionId);const events=workerEvents(body),receipts=[]
+ collectionId(sessionId)
+ const [sessionRun]=await query<any[]>('SELECT r.context_json FROM worker_run r JOIN worker_session s ON s.run_id=r.id WHERE s.id=? AND s.device_id=?',[sessionId,device.device_id])
+ if(!sessionRun)fail('工人采集会话不存在',404)
+ const events=workerEvents(body,json(sessionRun.context_json).unifiedScan===true,String(useRuntimeConfig().public.traceBaseUrl)),receipts=[]
  for(const event of events){
   const receipt=await transaction(async conn=>{
    await lockProductionDevice(conn,device)
@@ -144,6 +147,8 @@ export async function syncWorkerEvents(device:AuthUser,sessionId:string,body:any
    const [[g]]=await conn.query<any[]>('SELECT g.*,u.status AS us,u.session_epoch AS uv,u.role AS ur,u.enterprise_id AS ue FROM worker_grant g JOIN user u ON u.id=g.user_id WHERE g.id=?',[s.grant_id])
    const within=Date.parse(event.capturedAt)>=Number(g.issued_at)-60000&&Date.parse(event.capturedAt)<=Number(g.expires_at)&&Date.parse(event.capturedAt)<=Date.now()+60000
    let result='exception',reason='',classification:string|null=null,dedup:string|null=null
+   const unified=json(run.context_json).unifiedScan===true
+   if(unified)classification=productionLabelOf(event.rawCode,String(useRuntimeConfig().public.traceBaseUrl)).classification
    if(run.task_id){const line=await lineEvent(conn,device,run,s,event,within,g);result=line.result;reason=line.reason}
    else if(run.mode==='production'){
     const [[code]]=event.code?await conn.query<any[]>('SELECT p.*,c.status,c.batch_id,c.abnormal_flag FROM worker_pool_code p JOIN trace_code c ON c.id=p.code_id WHERE p.pool_id=? AND p.code=? FOR UPDATE',[run.pool_id,event.code]):[[]]
@@ -162,10 +167,10 @@ export async function syncWorkerEvents(device:AuthUser,sessionId:string,body:any
    if(!within||Number(g.us)!==1||Number(g.uv)!==Number(g.user_version)||g.ur!=='production_operator'||Number(g.ue)!==Number(run.enterprise_id)){
     await conn.execute('UPDATE worker_run SET review_needed=1 WHERE id=?',[run.id]);reason=(reason?reason+'；':'')+'工人授权或采集时间需管理员核对，历史数据保留'
    }
-   await conn.execute('INSERT INTO worker_event(id,session_id,sequence_no,code,raw_code,kind,result_state,classification,reason,payload_hash,captured_at,dedup_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',[event.eventId,sessionId,event.sequence,event.code,event.rawCode,event.kind,result,classification,reason,hash(event),event.capturedAt.replace('T',' ').replace('Z',''),dedup])
-   if(run.mode==='external')await projectWorkerExternalEvent(conn,s,run,{id:event.eventId,sequence_no:event.sequence,raw_code:event.rawCode,dedup_key:dedup,result_state:result,reason,payload_hash:hash(event),captured_at:event.capturedAt.replace('T',' ').replace('Z','')})
+   await conn.execute('INSERT INTO worker_event(id,session_id,sequence_no,code,raw_code,kind,result_state,classification,reason,payload_hash,captured_at,dedup_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',[event.eventId,sessionId,event.sequence,unified&&classification!=='internal'?null:event.code,event.rawCode,event.kind,result,classification,reason,hash(event),event.capturedAt.replace('T',' ').replace('Z',''),dedup])
+   if(run.mode==='external'||(unified&&classification==='external'))await projectWorkerExternalEvent(conn,s,run,{id:event.eventId,sequence_no:event.sequence,raw_code:event.rawCode,dedup_key:dedup,result_state:result,reason,payload_hash:hash(event),captured_at:event.capturedAt.replace('T',' ').replace('Z','')})
    await conn.execute('UPDATE worker_session SET last_sequence=? WHERE id=?',[event.sequence,sessionId])
-   return eventReceipt({id:event.eventId,sequence_no:event.sequence,code:event.code,result_state:result,classification,reason})
+   return eventReceipt({id:event.eventId,sequence_no:event.sequence,code:unified&&classification!=='internal'?null:event.code,result_state:result,classification,reason})
   });receipts.push(receipt)
  }
  return {ok:true,sessionId,receipts}
@@ -181,9 +186,11 @@ export async function finishWorkerSession(device:AuthUser,id:string,body:any){re
  const stop=body.stoppedAt?new Date(String(body.stoppedAt)):null
  if(stop&&(!Number.isFinite(stop.getTime())||stop.getTime()>Date.now()+60000||(s.started_ms&&stop.getTime()<Number(s.started_ms))))fail('结束采集时间无效')
  if(s.stopped_ms&&stop&&Number(s.stopped_ms)!==stop.getTime())fail('结束采集时间与原标记不一致')
- if(run.mode==='external'){
+ if(run.mode==='external'||json(run.context_json).unifiedScan){
+  if(run.mode==='external'){
   await ensureWorkerExternalBatch(conn,s,run)
-  await conn.execute("UPDATE external_collection_batch SET state='completed',completed_at=COALESCE(completed_at,NOW(3)) WHERE id=? AND last_sequence=?",[id,body.lastSequence])
+  }
+  await conn.execute("UPDATE external_collection_batch SET state='completed',completed_at=COALESCE(completed_at,NOW(3)) WHERE id=? AND state='active'"+(run.mode==='external'?' AND last_sequence=?':''),run.mode==='external'?[id,body.lastSequence]:[id])
  }
  await conn.execute("UPDATE worker_session SET state='completed',final_sequence=?,stopped_at=COALESCE(stopped_at,?),stopped_ms=COALESCE(stopped_ms,?),completed_at=COALESCE(completed_at,NOW(3)) WHERE id=?",[body.lastSequence,stop,stop?.getTime()??null,id]);await projectWorkerCodeUsage(conn,id);await audit(conn,{...device,id:s.user_id},'handover',s.run_id,{sessionId:id,lastSequence:body.lastSequence});return {ok:true,sessionId:id,lastSequence:body.lastSequence}
 })}

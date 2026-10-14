@@ -1,6 +1,8 @@
 import {resolveAutomaticTask,lockMonitoredTask} from './production-monitor'
 import { createHash } from 'node:crypto'
 import { headOf } from './code-head'
+import { productionLabelOf } from '../../shared/utils/internal-trace-url'
+import { captureUnifiedExternal } from './worker-external-management'
 const fail=(message:string,statusCode=409):never=>{throw createError({statusCode,statusMessage:message})}
 const json=(value:any)=>typeof value==='string'?JSON.parse(value):value
 const hash=(value:any)=>createHash('sha256').update(JSON.stringify(value)).digest('hex')
@@ -13,7 +15,7 @@ async function collectionRoot(conn:any,run:any,product:any,batch:any,context:any
 
 /** 任务只确定生产线和人员；产品及生产批次固定在本次工人采集中。 */
 export async function openStockLineSession(conn:any,device:any,body:any,context:any,g:any){
- const [[p]]=await conn.query('SELECT p.*,s.spec_code FROM product p LEFT JOIN product_spec s ON s.id=p.spec_id WHERE p.id=? FOR UPDATE',[context.productId])
+ const [[p]]=await conn.query('SELECT p.*,s.spec_code,s.spec_name FROM product p LEFT JOIN product_spec s ON s.id=p.spec_id WHERE p.id=? FOR UPDATE',[context.productId])
  if(!p||Number(p.enterprise_id)!==Number(device.enterprise_id)||Number(p.status)!==1)fail('请选择本厂启用的产品',403)
  if(!/^\d{11}$/.test(headOf(p)))fail('产品未配置有效的登记证或规格，请联系管理员')
  if(context.autoLine)await resolveAutomaticTask(conn,device,body,context,g)
@@ -31,7 +33,7 @@ export async function openStockLineSession(conn:any,device:any,body:any,context:
   else {const [b]=await conn.execute('INSERT INTO batch(enterprise_id,product_id,batch_no,produce_date,expire_date,qc_result,quality_cert_no,quantity) VALUES(?,?,?,?,?,NULL,NULL,0)',[device.enterprise_id,p.id,context.batchNo,context.produceDate,context.expireDate]);batchId=b.insertId}
   await conn.execute(`INSERT INTO worker_run(id,device_id,enterprise_id,task_id,product_id,batch_id,mode,context_json,context_hash,review_needed,device_snapshot,product_snapshot)
    VALUES(?,?,?,?,?,?,'production',?,?,?,?,?)`,[body.runId,device.device_id,device.enterprise_id,task.id,p.id,batchId,JSON.stringify(context),hash(context),conflict||g.changed?1:0,
-   JSON.stringify({id:device.device_id,name:device.name,lineName:task.line_name,enterpriseName:device.enterprise_name}),JSON.stringify({id:p.id,name:p.name})])
+   JSON.stringify({id:device.device_id,name:device.name,lineName:task.line_name,enterpriseName:device.enterprise_name}),JSON.stringify({id:p.id,name:p.name,specName:p.spec_name,registrationNo:p.registration_no})])
  }
  await conn.execute('INSERT INTO worker_session(id,run_id,device_id,user_id,grant_id,identity_json,started_at,started_ms) VALUES(?,?,?,?,?,?,?,?)',[body.sessionId,body.runId,device.device_id,g.user_id,g.id,JSON.stringify({...json(g.identity_json),lineName:task.line_name}),new Date(at),at])
  await conn.execute("INSERT INTO worker_audit(enterprise_id,actor_id,device_id,run_id,action,detail) VALUES(?,?,?,?,'join_stock_line',?)",[task.enterprise_id,g.user_id,device.device_id,body.runId,JSON.stringify({taskId:task.id,productId:p.id,context})])
@@ -48,6 +50,13 @@ export async function stockLineEvent(conn:any,device:any,run:any,s:any,event:any
  if(reason)return {result:'exception',reason}
  if(!g.manualReview){const [[member]]=await conn.query('SELECT UNIX_TIMESTAMP(added_at)*1000 AS added_ms,UNIX_TIMESTAMP(removed_at)*1000 AS removed_ms FROM production_task_member WHERE task_id=? AND user_id=?',[task.id,s.user_id]);const at=Date.parse(event.capturedAt);if(!member||at<Number(member.added_ms)-60000||(member.removed_ms&&at>Number(member.removed_ms)))return {result:'exception',reason:'工人未参与此生产线或已被移出，原始记录保留'}}
  const [[product]]=await conn.query('SELECT p.*,s.spec_code,s.spec_name FROM product p LEFT JOIN product_spec s ON s.id=p.spec_id WHERE p.id=?',[run.product_id])
+ if(context.unifiedScan){
+  const label=productionLabelOf(event.rawCode,String(useRuntimeConfig().public.traceBaseUrl))
+  if(label.classification==='unparsed')return {result:'exception',reason:label.reason}
+  if(!product||Number(product.enterprise_id)!==Number(run.enterprise_id)||product.status!==1)return {result:'exception',reason:'所选产品已停用或不属于本厂，原文保留'}
+  if(label.classification==='external')return captureUnifiedExternal(conn,s,run,event)
+  event={...event,code:label.code}
+ }
  if(!event.code||!/^\d{32}$/.test(event.code))return {result:'exception',reason:'缺位或多个完整码，无法确定追溯码'}
  if(!product||Number(product.enterprise_id)!==Number(run.enterprise_id)||product.status!==1||!/^\d{11}$/.test(headOf(product))||!event.code.startsWith(headOf(product)))return {result:'exception',reason:'码结构与所选产品、登记证或规格不一致'}
  let [[code]]=await conn.query('SELECT * FROM trace_code WHERE code=? FOR UPDATE',[event.code])

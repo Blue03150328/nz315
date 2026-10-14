@@ -1,6 +1,6 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
-useHead({ title: '外部生产任务' })
+const route=useRoute()
+await navigateTo({path:'/admin/production-tasks',query:{...route.query,view:'external-history'}},{replace:true})
 </script>
-
-<template><ExternalCollectionList mode="tasks" /></template>
+<template><div /></template>

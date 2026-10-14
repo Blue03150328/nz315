@@ -3,13 +3,15 @@ import type { ExternalCollectionBatch } from '#shared/types/external-collection'
 import { formatCodeQuantity } from '#shared/utils/code-quantity'
 const props = defineProps<{ mode: 'codes' | 'tasks' }>()
 const isCodes = computed(() => props.mode === 'codes')
-const title = computed(() => isCodes.value ? '外部码库管理' : '外部生产任务')
-const { canWrite, isPlatformAdmin } = useUser()
+const title = computed(() => isCodes.value ? '外部码库管理' : '历史外部采集')
+const { canWrite, isPlatformAdmin, user } = useUser()
+const columns=computed(()=>[...(isCodes.value?[{key:'selection',label:'选择',width:90}]:[]),...(isPlatformAdmin.value?[{key:'enterprise_name',label:'企业',width:240}]:[]),{key:'product_name_snapshot',label:'产品名称',width:280},{key:'linked_spec_name',label:'关联产品规格',width:180},{key:'batch_no',label:'生产批号',width:160},{key:'produce_date',label:'生产日期',width:150},{key:'expire_date',label:'有效期至',width:150},{key:'accepted_count',label:'外部有效码',width:140},{key:'workerLabel',label:'操作员',width:200},{key:'state',label:'状态',width:140},{key:'created_at',label:'开始时间',width:210},{key:'completed_at',label:'上传完成时间',width:210},{key:'line_name',label:'生产线',width:180},{key:'device_name',label:'设备',width:180},{key:'actions',label:'操作',width:370}])
+const rows=computed(()=>(data.value?.rows||[]).map(row=>({...row,workerLabel:[row.worker_name_snapshot,row.worker_no?'（'+row.worker_no+'）':''].filter(Boolean).join('')})))
 const { downloading, download } = useExternalCollectionExport()
 const toast = useToast(), route = useRoute()
 const filters = reactive({ keyword: '', batchNo: '', rawCode: '', lineName: '', deviceName: '', workerNo: '', state: '', dateFrom: '', dateTo: '' })
 const page = ref(1), pageSize = 20
-const { applyListQuery, resetListQuery } = useAdminListRoute(filters, page, () => refresh())
+const { applyListQuery, resetListQuery } = useAdminListRoute(filters, page, () => refresh(), [], ['source', 'view', 'batchId'])
 const batchId = computed(() => typeof route.query.batchId === 'string' ? route.query.batchId : undefined)
 const { data, pending, error, refresh } = await useAsyncData<{ rows: ExternalCollectionBatch[]; total: number; completedTotal: number; selectionFilters: Record<string, any> }>('external-collection-' + props.mode + '-' + useId(),
   () => $fetch('/api/admin/external-collections', { query: { ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)), batchId: batchId.value, page: page.value, pageSize } }), { watch: false })
@@ -98,36 +100,16 @@ onBeforeUnmount(() => { clearInterval(timer); window.removeEventListener('focus'
         <span class="b-help">已选 {{ selectedCount }} 批</span><UButton v-if="selectedCount" size="sm" variant="link" @click="clearSelection">取消选择</UButton>
         <UButton size="sm" variant="outline" icon="i-lucide-download" :disabled="!selectedCount || pending" :loading="previewBusy" @click="openExport">导出所选</UButton>
       </div>
-      <div class="b-scroll-x"><table class="b-table b-table-grid" :aria-label="title"><thead><tr>
-        <th v-if="isCodes" class="w-12"><span class="sr-only">选择上传批次</span></th>
-        <th v-if="isPlatformAdmin">企业</th><th>产品名称</th><th v-if="isCodes">关联产品规格</th><th>生产批号</th><th>生产日期</th>
-        <template v-if="!isCodes"><th>生产线</th><th>操作工号</th><th>采集设备</th></template>
-        <th class="text-right">{{ isCodes ? '码数量' : '有效扫码' }}</th>
-        <template v-if="!isCodes"><th class="text-right">生产数量</th><th>重复／异常</th><th>开始／停止时间</th></template>
-        <th>状态</th><template v-if="isCodes"><th>上传时间</th><th>上传产线</th><th>上传设备</th></template><th class="text-right">操作</th>
-      </tr></thead><tbody>
-        <tr v-for="row in data?.rows || []" :key="row.id" :data-batch-id="row.id" :class="{ 'is-selected': isCodes && isSelected(row) }">
-          <td v-if="isCodes"><UCheckbox :model-value="isSelected(row)" :disabled="row.state !== 'completed'" :aria-label="'选择采集批次' + row.id" @update:model-value="toggleSelection(row)" /></td>
-          <td v-if="isPlatformAdmin" class="min-w-40 break-words">{{ row.enterprise_name }}</td>
-          <td class="min-w-44 max-w-72 break-words b-strong">{{ row.product_name_snapshot || '待补填产品' }}</td>
-          <td v-if="isCodes" class="min-w-32" title="关联产品的当前规格；手填产品或未关联规格时显示未记录">{{ row.linked_spec_name || '规格未记录' }}</td>
-          <td class="min-w-28 break-all">{{ row.batch_no || '待补填' }}</td><td class="whitespace-nowrap">{{ dateText(row.produce_date) }}</td>
-          <template v-if="!isCodes"><td class="min-w-28 break-words">{{ row.line_name || '产线未记录' }}</td><td>{{ row.worker_name_snapshot }} {{ row.worker_no }}</td><td class="min-w-32 break-words">{{ row.device_name || '设备未记录' }}</td></template>
-          <td class="text-right whitespace-nowrap font-medium b-strong">{{ formatCodeQuantity(row.accepted_count) }}</td>
-          <template v-if="!isCodes"><td class="text-right whitespace-nowrap">{{ row.effective_production_quantity }}<span v-if="row.production_quantity != null" class="ml-1 b-tag b-tag-default">手填</span></td><td>{{ row.duplicate_count }}／{{ row.rejected_count }}</td><td class="min-w-44 whitespace-nowrap text-xs">{{ timeText(row.created_at) }}<br>{{ row.state === 'completed' ? timeText(row.completed_at) : '采集中／待补传' }}</td></template>
-          <td class="min-w-28"><span class="b-tag" :class="row.state === 'completed' ? 'b-tag-success' : 'b-tag-info'">{{ row.state === 'completed' ? '已完成' : '进行中' }}</span><p v-if="row.state === 'completed' && !row.product_name_snapshot" class="b-help mt-1">待补生产资料</p></td>
-          <template v-if="isCodes"><td class="min-w-44 whitespace-nowrap">{{ row.completed_at ? timeText(row.completed_at) : '尚未完成上传' }}</td><td class="min-w-28 break-words">{{ row.line_name || '产线未记录' }}</td><td class="min-w-32 break-words">{{ row.device_name || '设备未记录' }}</td></template>
-          <td><div class="flex min-w-48 flex-wrap justify-end gap-2">
-            <UButton size="xs" color="neutral" variant="link" icon="i-lucide-eye" @click="show(row.id)">详细</UButton>
-            <UButton v-if="canWrite" size="xs" color="neutral" variant="link" icon="i-lucide-pencil" :disabled="row.state !== 'completed'" @click="edit(row)">编辑</UButton>
-            <UButton v-if="canWrite" size="xs" color="error" variant="link" :disabled="row.state !== 'completed'" @click="confirmDelete(row)">删除</UButton>
-            <UButton size="xs" color="neutral" variant="link" :disabled="row.state !== 'completed' || downloading" @click="download(row.id, 'csv')">CSV</UButton>
-            <UButton size="xs" color="neutral" variant="link" :disabled="row.state !== 'completed' || downloading" @click="download(row.id, 'txt')">TXT</UButton>
-          </div></td>
-        </tr>
-        <tr v-if="!data?.rows?.length"><td :colspan="(isCodes ? 11 : 12) + (isPlatformAdmin ? 1 : 0)"><div class="b-empty">{{ pending ? '正在加载…' : '暂无匹配的' + (isCodes ? '上传记录' : '采集任务') }}</div></td></tr>
-      </tbody></table></div>
-      <div class="b-pager"><span class="b-help">{{ isCodes ? '数量为实际去重入库码数；完成采集后可导出完整原文。' : '工号是采集业务工号，采集完成后可补填生产资料。' }}</span><ExternalPagination :page="page" :total="data?.total || 0" :items-per-page="pageSize" :disabled="pending" @update:page="applyListQuery($event)" /></div>
+      <div class="p-4"><ProductionGrid :columns="columns" :rows="rows" row-key="id" :storage-key="'external-library-columns:v1:'+props.mode+':'+user?.id">
+        <template #cell-selection="{row}"><UCheckbox :model-value="isSelected(row)" :disabled="row.state!=='completed'" :aria-label="'选择采集批次'+row.id" @update:model-value="toggleSelection(row)" /></template>
+        <template #cell-produce_date="{row}">{{ dateText(row.produce_date) }}</template>
+        <template #cell-accepted_count="{row}">{{ formatCodeQuantity(row.accepted_count) }}</template>
+        <template #cell-state="{row}"><span class="b-tag" :class="row.state==='completed'?'b-tag-success':'b-tag-info'">{{ row.state==='completed'?'已完成':'进行中' }}</span></template>
+        <template #cell-created_at="{row}">{{ timeText(row.created_at) }}</template>
+        <template #cell-completed_at="{row}">{{ row.completed_at?timeText(row.completed_at):'尚未完成上传' }}</template>
+        <template #cell-actions="{row}"><div class="flex gap-2"><UButton size="xs" variant="link" @click="show(row.id)">详细</UButton><UButton v-if="canWrite" size="xs" variant="link" :disabled="row.state!=='completed'" @click="edit(row)">编辑</UButton><UButton v-if="canWrite" size="xs" color="error" variant="link" :disabled="row.state!=='completed'" @click="confirmDelete(row)">删除</UButton><UButton size="xs" variant="link" :disabled="row.state!=='completed'||downloading" @click="download(row.id,'csv')">CSV</UButton><UButton size="xs" variant="link" :disabled="row.state!=='completed'||downloading" @click="download(row.id,'txt')">TXT</UButton></div></template>
+      </ProductionGrid></div>
+      <div class="b-pager"><span class="b-help">{{ isCodes ? '数量为实际去重入库码数；完成采集后可导出完整原文。' : '历史记录保留；新版内外码共用生产任务。' }}</span><ExternalPagination :page="page" :total="data?.total || 0" :items-per-page="pageSize" :disabled="pending" @update:page="applyListQuery($event)" /></div>
     </div>
     <ExternalCollectionDetail v-model:open="detailOpen" :batch-id="selected" @updated="changed" />
     <ExternalProductionForm v-if="editing" v-model:open="editOpen" :batch="editing" @saved="changed" />

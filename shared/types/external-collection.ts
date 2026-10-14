@@ -37,6 +37,7 @@ export interface ExternalCollectionBatch {
   linked_spec_name?: string | null
   batch_no: string | null
   produce_date: string | null
+  expire_date?: string | null
   production_quantity: number | null
   effective_production_quantity: number
   created_at: string

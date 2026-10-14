@@ -20,6 +20,7 @@ public final class WorkerStore {
   boolean hasStop=false;for(JSONObject column:db.rows("PRAGMA table_info(ww_session)"))if("stopped_at".equals(column.getString("name")))hasStop=true;if(!hasStop)db.exec("ALTER TABLE ww_session ADD COLUMN stopped_at TEXT");
   db.exec("CREATE INDEX IF NOT EXISTS ww_event_code ON ww_event(run_id,dedup,kind)");
   db.exec("CREATE TABLE IF NOT EXISTS ww_known(snapshot TEXT NOT NULL,code TEXT NOT NULL,PRIMARY KEY(snapshot,code))");
+  db.exec("CREATE TABLE IF NOT EXISTS ww_source(event_id TEXT PRIMARY KEY,classification TEXT NOT NULL)");
  }
  public synchronized String meta(String key,String fallback)throws Exception{List<JSONObject> r=db.rows("SELECT v FROM ww_meta WHERE k=?",key);return r.isEmpty()?fallback:r.get(0).getString("v");}
  public synchronized void putMeta(String key,String value)throws Exception{db.exec("INSERT OR REPLACE INTO ww_meta(k,v) VALUES(?,?)",key,value);}
@@ -45,7 +46,7 @@ public final class WorkerStore {
   return db.transaction(()->{
    String mode=context.getString("mode"),pool=null;JSONObject r;
    if("production".equals(mode)&&context.optBoolean("stockWorkflow")){
-    JSONObject cache=new JSONObject(meta("cache","{}"));if(cache.optLong("expiresAt")<now)throw new Exception("产品缓存已过期，请联网更新");if(cache.optInt("stockVersion")<2)throw new Exception("产品校验资料正在升级，请联网等待完整下载后开始");
+    JSONObject cache=new JSONObject(meta("cache","{}"));if(cache.optLong("expiresAt")<now)throw new Exception("产品缓存已过期，请联网更新");if(context.optBoolean("unifiedScan")&&cache.optInt("productionScanVersion")<1)throw new Exception("网站尚未支持统一生产扫码，请联网更新缓存后开始");if(cache.optInt("stockVersion")<2)throw new Exception("产品校验资料正在升级，请联网等待完整下载后开始");
     JSONObject product=null;JSONArray products=catalog("products");for(int i=0;i<products.length();i++)if(products.getJSONObject(i).getLong("id")==context.getLong("productId"))product=products.getJSONObject(i);
     if(product==null)throw new Exception("请选择本厂启用的产品");String head=product.optString("code_head");if(!head.matches("[0-9]{11}"))throw new Exception("产品未配置有效的登记证或规格，请联系管理员");
     JSONObject selected=null;JSONArray tasks=catalog("pools");for(int i=0;i<tasks.length();i++){JSONObject t=tasks.getJSONObject(i);if(t.optLong("task_id")!=context.getLong("taskId"))continue;JSONArray people=t.optJSONArray("memberIds");boolean assigned=people==null;for(int j=0;people!=null&&j<people.length();j++)if(people.getLong(j)==profile.getJSONObject("identity").getLong("id"))assigned=true;if(assigned)selected=t;}
@@ -108,7 +109,12 @@ public final class WorkerStore {
    JSONObject r=currentRun(),s=currentSession(profile.getJSONObject("identity").getLong("id"));if(r==null||s==null||!"open".equals(r.getString("state")))throw new Exception("请先开始本批采集");
    if(r.getJSONObject("context").optBoolean("autoLine")&&(r.getJSONObject("context").optLong("taskId")<=0||s.optInt("server_open")==0))throw new Exception("请联网登记生产线后开始采集，本次未保存");
    if(!s.getString("grant_id").equals(profile.getString("grantId")))throw new Exception("工人授权已更换，请重新进入本批");
-   String code=QueueStore.codeOf(raw),kind="valid",reason="",key=code!=null?"code:"+code:"raw:"+raw.trim();
+   boolean unified=r.getJSONObject("context").optBoolean("unifiedScan");
+   JSONObject cachePolicy=new JSONObject(meta("cache","{}"));String source=unified?TraceUrlPolicy.productionClassification(raw,cachePolicy.optString("traceBaseUrl",TraceUrlPolicy.DEFAULT_BASE)):"";
+   String code=unified?("internal".equals(source)?TraceUrlPolicy.codeOf(raw,cachePolicy.optString("traceBaseUrl",TraceUrlPolicy.DEFAULT_BASE)):null):QueueStore.codeOf(raw);
+   if(unified&&"internal".equals(source)&&code==null)code=raw.trim();
+   String kind="valid",reason="",key=unified&&"external".equals(source)?"external:"+raw:code!=null?"code:"+code:"raw:"+raw.trim();
+   if(unified&&"unparsed".equals(source)){kind="invalid";reason="来源无法识别或标签网址、路径、码格式不正确";}
    if("production".equals(r.getString("mode"))&&r.getJSONObject("context").optBoolean("lineWorkflow")&&!r.getJSONObject("context").optBoolean("stockWorkflow")&&code!=null){
     JSONObject c=r.getJSONObject("context");List<JSONObject> matches=db.rows("SELECT * FROM ww_line_code WHERE run_id=? AND code=?",r.getString("id"),code);
     if(!matches.isEmpty()){
@@ -121,6 +127,7 @@ public final class WorkerStore {
     }
    }
    if(!"valid".equals(kind)){}
+   else if(unified&&"external".equals(source)){}
    else if("production".equals(r.getString("mode"))&&r.getJSONObject("context").optBoolean("stockWorkflow")){
     JSONObject c=r.getJSONObject("context");String head=c.optString("codeHead");if(head.isEmpty()){JSONArray products=catalog("products");for(int i=0;i<products.length();i++)if(products.getJSONObject(i).getLong("id")==c.getLong("productId"))head=products.getJSONObject(i).optString("code_head");if(!head.matches("[0-9]{11}"))throw new Exception("请联网更新产品校验资料后重扫，本次未保存");c.put("codeHead",head);db.exec("UPDATE ww_run SET context=? WHERE id=?",c.toString(),r.getString("id"));}
     if(code==null||!code.startsWith(head)){kind="invalid";reason="缺位、多候选或不符合所选产品的登记证、规格";}
@@ -130,12 +137,14 @@ public final class WorkerStore {
     }
    }
    else if("production".equals(r.getString("mode"))&&(code==null||db.rows("SELECT code FROM ww_allowed WHERE run_id=? AND code=?",r.getString("id"),code).isEmpty())){kind="invalid";reason="缺位、多候选、未领用到本任务或其他产品的码";}
-   if("valid".equals(kind)&&r.getJSONObject("context").optBoolean("lineWorkflow")&&r.getJSONObject("context").optLong("taskId")>0&&!db.rows("SELECT event_id FROM ww_line_usage WHERE code=? AND task_id=? LIMIT 1",code,r.getJSONObject("context").getLong("taskId")).isEmpty()){kind="duplicate";reason="此任务在本设备已采集过该码，保留重复记录";}
+   if("valid".equals(kind)&&code!=null&&r.getJSONObject("context").optBoolean("lineWorkflow")&&r.getJSONObject("context").optLong("taskId")>0&&!db.rows("SELECT event_id FROM ww_line_usage WHERE code=? AND task_id=? LIMIT 1",code,r.getJSONObject("context").getLong("taskId")).isEmpty()){kind="duplicate";reason="此任务在本设备已采集过该码，保留重复记录";}
    else if("valid".equals(kind)&&!db.rows("SELECT id FROM ww_event WHERE run_id=? AND dedup=? AND kind='valid' LIMIT 1",r.getString("id"),key).isEmpty()){kind="duplicate";reason="重复扫码，保留记录但不重复计数";}
    JSONObject event=new JSONObject().put("eventId",UUID.randomUUID().toString()).put("sequence",s.getInt("next_seq")).put("rawCode",raw).put("code",code==null?JSONObject.NULL:code).put("kind",kind).put("reason",reason).put("capturedAt",new java.time.format.DateTimeFormatterBuilder().appendInstant(3).toFormatter().format(Instant.ofEpochMilli(now)));
+   if(unified)event.put("classification",source);
    if("external".equals(r.getString("mode"))){JSONObject cache=new JSONObject(meta("cache","{}"));event.put("classification",TraceUrlPolicy.classification(raw,cache.optString("traceBaseUrl",TraceUrlPolicy.DEFAULT_BASE)));}
    db.exec("INSERT INTO ww_event(id,session_id,run_id,seq,code,dedup,kind,payload) VALUES(?,?,?,?,?,?,?,?)",event.getString("eventId"),s.getString("id"),r.getString("id"),s.getInt("next_seq"),code,key,kind,event.toString());
-   if("valid".equals(kind)&&r.getJSONObject("context").optBoolean("lineWorkflow"))db.exec("INSERT INTO ww_line_usage(task_id,code,event_id) VALUES(?,?,?)",r.getJSONObject("context").getLong("taskId"),code,event.getString("eventId"));
+   if("valid".equals(kind)&&code!=null&&r.getJSONObject("context").optBoolean("lineWorkflow"))db.exec("INSERT INTO ww_line_usage(task_id,code,event_id) VALUES(?,?,?)",r.getJSONObject("context").getLong("taskId"),code,event.getString("eventId"));
+   if(unified)db.exec("INSERT INTO ww_source(event_id,classification) VALUES(?,?)",event.getString("eventId"),source);
    db.exec("UPDATE ww_session SET next_seq=next_seq+1 WHERE id=?",s.getString("id"));return event;
   });
  }
@@ -155,10 +164,15 @@ public final class WorkerStore {
   JSONArray open=new JSONArray();for(JSONObject row:db.rows("SELECT id FROM ww_run WHERE state='open' AND EXISTS(SELECT 1 FROM ww_session s WHERE s.run_id=ww_run.id AND s.user_id=?) ORDER BY rowid DESC",userId))open.put(run(row.getString("id")));out.put("openRuns",open);
   JSONArray history=new JSONArray();for(JSONObject row:db.rows("SELECT r.id,MIN(s.started_at) AS started_at,MAX(s.stopped_at) AS stopped_at FROM ww_run r JOIN ww_session s ON s.run_id=r.id WHERE s.user_id=? GROUP BY r.id ORDER BY r.rowid DESC LIMIT 50",userId))history.put(run(row.getString("id")).put("summary",runSummary(row.getString("id"),userId)).put("startedAt",row.get("started_at")).put("stoppedAt",row.get("stopped_at")));out.put("history",history);
   String runId=meta("currentRun","");JSONObject counts=db.rows("SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN result IS NOT NULL THEN result='saved' ELSE kind='valid' END),0) AS collected,COALESCE(SUM(receipt IS NULL),0) AS waiting,COALESCE(SUM(result='saved'),0) AS saved,COALESCE(SUM(CASE WHEN result IS NOT NULL THEN result='duplicate' ELSE kind='duplicate' END),0) AS duplicates,COALESCE(SUM(CASE WHEN result IS NOT NULL THEN result='exception' ELSE kind='invalid' END),0) AS exceptions FROM ww_event WHERE run_id=?",runId).get(0);
-  out.put("counts",counts).put("allWaiting",db.rows("SELECT COUNT(*) AS n FROM ww_event WHERE receipt IS NULL").get(0).getLong("n"));JSONArray recent=new JSONArray();for(JSONObject e:db.rows("SELECT e.payload,e.receipt FROM ww_event e JOIN ww_session s ON s.id=e.session_id WHERE e.run_id=? AND s.user_id=? ORDER BY e.rowid DESC LIMIT 30",runId,userId))recent.put(new JSONObject().put("event",new JSONObject(e.getString("payload"))).put("receipt",e.isNull("receipt")?JSONObject.NULL:new JSONObject(e.getString("receipt"))));return out.put("recent",recent);
+  sourceCounts(counts,runId,0);out.put("counts",counts).put("allWaiting",db.rows("SELECT COUNT(*) AS n FROM ww_event WHERE receipt IS NULL").get(0).getLong("n"));JSONArray recent=new JSONArray();for(JSONObject e:db.rows("SELECT e.payload,e.receipt FROM ww_event e JOIN ww_session s ON s.id=e.session_id WHERE e.run_id=? AND s.user_id=? ORDER BY e.rowid DESC LIMIT 30",runId,userId))recent.put(new JSONObject().put("event",new JSONObject(e.getString("payload"))).put("receipt",e.isNull("receipt")?JSONObject.NULL:new JSONObject(e.getString("receipt"))));return out.put("recent",recent);
  }
  public synchronized JSONObject runSummary(String id,long userId)throws Exception{
-  return db.rows("SELECT COUNT(*) AS total,COALESCE(SUM(e.kind='valid' AND (e.receipt IS NULL OR e.result='saved')),0) AS collected,COALESCE(SUM(e.receipt IS NULL),0) AS waiting,COALESCE(SUM(e.result='saved'),0) AS saved,COALESCE(SUM(e.kind='duplicate' OR e.result='duplicate'),0) AS duplicates,COALESCE(SUM(e.kind='invalid' OR e.result='exception'),0) AS exceptions FROM ww_event e JOIN ww_session s ON s.id=e.session_id WHERE e.run_id=? AND s.user_id=?",id,userId).get(0);
+  JSONObject summary=db.rows("SELECT COUNT(*) AS total,COALESCE(SUM(CASE WHEN e.receipt IS NULL THEN e.kind='valid' ELSE e.result='saved' END),0) AS collected,COALESCE(SUM(e.receipt IS NULL),0) AS waiting,COALESCE(SUM(e.result='saved'),0) AS saved,COALESCE(SUM(CASE WHEN e.receipt IS NULL THEN e.kind='duplicate' ELSE e.result='duplicate' END),0) AS duplicates,COALESCE(SUM(CASE WHEN e.receipt IS NULL THEN e.kind='invalid' ELSE e.result='exception' END),0) AS exceptions FROM ww_event e JOIN ww_session s ON s.id=e.session_id WHERE e.run_id=? AND s.user_id=?",id,userId).get(0);sourceCounts(summary,id,userId);return summary;
+ }
+ private void sourceCounts(JSONObject counts,String runId,long userId)throws Exception{
+  String source="COALESCE(src.classification,CASE WHEN r.mode='external' THEN 'external' ELSE 'internal' END)",valid="(CASE WHEN e.receipt IS NULL THEN e.kind='valid' ELSE e.result='saved' END)";
+  JSONObject totals=db.rows("SELECT COALESCE(SUM("+valid+" AND "+source+"='internal'),0) AS inside,COALESCE(SUM("+valid+" AND "+source+"='external'),0) AS outside FROM ww_event e JOIN ww_session s ON s.id=e.session_id JOIN ww_run r ON r.id=e.run_id LEFT JOIN ww_source src ON src.event_id=e.id WHERE e.run_id=?"+(userId>0?" AND s.user_id=?":""),userId>0?new Object[]{runId,userId}:new Object[]{runId}).get(0);
+  counts.put("internal",totals.getLong("inside")).put("external",totals.getLong("outside"));
  }
  public synchronized JSONArray productionExport(String runId,long userId)throws Exception{
   return db.transaction(()->{
