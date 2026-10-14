@@ -8,6 +8,8 @@
 
 本次有效备份位于 `/var/backups/nz315/management-20261014-07f98af4-r2`，包含完整 `database.sql.gz`、原42表指纹、`previous-compose.yml` 和 `previous.env`。回滚仅切回42c8b8c应用，不恢复业务数据库或删除新增负责人列。原凭据、Nginx、14个下载文件及cynx核验保持；本轮不发布或安装APK。详细回执见[生产管理上线说明](production-line/生产管理与产线总览-20261014.md)。
 
+**最新删除功能发布（2026-10-14 21:14北京时间）**：当前镜像为 `nz315-production:1a0e409c74aa`，实际目录 `/var/www/.nz315-line-delete-20261014-1a0e409c`，有效完整备份 `/var/backups/nz315/line-delete-20261014-1a0e409c`；上面的07f98af为上版记录。新版本增加产线单选／多选／批量软删除及旧缓存防复活，增量只加deleted_at／deleted_by两列，42表原字段全量指纹保持；候选和HTTPS入口、旧API、DELETE未登录鉴权通过，healthy，凭据／Nginx／下载／cynx保持。稳定管理入口已同步新镜像。旧版忽略删除标记，应用降级时产线可能重新显示，历史和标记仍保留。
+
 ## 运行结构
 
 | 项目 | 配置 |
