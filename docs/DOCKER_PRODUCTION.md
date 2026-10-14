@@ -2,7 +2,11 @@
 
 本配置用于 Linux 正式服务器，网站进 Docker，数据库继续使用服务器现有 MySQL。它与包含演示数据库的本机 `compose.yml` 分开，正式发布不运行 `docker-db-init.mjs`，也不上传本机业务数据库。
 
-2026-10-14最新发布为`b20cf06`，当前实际Compose目录是`/var/www/.nz315-release-20261014-b20cf06`，文件为`compose.release.yml`；下方原始准备流程保留。日常管理、备份和精确回滚命令见[70号上线结果](handover/70-master整合推送与Docker上线（2026-10-14）.md)。现役版本以`/var/www/nz315/.docker-release.json`与公网构建交叉核对，旧.deploy-version不代表Docker现役。
+2026-10-14最新网站镜像为`nz315-production:cc3a85c925c4`：保留`b20cf06`码库改版，移除生产任务顶部有效码汇总，表格的有效码列保留。115单测通过／4既有跳过，候选和正式HTTPS登录会话验证顶部四类设备汇总、码库接口及表格，容器healthy；无DDL或APK下载变更。
+
+当前版本目录是`/var/www/.nz315-ui-20261014-cc3a85c9`，Compose文件为`compose.production.yml`。稳定操作入口`/var/www/nz315`的Compose和私有`.docker-deploy.env`已同步当前镜像，可使用下文日常管理命令；现役版本仍以`.docker-release.json`与容器交叉核对，旧.deploy-version不代表Docker现役。上一版完整码库更新的验收见[70号上线结果](handover/70-master整合推送与Docker上线（2026-10-14）.md)，该文中的b20cf06路径为历史发布／回滚版本。
+
+本次回滚配置位于`/var/backups/nz315/ui-20261014-cc3a85c9/previous-compose.yml`及`previous.env`，回滚仅切应用镜像，不恢复业务数据库。原凭据、Nginx、公开APK与cynx均核验保持。
 
 ## 运行结构
 
