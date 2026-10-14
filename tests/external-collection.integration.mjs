@@ -16,6 +16,7 @@ import { productionDDL, migrateProductionSchema } from '../scripts/production-sc
 import { collectionDDL } from '../scripts/collection-schema.mjs'
 import { migrateDeviceSchema } from '../scripts/device-schema.mjs'
 import { migrateExternalCollectionSchema } from '../scripts/external-collection-schema.mjs'
+import { migrateWorkerSchema } from '../scripts/worker-schema.mjs'
 
 register('./_ts-loader.mjs', import.meta.url)
 const workspace = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -72,6 +73,7 @@ async function createSchema() {
   for (const sql of collectionDDL) await db.query(sql)
   await migrateDeviceSchema(db)
   await migrateExternalCollectionSchema(db)
+  await migrateWorkerSchema(db)
 }
 async function request(route, auth, body, method = body === undefined ? 'GET' : 'POST') {
   const response = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json', ...(auth ? (/^[a-f0-9]{64}$/.test(auth) ? { authorization: 'Bearer ' + auth } : { cookie: auth }) : {}) }, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(30000) })
