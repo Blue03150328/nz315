@@ -78,6 +78,9 @@ ppt-output/
 # 本机容器配置及交付产物
 docker.env
 docker.env.*
+.docker-deploy.env
+.docker-release.json
+.full-release.json
 *.apk
 *.sqlite
 *.sqlite-wal

@@ -1,0 +1,87 @@
+# 正式网站 Docker 部署
+
+本配置用于 Linux 正式服务器，网站进 Docker，数据库继续使用服务器现有 MySQL。它与包含演示数据库的本机 `compose.yml` 分开，正式发布不运行 `docker-db-init.mjs`，也不上传本机业务数据库。
+
+## 运行结构
+
+| 项目 | 配置 |
+|---|---|
+| 源码与 Compose 目录 | `/var/www/nz315` |
+| Compose 项目 | `nz315-production` |
+| 应用服务 | `app`，固定版本镜像 |
+| 监听 | 主机网络，`127.0.0.1:3100` |
+| 数据库 | 沿用原 `.env` 的 MySQL 地址、端口和 `nz315` 库；不新建演示 MySQL |
+| 凭据副本 | `/var/lib/nz315-docker/runtime.env`，只读挂载，不提交 Git |
+| 后台备份 | `/var/lib/nz315-docker/backup`，持久挂载至 `/app/backup` |
+| HTTPS | 原 Nginx 继续反代3100，证书、域名及APK下载路径保持 |
+| 自动恢复 | Docker `restart: unless-stopped`；移除原 nz315 PM2 启动项 |
+
+Linux 主机网络允许容器连接只监听本机的现有 MySQL。参见 [Docker host 网络文档](https://docs.docker.com/engine/network/drivers/host/)。本配置不使用端口映射，程序本身限制在127.0.0.1，公网访问由Nginx提供。
+
+启动器 `scripts/start-production-container.mjs` 从只读文件读取配置，映射到Nuxt运行时变量；密码和会话密钥以字符串传递，避免数值密码或特殊字符被Compose插值。凭据不复制进镜像，参考 [Docker配置与凭据说明](https://docs.docker.com/compose/how-tos/environment-variables/set-environment-variables/)。
+
+## 发布前准备
+
+1. 确认主仓 `master`、本地已验收源码及目标提交一致，无未解决冲突。
+2. 核对线上当前版本、端口、数据库、磁盘空间及其他服务，保留原Nginx与PM2配置的受限备份。
+3. 备份原数据库与应用。正式备份放受限发布目录；需要腾空间时仅处理本项目已停用副本，先验证归档，不清理数据库或其他项目。
+4. 构建Linux/amd64镜像，标记目标提交；服务器内存或空间不足时在本机构建，导出、校验后上传并加载。
+5. 从原 `.env` 制作只读凭据副本，所有内容保持，原会话密钥沿用；凭据文件与备份目录供镜像内UID1000读取／写入。原 `.env` 不进入镜像或Git。
+
+服务器私有 `.docker-deploy.env` 示例（仅路径和版本号）：
+
+```dotenv
+NZ315_IMAGE=nz315-production:目标提交
+NZ315_SECRET_FILE=/var/lib/nz315-docker/runtime.env
+NZ315_BACKUP_DIR=/var/lib/nz315-docker/backup
+NZ315_PORT=3100
+```
+
+## 数据库增量
+
+此次生产任务监控只新增 `production_line_runtime` 表及 `worker_session` 的8个心跳／上报字段。原业务资料、采集事件、收据和任务均保留，本地删除001测试线不会同步到正式库。
+
+暂停原网站写入后记录旧表原列的数据指纹，执行专用脚本：
+
+```bash
+cd /var/www/nz315
+/usr/local/node22/bin/node scripts/migrate-production-monitor.mjs --database=nz315
+```
+
+脚本只读取该目录原 `.env` 并校验显式数据库名，不运行seed、不删除字段、不回填历史生产资料。执行后比对41张原表的原列数据，允许新增空结构；不以正式库运行隔离验收脚本。
+
+新监控结构可与旧版本共存。回滚应用时通常保留这些空表／默认列，避免为恢复网站而删表。
+
+## 验证与切换
+
+1. 用同一正式配置在临时本机端口（例如3102）启动候选容器，监听仍为127.0.0.1。
+2. 检查登录HTML、静态资源、未登录接口401、后台生产任务／产品／设备／码库查询，以及备份客户端可用。临时验收账号需清理；不改真实产品生产资料或冒充实机扫描。
+3. 保留旧服务回滚配置，停止旧 `nz315` 以释放3100。
+4. 用正式端口启动容器并等待healthy：
+
+```bash
+cd /var/www/nz315
+docker compose --env-file .docker-deploy.env -f compose.production.yml up -d --wait
+```
+
+5. 验证HTTPS域名、管理员页面、扫码接口鉴权、原APK下载哈希和数据库原资料。失败则停止候选／正式容器，按备份恢复旧应用，不同时占用3100。
+6. 验收成功后执行 `pm2 delete nz315` 与 `pm2 save`，只移除农资315启动项；其他应用保持。确认3100由容器持有，Docker服务开机启用。
+7. 记录 `.docker-release.json` 的提交、镜像ID、原版本、备份路径、数据库迁移和验证结果；清理临时候选容器，保留回滚档案。
+
+## 日常管理
+
+```bash
+cd /var/www/nz315
+docker compose --env-file .docker-deploy.env -f compose.production.yml ps
+docker compose --env-file .docker-deploy.env -f compose.production.yml logs --tail 100 app
+docker compose --env-file .docker-deploy.env -f compose.production.yml restart app
+```
+
+更新时指定已验收的新镜像，再 `up -d --wait`。不要同时再用PM2启动该网站。容器日志最多保留3个10MB文件，后台备份存持久目录，重建容器不删除数据库或备份。
+
+## 回滚
+
+- 后续Docker版本回滚：把 `.docker-deploy.env` 的镜像改为留存的上一版本，执行 `up -d --wait` 并检查域名。
+- 首次由PM2切换Docker的应急回滚：停止Docker网站，恢复发布备份中的旧源码／`.output`及仅nz315的PM2启动配置，启动旧服务并保存进程列表。不要恢复其他项目的完整进程列表。
+- 只做应用回滚时不恢复数据库全库备份，避免覆盖发布后的正常生产记录。只有明确的数据损坏才另行安排数据库恢复。
+- APK不随网站容器回滚或升级，本次保留原下载版本；新版自动归线及心跳需单独实机验收APK。

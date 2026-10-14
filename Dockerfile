@@ -5,7 +5,7 @@ RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts --no-audit --no
 
 FROM dependencies AS build
 COPY . .
-# Build contains no real secrets. Runtime requires its own SESSION_SECRET.
+# 构建不包含真实凭据，运行时必须提供独立会话密钥。
 ENV NODE_ENV=production NITRO_PRESET=node-server
 RUN SESSION_SECRET=build-placeholder npm run build
 
@@ -15,11 +15,14 @@ USER node
 CMD ["node", "scripts/docker-db-init.mjs"]
 
 FROM node:22-bookworm-slim AS runtime
+ARG VCS_REF=unknown
+LABEL org.opencontainers.image.revision=$VCS_REF
 RUN apt-get update \
     && apt-get install -y --no-install-recommends default-mysql-client \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build --chown=node:node /app/.output ./.output
+COPY --chown=node:node scripts/start-production-container.mjs ./scripts/start-production-container.mjs
 RUN mkdir backup && chown node:node backup
 USER node
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000

@@ -60,6 +60,8 @@ docker tag public.ecr.aws/docker/library/mysql:8.0-debian mysql:8.0-debian
 
 ## 正式服务器部署
 
+正式部署使用独立 [compose.production.yml](compose.production.yml)，网站进容器并继续连接服务器现有数据库；详见 [正式 Docker 部署说明](docs/DOCKER_PRODUCTION.md)。确认Docker健康后移除旧nz315 PM2启动项，其他项目与原APK下载保持。不能把本机复制的数据库、演示初始化或本地删除操作上传到正式库。
+
 Dockerfile可用于Linux服务器部署应用；当前Compose文件为本机演示配置。正式上线需要使用正式环境配置、保留原数据库并单独安排增量迁移，使用Nginx接入HTTPS。不要把本机演示初始化直接用于线上业务库。本次本机验证不自动迁移线上服务。
 
 结构：`mysql` 为数据库，`database-init` 为一次性初始化，`app` 为网站；Dockerfile的runtime层包含Linux数据库备份客户端及非root应用用户。

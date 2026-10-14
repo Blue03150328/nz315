@@ -19,3 +19,15 @@ tests
 Dockerfile*
 compose*.yml
 DOCKER.md
+.tools
+.claude
+regcode-production
+android-collector
+dist
+testflie
+.workbuddy
+.playwright-cli
+output
+.full-release.json
+.docker-release.json
+.docker-deploy.env
