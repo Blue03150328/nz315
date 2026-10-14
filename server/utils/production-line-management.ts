@@ -1,8 +1,9 @@
-import {createHash} from 'node:crypto'
+import {createHash,randomUUID} from 'node:crypto'
 import type {AuthUser} from './auth'
 import {query} from './db'
 import {transaction,productionReviewer} from './production-task'
 import {lineName,monitorSummary,taskMonitorRows} from './production-monitor'
+import {emptyLineDraftSql} from './production-line-draft'
 const fail=(message:string,statusCode=409):never=>{throw createError({statusCode,statusMessage:message})}
 const keyOf=(name:string)=>createHash('sha256').update(lineName(name).toLowerCase()).digest('hex')
 const scope=(user:AuthUser,enterpriseId:number)=>{if(user.role!=='platform_admin'&&enterpriseId!==Number(user.enterprise_id))fail('生产线不存在或不属于本企业',404)}
@@ -17,16 +18,16 @@ export async function productionLineOverview(user:AuthUser,q:any={}){
  const args=user.role==='platform_admin'?[]:[user.enterprise_id],condition=args.length?' WHERE enterprise_id=?':''
  const registered=await query<any[]>('SELECT * FROM production_line_runtime'+condition,args)
  const archived=new Set(registered.filter(r=>r.deleted_at).map(r=>Number(r.enterprise_id)+':'+r.line_key))
- const tasks=(await query<any[]>("SELECT id,enterprise_id,line_name,status FROM production_task WHERE status<>'deleted' AND line_name<>''"+(args.length?' AND enterprise_id=?':''),args)).filter(t=>!archived.has(Number(t.enterprise_id)+':'+keyOf(t.line_name)))
+ const tasks=(await query<any[]>(`SELECT t.id,t.enterprise_id,t.line_name,t.status,(${emptyLineDraftSql}) AS empty_draft FROM production_task t WHERE t.status<>'deleted' AND t.line_name<>''`+(args.length?' AND t.enterprise_id=?':''),args)).filter(t=>!archived.has(Number(t.enterprise_id)+':'+keyOf(t.line_name)))
  const enterprises=await query<any[]>('SELECT id,name FROM enterprise'+(args.length?' WHERE id=?':''),args)
  const rows=new Map<string,any>()
  const rowFor=(enterpriseId:number,name:string)=>{
   const lineKey=keyOf(name),id=enterpriseId+':'+lineKey
-  if(!rows.has(id))rows.set(id,{id,enterprise_id:enterpriseId,enterprise_name:enterprises.find(e=>Number(e.id)===enterpriseId)?.name||'-',line_key:lineKey,line_name:lineName(name),supervisor_name:'',taskCount:0,activeTaskCount:0,unfinishedTaskCount:0,collected:0,internal_count:0,external_count:0,duplicates:0,exceptions:0,products:[],latestHeartbeat:null,taskIds:[],activeTaskIds:[]})
+  if(!rows.has(id))rows.set(id,{id,enterprise_id:enterpriseId,enterprise_name:enterprises.find(e=>Number(e.id)===enterpriseId)?.name||'-',line_key:lineKey,line_name:lineName(name),supervisor_name:'',taskCount:0,activeTaskCount:0,draftTaskCount:0,unfinishedTaskCount:0,collected:0,internal_count:0,external_count:0,duplicates:0,exceptions:0,products:[],latestHeartbeat:null,taskIds:[],activeTaskIds:[]})
   return rows.get(id)
  }
  for(const line of registered.filter(r=>!r.deleted_at))Object.assign(rowFor(Number(line.enterprise_id),line.line_name),{supervisor_name:line.supervisor_name||'',created_at:line.created_at})
- for(const t of tasks){const row=rowFor(Number(t.enterprise_id),t.line_name);row.taskCount++;row.taskIds.push(Number(t.id));if(!['completed','approved'].includes(t.status))row.unfinishedTaskCount++;if(t.status==='active'){row.activeTaskCount++;row.activeTaskIds.push(Number(t.id))}}
+ for(const t of tasks){const row=rowFor(Number(t.enterprise_id),t.line_name);row.taskCount++;row.taskIds.push(Number(t.id));if(Number(t.empty_draft))row.draftTaskCount++;else if(!['completed','approved'].includes(t.status))row.unfinishedTaskCount++;if(t.status==='active'){row.activeTaskCount++;row.activeTaskIds.push(Number(t.id))}}
  const taskIds=tasks.map(t=>Number(t.id)),activeIds=tasks.filter(t=>t.status==='active').map(t=>Number(t.id))
  const monitors=await taskMonitorRows(activeIds,false)
  const counts=taskIds.length?await query<any[]>(`SELECT t.id AS task_id,
@@ -102,12 +103,16 @@ export async function deleteProductionLines(user:AuthUser,body:any){
    const tasks=history.filter(t=>keyOf(t.line_name)===lineKey)
    if(!line){const legacy=tasks.find(t=>t.status!=='deleted');if(!legacy)fail('生产线不存在或已不在列表中',404);await conn.execute('INSERT INTO production_line_runtime(enterprise_id,line_key,line_name) VALUES(?,?,?)',[enterpriseId,lineKey,lineName(legacy.line_name)]);[[line]]=await conn.query<any[]>('SELECT * FROM production_line_runtime WHERE enterprise_id=? AND line_key=? FOR UPDATE',[enterpriseId,lineKey])}
    const ids=tasks.map(t=>Number(t.id))
-   const [locked]=ids.length?await conn.query<any[]>('SELECT id,status FROM production_task WHERE id IN (?) ORDER BY id FOR UPDATE',[ids]):[[]]
-   if(locked.some(t=>!['completed','approved','deleted'].includes(t.status)))fail('生产线“'+line.line_name+'”仍有未结束任务，请先结束采集并完整上传；未开工的空任务可先删除')
+   const [locked]=ids.length?await conn.query<any[]>(`SELECT t.id,t.status,(${emptyLineDraftSql}) AS empty_draft FROM production_task t WHERE t.id IN (?) ORDER BY t.id FOR UPDATE`,[ids]):[[]]
+   if(locked.some(t=>!['completed','approved','deleted'].includes(t.status)&&!Number(t.empty_draft)))fail('生产线“'+line.line_name+'”有已开工或已领码的未结束任务，请先结束采集并完整上传')
    if(ids.length){const [[runs]]=await conn.query<any[]>("SELECT COUNT(*) AS n FROM worker_run r WHERE r.task_id IN (?) AND (r.state<>'sealed' OR EXISTS(SELECT 1 FROM worker_session s WHERE s.run_id=r.id AND (s.state<>'completed' OR s.final_sequence IS NULL OR s.final_sequence<>s.last_sequence)))",[ids]);const [[legacy]]=await conn.query<any[]>("SELECT COUNT(*) AS n FROM production_collection_session WHERE task_id IN (?) AND state<>'completed'",[ids]);const [[uploads]]=await conn.query<any[]>("SELECT COUNT(*) AS n FROM production_collection_upload WHERE task_id IN (?) AND state<>'completed'",[ids]);if(Number(runs.n)||Number(legacy.n)||Number(uploads.n))fail('生产线“'+line.line_name+'”还有设备未结束或记录待同步，不能删除')}
-   candidates.push({target,line})
+   candidates.push({target,line,drafts:locked.filter(t=>Number(t.empty_draft)).map(t=>Number(t.id))})
   }
-  for(const {target,line} of candidates){await conn.execute('UPDATE production_line_runtime SET deleted_at=NOW(3),deleted_by=?,current_task_id=NULL WHERE enterprise_id=? AND line_key=?',[user.id,target.enterpriseId,target.lineKey]);await conn.execute('INSERT INTO operation_log(enterprise_id,user_id,module,action,content,result) VALUES(?,?,?,?,?,1)',[target.enterpriseId,user.id,'生产线管理','删除',JSON.stringify({lineName:line.line_name,lineKey:target.lineKey,supervisorName:line.supervisor_name||'',historyPreserved:true})])}
-  return {ok:true,deletedCount:candidates.length,duplicateCount}
+  let draftTasksDeletedCount=0
+  for(const {target,line,drafts} of candidates){
+   for(const taskId of drafts){await conn.execute("UPDATE production_task SET status='deleted' WHERE id=? AND status='active'",[taskId]);const detail=JSON.stringify({reason:'删除产线时同步清理未开工空任务',lineKey:target.lineKey,historyPreserved:true});await conn.execute("INSERT INTO production_task_change(task_id,actor_id,action,request_id,request_hash,detail) VALUES(?,?,'delete',?,?,?)",[taskId,user.id,randomUUID(),createHash('sha256').update(detail).digest('hex'),detail]);draftTasksDeletedCount++}
+   await conn.execute('UPDATE production_line_runtime SET deleted_at=NOW(3),deleted_by=?,current_task_id=NULL WHERE enterprise_id=? AND line_key=?',[user.id,target.enterpriseId,target.lineKey]);await conn.execute('INSERT INTO operation_log(enterprise_id,user_id,module,action,content,result) VALUES(?,?,?,?,?,1)',[target.enterpriseId,user.id,'生产线管理','删除',JSON.stringify({lineName:line.line_name,lineKey:target.lineKey,supervisorName:line.supervisor_name||'',emptyDraftTasks:drafts,historyPreserved:true})])
+  }
+  return {ok:true,deletedCount:candidates.length,duplicateCount,draftTasksDeletedCount}
  })
 }

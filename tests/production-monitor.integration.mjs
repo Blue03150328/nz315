@@ -116,5 +116,22 @@ try{
   const [removed,opened]=await Promise.all([req('/api/admin/production-line-management',adminCookie,{enterpriseId:ent,lineKey:added.lineKey},'DELETE'),req('/api/device/worker-sessions',d1.secret,run)]);
   assert.ok((removed.status===200&&opened.status===409)||(removed.status===409&&opened.status===200),JSON.stringify({removed,opened}));
  });
+ await check('空预建任务不再阻止产线删除，只软删空任务并保留原人员和日志',async()=>{
+  const draft=ok(await req('/api/admin/production-lines',adminCookie,{name:'贵港厂区',lineName:'空任务可直接删除线',operatorIds:[one.id],requestId:randomUUID()}));
+  const [[before]]=await db.query('SELECT * FROM production_task WHERE id=?',[draft.id]),[membersBefore]=await db.query('SELECT * FROM production_task_member WHERE task_id=? ORDER BY user_id',[draft.id]);
+  const row=ok(await req('/api/admin/production-line-management?lineName='+encodeURIComponent('空任务可直接删除线'),adminCookie)).rows[0];assert.equal(row.status,'idle');assert.equal(row.activeTaskCount,1);assert.equal(row.draftTaskCount,1);assert.equal(row.unfinishedTaskCount,0);assert.equal(row.can_delete,true);
+  const result=ok(await req('/api/admin/production-line-management',adminCookie,{enterpriseId:ent,lineKey:row.line_key},'DELETE'));assert.equal(result.draftTasksDeletedCount,1);
+  const [[after]]=await db.query('SELECT * FROM production_task WHERE id=?',[draft.id]),[membersAfter]=await db.query('SELECT * FROM production_task_member WHERE task_id=? ORDER BY user_id',[draft.id]);assert.deepEqual(after,{...before,status:'deleted'});assert.deepEqual(membersAfter,membersBefore);
+  const [[log]]=await db.query("SELECT COUNT(*) n FROM production_task_change WHERE task_id=? AND action='delete'",[draft.id]);assert.equal(log.n,1);
+ });
+ await check('已领码但未开工的任务不当作空任务，仍阻止删除且码占用不变',async()=>{
+  const source=await product(ent,admin.id,8,true),task=ok(await req('/api/admin/production-lines',adminCookie,{name:'已领码任务',lineName:'已领码未开工线',sourceUploadBatchId:source.upload,operatorIds:[one.id],requestId:randomUUID()}));
+  const row=ok(await req('/api/admin/production-line-management?lineName='+encodeURIComponent('已领码未开工线'),adminCookie)).rows[0];assert.equal(row.can_delete,false);assert.equal(row.draftTaskCount,0);
+  const [before]=await db.query('SELECT * FROM production_task_code WHERE task_id=? ORDER BY code_id',[task.id]);assert.equal(before.length,3);assert.equal((await req('/api/admin/production-line-management',adminCookie,{enterpriseId:ent,lineKey:row.line_key},'DELETE')).status,409);const [after]=await db.query('SELECT * FROM production_task_code WHERE task_id=? ORDER BY code_id',[task.id]);assert.deepEqual(after,before);
+ });
+ await check('批量混入真实未完工产线时，候选空任务也不提前删除',async()=>{
+  const draft=ok(await req('/api/admin/production-lines',adminCookie,{name:'整批回滚空任务',lineName:'空任务整批回滚线',operatorIds:[],requestId:randomUUID()})),row=ok(await req('/api/admin/production-line-management?lineName='+encodeURIComponent('空任务整批回滚线'),adminCookie)).rows[0],live=ok(await req('/api/admin/production-line-management?lineName='+encodeURIComponent('现场一号线'),adminCookie)).rows[0];
+  assert.equal((await req('/api/admin/production-line-management',adminCookie,{lines:[{enterpriseId:ent,lineKey:row.line_key},{enterpriseId:ent,lineKey:live.line_key}]},'DELETE')).status,409);const [[kept]]=await db.query('SELECT status FROM production_task WHERE id=?',[draft.id]);assert.equal(kept.status,'active');const [[log]]=await db.query("SELECT COUNT(*) n FROM production_task_change WHERE task_id=? AND action='delete'",[draft.id]);assert.equal(log.n,0);
+ });
  console.log('自动生产任务：'+checks+'组真实数据库/API通过');
 }finally{await db.end()}
