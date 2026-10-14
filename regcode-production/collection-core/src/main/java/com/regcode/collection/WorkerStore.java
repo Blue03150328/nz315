@@ -90,7 +90,18 @@ public final class WorkerStore {
  public synchronized void finish(long userId)throws Exception{
   db.transaction(()->{JSONObject r=currentRun();if(r==null)throw new Exception("没有本机采集批次");closeSession(currentSession(userId));List<JSONObject> other=db.rows("SELECT id FROM ww_session WHERE run_id=? AND state='active'",r.getString("id"));if(!other.isEmpty())throw new Exception("仍有工人会话未交班");db.exec("UPDATE ww_run SET state='sealed' WHERE id=?",r.getString("id"));putMeta("currentRun","");return null;});
  }
- public synchronized void resume(String id,JSONObject profile,long now)throws Exception{JSONObject r=run(id);if(r==null||!"open".equals(r.getString("state")))throw new Exception("此批已结束");if("external".equals(r.getString("mode"))){putMeta("currentRun",id);if(currentSession(profile.getJSONObject("identity").getLong("id"))==null)db.exec("INSERT INTO ww_session(id,run_id,user_id,identity,grant_id,started_at) VALUES(?,?,?,?,?,?)",UUID.randomUUID().toString(),id,profile.getJSONObject("identity").getLong("id"),profile.getJSONObject("identity").toString(),profile.getString("grantId"),Instant.ofEpochMilli(now).toString());}else if(r.getJSONObject("context").optBoolean("lineWorkflow")){db.transaction(()->{putMeta("currentRun",id);if(currentSession(profile.getJSONObject("identity").getLong("id"))==null)db.exec("INSERT INTO ww_session(id,run_id,user_id,identity,grant_id,started_at) VALUES(?,?,?,?,?,?)",UUID.randomUUID().toString(),id,profile.getJSONObject("identity").getLong("id"),profile.getJSONObject("identity").toString(),profile.getString("grantId"),Instant.ofEpochMilli(now).toString());return null;});}else start(r.getJSONObject("context"),profile,now);}
+ public synchronized void resume(String id,JSONObject profile,long now)throws Exception{
+  JSONObject r=run(id);if(r==null||!"open".equals(r.getString("state")))throw new Exception("此批已结束");
+  if("external".equals(r.getString("mode"))||r.getJSONObject("context").optBoolean("lineWorkflow")){
+   db.transaction(()->{
+    putMeta("currentRun",id);JSONObject s=currentSession(profile.getJSONObject("identity").getLong("id"));
+    // 重新登录可更新授权；封存旧会话，旧事件继续按原身份补传，不改原批资料。
+    if(s!=null&&!s.getString("grant_id").equals(profile.getString("grantId"))){closeSession(s);s=null;}
+    if(s==null)db.exec("INSERT INTO ww_session(id,run_id,user_id,identity,grant_id,started_at) VALUES(?,?,?,?,?,?)",UUID.randomUUID().toString(),id,profile.getJSONObject("identity").getLong("id"),profile.getJSONObject("identity").toString(),profile.getString("grantId"),Instant.ofEpochMilli(now).toString());
+    return null;
+   });
+  }else start(r.getJSONObject("context"),profile,now);
+ }
  public synchronized JSONObject capture(String raw,JSONObject profile,long now)throws Exception{
   return db.transaction(()->{
    if(raw==null||raw.trim().isEmpty()||raw.length()>4096)throw new Exception("扫码内容为空或过长，本次未保存");

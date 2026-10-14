@@ -1,6 +1,15 @@
 package com.regcode.collection;
 import org.json.*;import org.junit.Test;import static org.junit.Assert.*;import java.util.*;import java.io.*;
 public class WorkerStoreTest {
+ @Test public void externalResumeAfterReloginKeepsOriginalRawAndRotatesSession()throws Exception{
+  try(QueueStoreTest.Jdbc db=new QueueStoreTest.Jdbc(":memory:")){
+   WorkerStore w=ready(db);JSONObject first=profile(1);String run=w.start(new JSONObject().put("mode","external"),first,1).getString("id"),old=w.currentSession(1).getString("id");
+   JSONObject original=w.capture("https://outside.example/?keep=原文",first,2),renewed=new JSONObject(first.toString()).put("grantId","external-renewed");
+   w.resume(run,renewed,3);assertNotEquals(old,w.currentSession(1).getString("id"));assertEquals(original.getString("eventId"),w.pending(old,20).getJSONObject(0).getString("eventId"));
+   assertEquals("valid",w.capture("https://outside.example/?next=2",renewed,4).getString("kind"));assertEquals(2,w.snapshot(1).getJSONObject("counts").getInt("collected"));
+   String current=w.currentSession(1).getString("id");w.resume(run,renewed,5);assertEquals(current,w.currentSession(1).getString("id"));assertEquals(run,w.currentRun().getString("id"));
+  }
+ }
  @Test public void externalTxtPreservesRawUrlsAndOfflineRecords()throws Exception{try(QueueStoreTest.Jdbc db=new QueueStoreTest.Jdbc(":memory:")){
   WorkerStore w=new WorkerStore(db);JSONObject r=w.start(new JSONObject().put("mode","external"),profile(1),1);
   String raw=" https://vendor.example/full/path?other=value&code="+A+"&keep=中文#section ";

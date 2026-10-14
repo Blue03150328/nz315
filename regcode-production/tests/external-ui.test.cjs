@@ -26,7 +26,7 @@ test('真实网页覆盖双模式入口、工号、原文、固定批次、暂�
   const server=http.createServer((request,response)=>{
     const requested=new URL(request.url,'http://localhost').pathname.slice(1)||'index.html',worker=requested.startsWith('worker/'),name=worker?requested.slice(7):requested;
     if(name==='mock-native.js'){response.setHeader('Content-Type','text/javascript');response.end(fixture);return;}
-    if(!(worker?['index.html','worker.js','worker.css']:['index.html','app.js','core.js','app.css','favicon.svg']).includes(name)){response.writeHead(404).end();return;}
+    if(!(worker?['index.html','worker.js','worker.css','production-preparation.js']:['index.html','app.js','core.js','app.css','favicon.svg']).includes(name)){response.writeHead(404).end();return;}
     response.setHeader('Content-Type',name.endsWith('.html')?'text/html; charset=utf-8':name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':'image/svg+xml');
     let data=fs.readFileSync(path.join(worker?workerAssets:assets,name));if(name==='index.html')data=data.toString().replace(worker?'<script src="worker.js">':'<script src="core.js">',worker?'<script src="/mock-native.js"></script><script src="worker.js">':'<script src="mock-native.js"></script><script src="core.js">');response.end(data);
   });
@@ -54,8 +54,8 @@ test('真实网页覆盖双模式入口、工号、原文、固定批次、暂�
     await command('Page.navigate',{url:origin+'/worker/index.html?worker=1'});await wait('!!document.getElementById("external")');assert.equal(await evaluate('document.getElementById("external").textContent'),'外码采集');assert.equal(await evaluate('document.getElementById("legacyEntry").textContent'),'外部原文采集与旧记录');
     await evaluate('document.getElementById("production").click()');await wait('!!document.getElementById("product")');
     assert.equal(await evaluate('document.getElementById("product").options.length'),3);
-    await evaluate('document.getElementById("product").value="2";document.getElementById("product").dispatchEvent(new Event("change"));document.getElementById("batchNo").value="B2";document.getElementById("produceDate").value="2026-10-13";document.getElementById("expireDate").value="2027-10-13";document.getElementById("start").click();document.querySelector("button[value=yes]").click()');
-    await wait('!!document.getElementById("toggle")');assert.equal(await evaluate('window.__lastWorkerStart.productId'),2);assert.equal(await evaluate('window.__lastWorkerStart.stockWorkflow'),true);assert.equal(await evaluate('window.__lastWorkerStart.taskId'),9);
+    await evaluate('document.getElementById("product").value="2";document.getElementById("product").dispatchEvent(new Event("change"));document.getElementById("line").value="二号线";document.getElementById("batchNo").value="B2";document.getElementById("produceDate").value="2026-10-13";document.getElementById("expireDate").value="2027-10-13";document.getElementById("start").click();document.querySelector("button[value=yes]").click()');
+    await wait('!!document.getElementById("toggle")');assert.equal(await evaluate('window.__lastWorkerStart.productId'),2);assert.equal(await evaluate('window.__lastWorkerStart.stockWorkflow'),true);assert.equal(await evaluate('window.__lastWorkerStart.taskId'),0);assert.equal(await evaluate('window.__lastWorkerStart.autoLine'),true);assert.equal(await evaluate('window.__lastWorkerStart.lineName'),'二号线');
     await evaluate('window.App.back();window.App.back()');
     await evaluate('document.getElementById("history").click()');assert.equal(await evaluate('!!document.getElementById("legacyEntry")'),true);await evaluate('document.getElementById("backup").click()');assert.equal(await evaluate('window.__workerBackup'),true);
     await evaluate('document.getElementById("historyBack").click();window.__registrationRequired=true;window.__unconfirmed=true');await wait('!!document.getElementById("activationInput")');

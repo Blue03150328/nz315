@@ -1,6 +1,19 @@
 package com.regcode.collection;
 import org.json.*;import org.junit.Test;import static org.junit.Assert.*;
 public class AutoLineWorkerStoreTest {
+ @Test public void reloginResumesSameBatchWithNewSessionAndKeepsOriginalEvents()throws Exception{
+  try(QueueStoreTest.Jdbc db=new QueueStoreTest.Jdbc(":memory:")){
+   WorkerStore w=ready(db);JSONObject first=WorkerStoreTest.profile(1),c=context(1);String run=w.start(c,first,1).getString("id"),oldSession=w.currentSession(1).getString("id");
+   w.automaticOpened(oldSession,c.put("taskId",85));JSONObject oldEvent=w.capture(StockLineWorkerStoreTest.A,first,2);
+   JSONObject renewed=new JSONObject(first.toString()).put("grantId","renewed-grant");w.resume(run,renewed,3);JSONObject next=w.currentSession(1);
+   assertNotEquals(oldSession,next.getString("id"));assertEquals(run,w.currentRun().getString("id"));assertEquals("renewed-grant",next.getString("grant_id"));
+   JSONObject closing=db.rows("SELECT state,final_seq,grant_id FROM ww_session WHERE id=?",oldSession).get(0);assertEquals("closing",closing.getString("state"));assertEquals(1,closing.getInt("final_seq"));assertEquals(first.getString("grantId"),closing.getString("grant_id"));
+   assertThrows(Exception.class,()->w.capture(StockLineWorkerStoreTest.A,renewed,4));w.automaticOpened(next.getString("id"),c);
+   String newCode=StockLineWorkerStoreTest.A.substring(0,31)+"2";assertEquals("valid",w.capture(newCode,renewed,5).getString("kind"));
+   assertEquals(oldEvent.getString("eventId"),w.pending(oldSession,20).getJSONObject(0).getString("eventId"));
+   WorkerStore reopened=new WorkerStore(db);reopened.resume(run,renewed,6);assertEquals(next.getString("id"),reopened.currentSession(1).getString("id"));assertEquals(2,reopened.snapshot(1).getJSONObject("counts").getInt("collected"));
+  }
+ }
  private WorkerStore ready(QueueStoreTest.Jdbc db)throws Exception{WorkerStore w=StockLineWorkerStoreTest.ready(db);w.putMeta("cache",new JSONObject(w.meta("cache","{}")).put("stockVersion",3).toString());return w;}
  private JSONObject context(int product)throws Exception{return StockLineWorkerStoreTest.context(product).put("taskId",0).put("autoLine",true).put("lineName","现场三号线");}
  @Test public void productChoiceDoesNotRequireAssignmentAndMustRegisterBeforeCapture()throws Exception{try(QueueStoreTest.Jdbc db=new QueueStoreTest.Jdbc(":memory:")){WorkerStore w=ready(db);JSONObject c=context(2),r=w.start(c,WorkerStoreTest.profile(1),1),s=w.currentSession(1);assertEquals(2,r.getJSONObject("context").getInt("productId"));assertThrows(Exception.class,()->w.capture(StockLineWorkerStoreTest.B,WorkerStoreTest.profile(1),2));assertEquals(0,w.snapshot(1).getJSONObject("counts").getInt("total"));w.automaticOpened(s.getString("id"),c.put("taskId",80));assertEquals(80,w.currentRun().getJSONObject("context").getInt("taskId"));assertEquals("valid",w.capture(StockLineWorkerStoreTest.B,WorkerStoreTest.profile(1),2).getString("kind"));}}
