@@ -25,6 +25,7 @@ export interface ExternalCollectionBatch {
   device_name: string
   line_name: string
   worker_no: string
+  worker_name_snapshot?: string | null
   state: ExternalCollectionState
   last_sequence: number
   accepted_count: number
@@ -33,6 +34,7 @@ export interface ExternalCollectionBatch {
   code_count: number
   product_id: number | null
   product_name_snapshot: string | null
+  linked_spec_name?: string | null
   batch_no: string | null
   produce_date: string | null
   production_quantity: number | null

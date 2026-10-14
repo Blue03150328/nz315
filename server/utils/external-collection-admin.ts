@@ -1,11 +1,13 @@
 import { Readable } from 'node:stream'
+import { createHash } from 'node:crypto'
 import type { AuthUser } from './auth'
 import { query } from './db'
 import { externalBatchRow, externalFail, externalScope, externalTransaction, requireExternalCollectionSchema } from './external-collection'
 import { externalCollectionId, externalCsvRow, externalMetadataInput } from '../../shared/utils/external-collection-input'
 
-const columns = 'b.*,e.name AS enterprise_name'
-const joins = ' FROM external_collection_batch b JOIN enterprise e ON e.id=b.enterprise_id'
+const beijing = (field: string) => `DATE_FORMAT(TIMESTAMPADD(SECOND,28800-TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),NOW()),${field}),'%Y-%m-%d %H:%i:%s.%f')`
+const columns = `b.*,e.name AS enterprise_name,sp.spec_name AS linked_spec_name,${beijing('b.created_at')} AS created_at,${beijing('b.completed_at')} AS completed_at`
+const joins = ' FROM external_collection_batch b JOIN enterprise e ON e.id=b.enterprise_id LEFT JOIN product p ON p.id=b.product_id LEFT JOIN product_spec sp ON sp.id=p.spec_id'
 
 function paging(input: Record<string, any>) {
   const page = Math.max(1, Math.min(1000000, Number.parseInt(String(input.page || 1), 10) || 1))
@@ -31,10 +33,24 @@ function filter(user: AuthUser, input: Record<string, any>) {
     if (!['active', 'completed'].includes(String(input.state))) externalFail('采集状态无效', 400)
     clauses.push('b.state=?'); params.push(input.state)
   }
-  for (const [field, column] of [['lineName', 'line_name_snapshot'], ['workerNo', 'worker_no']] as const) {
+  for (const [field, column] of [['lineName', 'line_name_snapshot'], ['workerNo', 'worker_no'], ['deviceName', 'device_name_snapshot'], ['batchNo', 'batch_no']] as const) {
     const value = pattern(input[field])
     if (value) { clauses.push(`b.${column} LIKE ? ESCAPE '!'`); params.push(value) }
   }
+  if (input.productId !== undefined && input.productId !== '') {
+    const productId = Number(input.productId)
+    if (!Number.isSafeInteger(productId) || productId < 1) externalFail('产品筛选无效', 400)
+    clauses.push('b.product_id=?'); params.push(productId)
+  }
+  for (const key of ['dateFrom', 'dateTo']) {
+    if (!input[key]) continue
+    const value = String(input[key])
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value) externalFail('日期筛选无效', 400)
+    // 查询输入为北京时间，换算到当前数据库会话时区后比较，保留日期索引可用。
+    clauses.push(`b.created_at ${key === 'dateFrom' ? '>=' : '<'} TIMESTAMPADD(SECOND,TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),NOW())-28800,?)`)
+    params.push(key === 'dateFrom' ? value + ' 00:00:00' : new Date(Date.parse(value) + 86400000).toISOString().slice(0, 10) + ' 00:00:00')
+  }
+  if (input.dateFrom && input.dateTo && input.dateFrom > input.dateTo) externalFail('开始日期不能晚于结束日期', 400)
   const keyword = pattern(input.keyword)
   if (keyword) {
     clauses.push("(CONVERT(b.id USING utf8mb4) LIKE ? ESCAPE '!' OR b.product_name_snapshot LIKE ? ESCAPE '!' OR b.batch_no LIKE ? ESCAPE '!' OR b.worker_no LIKE ? ESCAPE '!' OR b.line_name_snapshot LIKE ? ESCAPE '!')")
@@ -57,9 +73,10 @@ export async function listExternalCollections(user: AuthUser, input: Record<stri
     params.push(rawCode)
   }
   const where = clauses.length ? ' WHERE ' + clauses.join(' AND ') : ''
-  const [count] = await query<any[]>('SELECT COUNT(*) AS total' + joins + where, params)
+  const [count] = await query<any[]>("SELECT COUNT(*) AS total,COALESCE(SUM(b.state='completed'),0) AS completed_total" + joins + where, params)
   const rows = await query<any[]>(`SELECT ${columns}${joins}${where} ORDER BY b.created_at DESC,b.id DESC LIMIT ? OFFSET ?`, [...params, pageSize, offset])
-  return { rows: rows.map(externalBatchRow), total: Number(count.total), page, pageSize }
+  const selectionFilters = Object.fromEntries(['keyword', 'batchNo', 'rawCode', 'lineName', 'deviceName', 'workerNo', 'state', 'dateFrom', 'dateTo', 'batchId', 'productId'].filter(key => input[key] !== undefined && input[key] !== '').map(key => [key, input[key]]))
+  return { rows: rows.map(externalBatchRow), total: Number(count.total), completedTotal: Number(count.completed_total), page, pageSize, selectionFilters }
 }
 
 export async function externalCollectionBatch(user: AuthUser, id: string) {
@@ -159,4 +176,54 @@ export async function exportExternalCollection(user: AuthUser, id: string, forma
   const safe = (value: unknown) => String(value || '').replace(/[<>:"/\\|?*\x00-\x1f]/g, '_').slice(0, 50)
   const filename = ['外码采集', safe(batch.enterprise_name), String(batch.created_at).slice(0, 10), safe(batch.worker_no), batch.accepted_count + '条', batch.id.slice(0, 8)].join('_') + '.' + format
   return { stream: Readable.from(chunks()), filename, contentType: format === 'csv' ? 'text/csv; charset=utf-8' : 'text/plain; charset=utf-8' }
+}
+
+/** 多选及当前查询结果全选共用企业和筛选边界，只能导出已完成批次。 */
+async function externalExportSelection(user: AuthUser, selection: any) {
+  await requireExternalCollectionSchema()
+  let ids: string[] = [], excluded: string[] = []
+  try {
+    if (selection?.all === true) {
+      if (!selection.filters || typeof selection.filters !== 'object' || Array.isArray(selection.filters) || selection.ids?.length || (selection.excludeIds !== undefined && !Array.isArray(selection.excludeIds))) throw Error('全选范围无效')
+      excluded = (selection.excludeIds || []).map(externalCollectionId)
+    } else {
+      if (!Array.isArray(selection?.ids) || !selection.ids.length) throw Error('请选择已完成的采集批次')
+      ids = [...new Set<string>(selection.ids.map(externalCollectionId))]
+    }
+  } catch (error) { return externalFail((error as Error).message, 400) }
+  const input = selection.all === true ? selection.filters : {}, { clauses, params } = filter(user, input)
+  clauses.push("b.state='completed'")
+  if (ids.length) { clauses.push('b.id IN (?)'); params.push(ids) }
+  if (excluded.length) { clauses.push('b.id NOT IN (?)'); params.push(excluded) }
+  if (input.batchId) { clauses.push('b.id=?'); params.push(externalCollectionId(input.batchId)) }
+  const raw = pattern(input.rawCode)
+  if (raw) { clauses.push("EXISTS (SELECT 1 FROM external_trace_code c WHERE c.batch_id=b.id AND c.raw_code LIKE ? ESCAPE '!')"); params.push(raw) }
+  const rows = await query<any[]>('SELECT b.id,b.accepted_count' + joins + ' WHERE ' + clauses.join(' AND ') + ' ORDER BY b.id', params)
+  if (!rows.length || (ids.length && rows.length !== ids.length)) externalFail('所选批次不存在、尚未完成或不属于本企业', 404)
+  const previewHash = createHash('sha256').update(JSON.stringify(rows.map(row => [row.id, Number(row.accepted_count)]))).digest('hex')
+  return { rows, previewHash }
+}
+
+export async function previewExternalExport(user: AuthUser, selection: any) {
+  const result = await externalExportSelection(user, selection)
+  return { selection, previewHash: result.previewHash, batchCount: result.rows.length, codeTotal: result.rows.reduce((n, row) => n + Number(row.accepted_count), 0) }
+}
+
+export async function exportExternalSelection(user: AuthUser, body: any) {
+  if (!['csv', 'txt'].includes(body?.format)) externalFail('请选择CSV或TXT导出格式', 400)
+  const selected = await externalExportSelection(user, body.selection)
+  if (selected.previewHash !== body.previewHash) externalFail('所选批次已变化，请重新预览并确认导出范围', 409)
+  async function* chunks() {
+    if (body.format === 'csv') yield '\uFEFF溯源码\r\n'
+    for (const batch of selected.rows) {
+      let sequence = 0
+      while (true) {
+        const rows = await query<any[]>('SELECT raw_code,sequence_no FROM external_trace_code WHERE batch_id=? AND sequence_no>? ORDER BY sequence_no LIMIT 1000', [batch.id, sequence])
+        if (!rows.length) break
+        yield rows.map(row => body.format === 'csv' ? externalCsvRow(row.raw_code) : row.raw_code + '\r\n').join('')
+        sequence = Number(rows.at(-1).sequence_no)
+      }
+    }
+  }
+  return { stream: Readable.from(chunks()), filename: `外部溯源码_${selected.rows.length}批_${Date.now()}.${body.format}`, contentType: body.format === 'csv' ? 'text/csv; charset=utf-8' : 'text/plain; charset=utf-8' }
 }
