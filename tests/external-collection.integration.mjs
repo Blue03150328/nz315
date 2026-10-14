@@ -179,8 +179,9 @@ try {
     assert.equal(Number((await one('SELECT COUNT(*) AS n FROM external_trace_code WHERE raw_hash=?', [core.externalHash(raw2)])).n), 0)
     await db.query('DROP TRIGGER fail_external_event'); assert.equal((await sync(d1, batch1, [retry])).receipts[0].state, 'accepted')
   })
-  await check('活跃外批阻止改线、删设备和再激活，完成前不能改生产资料或导出', async () => {
-    for (const action of [{ action: 'edit', name: '新名称', lineName: '新线', enterpriseId: a.id }, { action: 'delete' }, { action: 'activate' }]) await rejects(() => devices.changeDevice(admin, d1.device_id, action, 'https://example.invalid'), /未结束.*采集|排空/)
+  await check('活跃外批阻止调换企业、删设备和再激活，完成前不能改生产资料或导出', async () => {
+    await rejects(() => devices.changeDevice(platform, d1.device_id, { action: 'edit', name: '新名称', enterpriseId: b.id }, 'https://example.invalid'), /未结束.*采集|排空/)
+    for (const action of [{ action: 'delete' }, { action: 'activate' }]) await rejects(() => devices.changeDevice(admin, d1.device_id, action, 'https://example.invalid'), /未结束.*采集|排空/)
     await rejects(() => adminApi.updateExternalCollection(admin, batch1, metadata({})), /先在设备完成/)
     await rejects(() => readExport(viewer, batch1, 'txt'), /先完成/)
   })
@@ -202,14 +203,15 @@ try {
     assert.deepEqual((await sync(d2, id, [first, second])).receipts.map(row => row.state), ['accepted', 'accepted']); await complete(d2, id, 2)
   })
   await check('完成回包丢失后设备合法调线仍可找回完成状态和原收据，不能新添码或改快照', async () => {
-    await devices.changeDevice(admin, d2.device_id, { action: 'edit', name: d2.name, lineName: '合法调换的新线', enterpriseId: a.id }, 'https://example.invalid')
+    // master设备编辑已移除产线输入；仅在隔离夹具中模拟归属变化，验证旧收据重播。
+    await db.execute('UPDATE production_device SET line_name=? WHERE id=?', ['合法调换的新线', d2.device_id])
     const changed = { ...d2, device_line: '合法调换的新线' }
     assert.equal((await core.startExternalCollection(changed, { batchId: batch2, workerNo: '002', lineName: d2.device_line })).state, 'completed')
     assert.equal((await sync(changed, batch2, [duplicateEvent])).receipts[0].state, 'duplicate')
     assert.equal((await complete(changed, batch2, 2)).state, 'completed')
     await rejects(() => core.startExternalCollection(changed, { batchId: batch2, workerNo: '002', lineName: changed.device_line }), /不能更换生产线/)
     await rejects(() => sync(changed, batch2, [event('新加外码', 3)]), /已完成/)
-    await devices.changeDevice(admin, d2.device_id, { action: 'edit', name: d2.name, lineName: d2.device_line, enterpriseId: a.id }, 'https://example.invalid')
+    await db.execute('UPDATE production_device SET line_name=? WHERE id=?', [d2.device_line, d2.device_id])
   })
   await check('产品手输与选择、实际码数与手填数量独立，同生产批号按流水线工号区分', async () => {
     const count = (await adminApi.externalCollectionDetail(viewer, batch1, {})).total
@@ -232,11 +234,11 @@ try {
     assert.equal((await adminApi.listExternalCollections(platform, { enterpriseId: b.id })).total, 1)
     const codes = await adminApi.listExternalCodes(viewer, { keyword: 'EXAMPLE', pageSize: 1 }); assert.ok(codes.total >= 1); assert.ok(codes.rows.every(row => row.enterprise_id === a.id))
   })
-  await check('CSV单列引用和TXT逐行原文，无改数量影响，无跨批混码', async () => {
+  await check('CSV含生产日期及批号，原文按列引用，TXT逐行原文不变', async () => {
     const rows = (await db.query('SELECT raw_code FROM external_trace_code WHERE batch_id=? ORDER BY sequence_no', [batch1]))[0]
     const csv = await readExport(viewer, batch1, 'csv'), txt = await readExport(viewer, batch1, 'txt')
     assert.equal(txt, rows.map(row => row.raw_code + '\r\n').join(''))
-    assert.equal(csv, '\uFEFF溯源码\r\n' + rows.map(row => '"' + row.raw_code.replace(/"/g, '""') + '"\r\n').join(''))
+    assert.equal(csv, '\uFEFF溯源码,生产日期,生产批号\r\n' + rows.map(row => '"' + row.raw_code.replace(/"/g, '""') + '","2026-10-12","厂内共同生产批号"\r\n').join(''))
     await rejects(() => readExport(foreign, batch1, 'txt'), /不属于/)
   })
   await check('数万码SQL规模夹具分页与分段导出完整，保留前导零', async () => {

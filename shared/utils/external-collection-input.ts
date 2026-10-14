@@ -60,6 +60,6 @@ export function externalMetadataInput(body: Record<string, unknown>) {
 }
 
 /** CSV按标准引用原值，避免网址逗号、引号改变列数；不改写原文。 */
-export function externalCsvRow(rawCode: string): string {
-  return '"' + rawCode.replace(/"/g, '""') + '"\r\n'
+export function externalCsvRow(rawCode: string, ...metadata: unknown[]): string {
+  return [rawCode, ...metadata].map(value => '"' + String(value ?? '').replace(/"/g, '""') + '"').join(',') + '\r\n'
 }

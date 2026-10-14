@@ -164,12 +164,12 @@ export async function exportExternalCollection(user: AuthUser, id: string, forma
   const batch = await externalCollectionBatch(user, id)
   if (batch.state !== 'completed') externalFail('请先完成本次采集，再导出完整码清单')
   async function* chunks() {
-    if (format === 'csv') yield Buffer.from('\uFEFF溯源码\r\n', 'utf8')
+    if (format === 'csv') yield Buffer.from('\uFEFF溯源码,生产日期,生产批号\r\n', 'utf8')
     let sequence = 0
     while (true) {
       const rows = await query<any[]>('SELECT raw_code,sequence_no FROM external_trace_code WHERE batch_id=? AND sequence_no>? ORDER BY sequence_no LIMIT 1000', [batch.id, sequence])
       if (!rows.length) break
-      yield Buffer.from(rows.map(row => format === 'csv' ? externalCsvRow(row.raw_code) : row.raw_code + '\r\n').join(''), 'utf8')
+      yield Buffer.from(rows.map(row => format === 'csv' ? externalCsvRow(row.raw_code, String(batch.produce_date ?? '').slice(0, 10), batch.batch_no) : row.raw_code + '\r\n').join(''), 'utf8')
       sequence = Number(rows[rows.length - 1].sequence_no)
     }
   }
@@ -198,7 +198,7 @@ async function externalExportSelection(user: AuthUser, selection: any) {
   if (input.batchId) { clauses.push('b.id=?'); params.push(externalCollectionId(input.batchId)) }
   const raw = pattern(input.rawCode)
   if (raw) { clauses.push("EXISTS (SELECT 1 FROM external_trace_code c WHERE c.batch_id=b.id AND c.raw_code LIKE ? ESCAPE '!')"); params.push(raw) }
-  const rows = await query<any[]>('SELECT b.id,b.accepted_count' + joins + ' WHERE ' + clauses.join(' AND ') + ' ORDER BY b.id', params)
+  const rows = await query<any[]>('SELECT b.id,b.accepted_count,b.produce_date,b.batch_no' + joins + ' WHERE ' + clauses.join(' AND ') + ' ORDER BY b.id', params)
   if (!rows.length || (ids.length && rows.length !== ids.length)) externalFail('所选批次不存在、尚未完成或不属于本企业', 404)
   const previewHash = createHash('sha256').update(JSON.stringify(rows.map(row => [row.id, Number(row.accepted_count)]))).digest('hex')
   return { rows, previewHash }
@@ -214,13 +214,13 @@ export async function exportExternalSelection(user: AuthUser, body: any) {
   const selected = await externalExportSelection(user, body.selection)
   if (selected.previewHash !== body.previewHash) externalFail('所选批次已变化，请重新预览并确认导出范围', 409)
   async function* chunks() {
-    if (body.format === 'csv') yield '\uFEFF溯源码\r\n'
+    if (body.format === 'csv') yield '\uFEFF溯源码,生产日期,生产批号\r\n'
     for (const batch of selected.rows) {
       let sequence = 0
       while (true) {
         const rows = await query<any[]>('SELECT raw_code,sequence_no FROM external_trace_code WHERE batch_id=? AND sequence_no>? ORDER BY sequence_no LIMIT 1000', [batch.id, sequence])
         if (!rows.length) break
-        yield rows.map(row => body.format === 'csv' ? externalCsvRow(row.raw_code) : row.raw_code + '\r\n').join('')
+        yield rows.map(row => body.format === 'csv' ? externalCsvRow(row.raw_code, String(batch.produce_date ?? '').slice(0, 10), batch.batch_no) : row.raw_code + '\r\n').join('')
         sequence = Number(rows.at(-1).sequence_no)
       }
     }

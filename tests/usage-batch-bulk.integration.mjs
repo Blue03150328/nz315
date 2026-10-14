@@ -7,7 +7,8 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import { register } from 'node:module'
 import { spawn } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
-import { createError } from 'h3'
+import { createError, createApp, eventHandler, toNodeListener } from 'h3'
+import { createServer } from 'node:http'
 import mysql from 'mysql2/promise'
 import bcrypt from 'bcryptjs'
 import XLSX from 'xlsx'
@@ -27,6 +28,7 @@ globalThis.createError = createError
 globalThis.useRuntimeConfig = () => ({ dbHost: credentials.host, dbPort: credentials.port, dbUser: credentials.user, dbPassword: credentials.password, dbName: database, sessionSecret: secret })
 const bulk = await import('../server/utils/usage-batch-bulk.ts'), { getPool } = await import('../server/utils/db.ts')
 const ext = await import('../server/utils/external-collection-admin.ts')
+const { exportCodeScope } = await import('../server/utils/code-scope-management.ts')
 const control = await mysql.createConnection(credentials)
 let db, application, created = false
 const results = [], password = randomBytes(18).toString('hex'), logdir = path.join(root, 'logs', database)
@@ -65,6 +67,21 @@ async function exportText(user, preview, format) {
   for await (const chunk of output.stream) chunks.push(String(chunk))
   return chunks.join('')
 }
+function csvRows(text) {
+  const book = XLSX.read(text.replace(/^\uFEFF/, ''), { type: 'string', raw: true })
+  return XLSX.utils.sheet_to_json(book.Sheets[book.SheetNames[0]], { defval: '' })
+}
+async function singleExport(user, selection) {
+  const app = createApp().use(eventHandler(event => exportCodeScope(event, user, selection, 'csv')))
+  const server = createServer(toNodeListener(app))
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
+  try {
+    const response = await fetch('http://127.0.0.1:' + server.address().port)
+    const text = await response.text()
+    assert.equal(response.status, 200, text)
+    return csvRows(text)
+  } finally { await new Promise(resolve => server.close(resolve)) }
+}
 try {
   await control.query('CREATE DATABASE `' + database + '` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci'); created = true
   db = await mysql.createConnection({ ...credentials, database })
@@ -98,6 +115,33 @@ try {
     const txt = await exportText(viewer, preview, 'txt'), urls = await exportText(viewer, preview, 'urls'), csv = await exportText(viewer, preview, 'csv')
     for (const code of [...first.codes, ...second.codes]) { assert.equal(txt.split(code.code).length - 1, 1); assert.ok(urls.includes('trace?code=' + code.code)); assert.ok(csv.includes(code.code)) }
     assert.equal(txt.replace(/^\uFEFF/, '').trim().split(/\r?\n/).length, 5)
+    for (const row of csvRows(csv)) { assert.equal(row['生产日期'], '2026-10-14'); assert.equal(row['生产批号'], 'SC001') }
+  })
+  await check('内部单批与批量CSV使用任务更正值，跨批资料不串，缺失字段留空', async () => {
+    const other = await company('日期批号企业'), uploaded = await batch(other)
+    const correction = { produce_date: '2026-09-01', batch_no: '00001,"更正"' }
+    await db.execute('UPDATE production_task SET production_snapshot=? WHERE id=?', [JSON.stringify(correction), a.task])
+    const preview = await bulk.previewUsageSelection(platform, { ids: [first.id, uploaded.id] })
+    const rows = csvRows(await exportText(platform, preview, 'csv'))
+    for (const code of first.codes) {
+      const row = rows.find(row => row.sn === code.code)
+      assert.equal(row['生产日期'], correction.produce_date); assert.equal(row['生产批号'], correction.batch_no)
+    }
+    assert.equal(rows.find(row => row.sn === uploaded.codes[0].code)['生产批号'], 'SC001')
+    for (const row of await singleExport(viewer, { usageBatchId: first.id })) {
+      assert.equal(row['生产日期'], correction.produce_date); assert.equal(row['生产批号'], correction.batch_no)
+    }
+    await db.execute('UPDATE production_task SET production_snapshot=? WHERE id=?', [JSON.stringify({ produce_date: '', batch_no: '' }), other.task])
+    const blank = csvRows(await exportText(platform, preview, 'csv')).find(row => row.sn === uploaded.codes[0].code)
+    assert.equal(blank['生产日期'], ''); assert.equal(blank['生产批号'], '')
+    const [singleBlank] = await singleExport(platform, { usageBatchId: uploaded.id })
+    assert.equal(singleBlank['生产日期'], ''); assert.equal(singleBlank['生产批号'], '')
+    // 旧生成留档导出仍读取各码自身资料，未绑定码不补造生产信息。
+    await db.execute("UPDATE upload_batch SET file_name='生成入库CSV验收' WHERE id=?", [other.root])
+    await db.execute('UPDATE trace_code SET produce_date=?,batch_no=? WHERE id=?', [correction.produce_date, correction.batch_no, uploaded.codes[0].id])
+    const [legacy] = await singleExport(platform, { uploadBatchId: other.root })
+    assert.equal(legacy['生产日期'], correction.produce_date); assert.equal(legacy['生产批号'], correction.batch_no)
+    await db.execute('UPDATE production_task SET production_snapshot=NULL WHERE id=?', [a.task])
   })
   await check('批量冻结和恢复只改可操作状态，作废为终态，viewer及混入外企拒绝', async () => {
     let preview = await bulk.previewUsageSelection(admin, { ids: [first.id, second.id] })
@@ -143,6 +187,15 @@ try {
     const output = await ext.exportExternalSelection(viewer, { ...preview, format: 'txt' }), chunks = []
     for await (const chunk of output.stream) chunks.push(String(chunk))
     assert.equal(chunks.join(''), raw + '\r\n')
+    async function readCsv(output) { const chunks = []; for await (const chunk of output.stream) chunks.push(String(chunk)); return csvRows(chunks.join('')) }
+    const blank = await readCsv(await ext.exportExternalSelection(viewer, { ...preview, format: 'csv' }))
+    assert.equal(blank[0]['溯源码'], raw); assert.equal(blank[0]['生产日期'], ''); assert.equal(blank[0]['生产批号'], '')
+    const batchNo = '00001,"外批"'
+    await db.execute('UPDATE external_collection_batch SET produce_date=?,batch_no=? WHERE id=?', ['2026-09-03', batchNo, id])
+    for (const result of [await ext.exportExternalCollection(viewer, id, 'csv'), await ext.exportExternalSelection(viewer, { ...preview, format: 'csv' })]) {
+      const [row] = await readCsv(result)
+      assert.equal(row['溯源码'], raw); assert.equal(row['生产日期'], '2026-09-03'); assert.equal(row['生产批号'], batchNo)
+    }
     assert.equal((await ext.previewExternalExport(viewer, { all: true, filters: {}, excludeIds: [first.id] })).batchCount, 1)
     await assert.rejects(() => ext.previewExternalExport(viewer, { ids: [id, foreignId] }), /不属于本企业/)
     await db.execute("UPDATE external_collection_batch SET state='active' WHERE id=?", [id])
@@ -164,6 +217,16 @@ try {
     assert.equal((await bulk.flagUsageSelection(admin, { ...preview, flag: 1 })).affected, 1)
     preview = await bulk.previewUsageSelection(admin, selection)
     assert.equal((await bulk.flagUsageSelection(admin, { ...preview, flag: 0 })).affected, 1)
+    preview = await bulk.previewUsageSelection(viewer, selection)
+    for (const rows of [csvRows(await exportText(viewer, preview, 'csv')), await singleExport(viewer, { usageBatchId: workerUsage.id })]) {
+      assert.equal(rows.length, 1); assert.equal(rows[0]['生产日期'], '2026-10-13'); assert.equal(rows[0]['生产批号'], 'WORK001')
+    }
+    preview = await bulk.previewUsageSelection(viewer, { ids: [workerUsage.id] })
+    await db.execute('UPDATE code_usage_batch SET production_snapshot=? WHERE id=?', [JSON.stringify({ batch_no: 'WORK001', produce_date: '2026-10-13', mixed_fields: ['batch_no', 'produce_date'] }), workerUsage.id])
+    for (const rows of [csvRows(await exportText(viewer, preview, 'csv')), await singleExport(viewer, { usageBatchId: workerUsage.id })]) {
+      assert.equal(rows[0]['生产日期'], ''); assert.equal(rows[0]['生产批号'], '')
+    }
+    await db.execute('UPDATE code_usage_batch SET production_snapshot=? WHERE id=?', [JSON.stringify({ batch_no: 'WORK001', produce_date: '2026-10-13' }), workerUsage.id])
   })
   if (process.env.NZ315_TEST_BUILD_DIR) {
     const dir = path.resolve(process.env.NZ315_TEST_BUILD_DIR), port = 3194, base = 'http://127.0.0.1:' + port

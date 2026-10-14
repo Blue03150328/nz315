@@ -7,6 +7,7 @@ import { transaction } from './production-task'
 import { resolveCodeScope, codeScopeSql, type CodeScope } from './code-scope'
 import { refreshUploadSnapshots } from './upload-snapshot'
 import { logOperation } from './audit'
+import { usageBatchNo, usageProduceDate } from './usage-batch-list'
 
 const fail = (message: string, statusCode = 400): never => { throw createError({ statusCode, statusMessage: message }) }
 const labels: Record<number, string> = { 0: '恢复正常', 1: '冻结', 2: '作废' }
@@ -74,13 +75,14 @@ export async function exportCodeScope(event: H3Event, user: AuthUser, selection:
   const base = String(useRuntimeConfig().public?.traceBaseUrl || 'https://www.nz315.cn/trace?code=')
   const csv = (value: unknown) => '"' + String(value ?? '').replaceAll('"', '""') + '"'
   const typeLabel: Record<string, string> = { '1': '持有人生产', '2': '委托加工', '3': '委托分装' }
+  const [production] = scope.usageBatchId ? await query<any[]>(`SELECT ${usageBatchNo} AS batch_no,${usageProduceDate} AS produce_date FROM code_usage_batch cb JOIN production_task t ON t.id=cb.task_id LEFT JOIN batch b ON b.id=t.batch_id WHERE cb.id=?`, [scope.usageBatchId]) : []
   async function* emit() {
-    yield format === 'csv' ? '\uFEFFsn,农药名称,登记证号,生产企业,生产类型,规格码,生成时间,绑定状态,登记类别,登记证后6位,自定义段\r\n' : '\uFEFF'
+    yield format === 'csv' ? '\uFEFFsn,农药名称,登记证号,生产企业,生产类型,规格码,生成时间,绑定状态,登记类别,登记证后6位,自定义段,生产日期,生产批号\r\n' : '\uFEFF'
     let cursor = 0
     while (true) {
-      const rows = await query<any[]>(`SELECT c.id,c.code,c.status FROM trace_code c WHERE ${selected.sql} AND c.enterprise_id=? AND c.id>? ORDER BY c.id LIMIT 5000`, [...selected.values, root.enterprise_id, cursor])
+      const rows = await query<any[]>(`SELECT c.id,c.code,c.status,c.produce_date,c.batch_no FROM trace_code c WHERE ${selected.sql} AND c.enterprise_id=? AND c.id>? ORDER BY c.id LIMIT 5000`, [...selected.values, root.enterprise_id, cursor])
       if (!rows.length) break
-      yield rows.map(code => format === 'txt' ? code.code : format === 'urls' ? base + code.code : [code.code, csv(meta?.name), csv(meta?.registration_no), csv(meta?.company_name), csv(typeLabel[String(code.code).slice(7, 8)] || ''), csv(String(code.code).slice(8, 11)), csv(String(root.created_at).slice(0, 19)), Number(code.status) === 2 ? '已绑定' : '未绑定', String(code.code).slice(0, 1), String(code.code).slice(1, 7), String(code.code).slice(11)].join(',')).join(format === 'csv' ? '\r\n' : '\n') + (format === 'csv' ? '\r\n' : '\n')
+      yield rows.map(code => format === 'txt' ? code.code : format === 'urls' ? base + code.code : [code.code, csv(meta?.name), csv(meta?.registration_no), csv(meta?.company_name), csv(typeLabel[String(code.code).slice(7, 8)] || ''), csv(String(code.code).slice(8, 11)), csv(String(root.created_at).slice(0, 19)), Number(code.status) === 2 ? '已绑定' : '未绑定', String(code.code).slice(0, 1), String(code.code).slice(1, 7), String(code.code).slice(11), csv(String((production || code).produce_date ?? '').slice(0, 10)), csv((production || code).batch_no)].join(',')).join(format === 'csv' ? '\r\n' : '\n') + (format === 'csv' ? '\r\n' : '\n')
       cursor = Number(rows[rows.length - 1].id)
       if (rows.length < 5000) break
     }
