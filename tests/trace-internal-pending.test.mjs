@@ -53,13 +53,43 @@ test('生产采集形成的记录正常返回，无需生成留档记录', async
   assert.match(writes[0][0], /INSERT INTO scan_log/)
 })
 
-test('已采集但尚待质检的工人记录展示真实生产资料', async () => {
+test('已采集工人记录的扫码质检资料使用默认值，不改后台待审状态', async () => {
   state({ id: 1, status: 1, abnormal_flag: 0, product_id: 2, enterprise_id: 3 }, null,
     { batchNo: '工人批号', produceDate: '2026-10-13', expireDate: '2099-01-01', qualityStatus: 'pending' })
   const out = await handler(request)
   assert.equal(out.resultType, 'genuine')
   assert.equal(out.batch.batchNo, '工人批号')
-  assert.equal(out.batch.qualityStatus, 'pending')
+  assert.equal(out.batch.qcResult, '合格')
+  assert.equal(out.batch.qualityCertNo, '见质量合格检测证卡片')
+  assert.equal(out.batch.qualityStatus, undefined)
+  assert.equal(globalThis.traceTest.preview.qualityStatus, 'pending')
+})
+
+test('已生产批次缺质检资料使用默认值，明确不合格和已有证书优先', async () => {
+  const record = { id: 1, status: 2, abnormal_flag: 0, product_id: 2, enterprise_id: 3, batch_id: 4 }
+  const batch = { batch_no: '生产批', produce_date: '2026-10-14', expire_date: '2099-01-01' }
+  state(record, batch)
+  let out = await handler(request)
+  assert.equal(out.batch.qcResult, '合格')
+  assert.equal(out.batch.qualityCertNo, '见质量合格检测证卡片')
+  assert.equal(out.batch.qualityStatus, undefined)
+  state({ ...record, qc_result: 0, quality_cert_no: '单码证书' }, { ...batch, qc_result: 1, quality_cert_no: '批次证书' })
+  out = await handler(request)
+  assert.equal(out.batch.qcResult, '不合格')
+  assert.equal(out.batch.qualityStatus, 'failed')
+  assert.equal(out.batch.qualityCertNo, '单码证书')
+  state(record, { ...batch, qc_result: 1, quality_cert_no: '批次证书' })
+  out = await handler(request)
+  assert.equal(out.batch.qcResult, '合格')
+  assert.equal(out.batch.qualityCertNo, '批次证书')
+})
+
+test('工人质检失败记录保留不合格警示', async () => {
+  state({ id: 1, status: 1, abnormal_flag: 0, product_id: 2, enterprise_id: 3 }, null,
+    { batchNo: '工人批号', produceDate: '2026-10-14', expireDate: '2099-01-01', qcResult: '不合格', qualityStatus: 'failed' })
+  const out = await handler(request)
+  assert.equal(out.batch.qcResult, '不合格')
+  assert.equal(out.batch.qualityStatus, 'failed')
 })
 
 test('冻结和作废仍优先返回原警示', async () => {

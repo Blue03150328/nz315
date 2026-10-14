@@ -12,6 +12,7 @@ import { allowRequest } from '../utils/rate-limit'
 import { extractTraceCode } from '#shared/utils/trace-code'
 import { internalTraceCodeOf, isTraceWebsiteUrl } from '#shared/utils/internal-trace-url'
 import { chinaDate, effectiveProduction, isExpired } from '#shared/utils/production-info'
+import { traceQualityDefaults } from '#shared/utils/trace-quality'
 import type { TraceOutcome, TraceResultType } from '#shared/types/trace'
 
 const CODE_RE = /^\d{32}$/
@@ -131,8 +132,9 @@ export default defineEventHandler(async (event) => {
 
   // 生成留档不是已生产；实际采集绑定或工人有效采集的资料才用于正常展示。
   const [productionBatch] = Number(tc.abnormal_flag) === 0 && tc.batch_id ? await query<any[]>('SELECT * FROM batch WHERE id = ? LIMIT 1', [tc.batch_id]) : []
-  const batchInfo = Number(tc.abnormal_flag) === 0
+  const productionInfo = Number(tc.abnormal_flag) === 0
     ? (productionBatch ? effectiveProduction(tc, productionBatch) : await workerTracePreview(Number(tc.id))) : undefined
+  const batchInfo = productionInfo ? traceQualityDefaults(productionInfo) : undefined
   if (!batchInfo && Number(tc.abnormal_flag) === 0) return pendingOutcome()
 
   // 3) 写扫码日志（扫码不改变码状态，仅记录；PRD 5.9 H5 业务规则2）
