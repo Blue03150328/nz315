@@ -37,7 +37,7 @@ export async function createTeamTask(user:AuthUser,body:any){
    if(!Number.isSafeInteger(enterpriseId)||enterpriseId<=0)fail('请选择生产线所属厂家',400)
    const [[enterprise]]=await conn.query<any[]>('SELECT id,status FROM enterprise WHERE id=? FOR UPDATE',[enterpriseId]);if(!enterprise||enterprise.status!==1)fail('厂家不存在或已停用',400)
    const ids=body.operatorIds.length?await members(conn,user,enterpriseId,body.operatorIds):[]
-   const lineKey=createHash('sha256').update(lineName.normalize('NFKC').replace(/\s+/g,' ').toLowerCase()).digest('hex');await conn.execute('INSERT IGNORE INTO production_line_runtime(enterprise_id,line_key,line_name) VALUES(?,?,?)',[enterpriseId,lineKey,lineName]);await conn.query('SELECT line_key FROM production_line_runtime WHERE enterprise_id=? AND line_key=? FOR UPDATE',[enterpriseId,lineKey]);
+   const lineKey=createHash('sha256').update(lineName.normalize('NFKC').replace(/\s+/g,' ').toLowerCase()).digest('hex');await conn.execute('INSERT IGNORE INTO production_line_runtime(enterprise_id,line_key,line_name) VALUES(?,?,?)',[enterpriseId,lineKey,lineName]);const [[line]]=await conn.query<any[]>('SELECT line_key,deleted_at FROM production_line_runtime WHERE enterprise_id=? AND line_key=? FOR UPDATE',[enterpriseId,lineKey]);if(line.deleted_at)fail('生产线已删除，请先在生产线管理重新添加');
    const [[active]]=await conn.query<any[]>("SELECT id FROM production_task WHERE enterprise_id=? AND line_name=? AND workflow='line-team' AND product_id IS NULL AND status='active' FOR UPDATE",[enterpriseId,lineName]);if(active)fail('这条生产线已有进行中任务，工人可直接加入');
    const [created]:any=await conn.execute("INSERT INTO production_task(enterprise_id,product_id,batch_id,name,line_name,request_id,request_hash,created_by,workflow) VALUES(?,NULL,NULL,?,?,?,?,?,'line-team')",[enterpriseId,name,lineName,requestId,hash,user.id])
    await conn.execute('UPDATE production_line_runtime SET current_task_id=? WHERE enterprise_id=? AND line_key=?',[created.insertId,enterpriseId,lineKey]);
@@ -48,6 +48,7 @@ export async function createTeamTask(user:AuthUser,body:any){
   const [[upload]]=await conn.query<any[]>('SELECT * FROM upload_batch WHERE id=?',[sourceId]);teamScope(user,upload)
   const [[p]]=await conn.query<any[]>('SELECT p.*,s.spec_code FROM product p LEFT JOIN product_spec s ON s.id=p.spec_id WHERE p.id=? FOR UPDATE',[upload.product_id]);teamScope(user,p)
   if(Number(p.status)!==1)fail('产品已停用')
+  const [[disabledLine]]=await conn.query<any[]>('SELECT deleted_at FROM production_line_runtime WHERE enterprise_id=? AND line_key=? FOR UPDATE',[p.enterprise_id,createHash('sha256').update(lineName.toLowerCase()).digest('hex')]);if(disabledLine?.deleted_at)fail('生产线已删除，请先在生产线管理重新添加')
   const ids=await members(conn,user,p.enterprise_id,body.operatorIds)
   const [codes]=await conn.query<any[]>('SELECT * FROM trace_code WHERE upload_batch_id=? ORDER BY id LIMIT 100001 FOR UPDATE',[sourceId])
   if(!codes.length||codes.length>100000)fail('入库文件必须包含1至100000个码')

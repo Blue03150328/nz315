@@ -61,6 +61,26 @@ try{
   assert.equal((await req('/api/admin/production-line-management',adminCookie,{enterpriseId:outsider.insertId,lineName:'跨厂线'})).status,404);
   const [[worker]]=await db.query('SELECT role FROM user WHERE id=?',[one.id]);assert.equal(worker.role,'production_operator');
  });
+ await check('单选删除空产线、重复删除幂等，缓存与手输开工都不能复活已删线',async()=>{
+  const added=ok(await req('/api/admin/production-line-management',adminCookie,{lineName:'单选待删除线',supervisorName:'负责人'})),target={enterpriseId:ent,lineKey:added.lineKey};
+  const result=ok(await req('/api/admin/production-line-management',adminCookie,target,'DELETE'));assert.equal(result.deletedCount,1);
+  assert.equal(ok(await req('/api/admin/production-line-management?lineName='+encodeURIComponent('单选待删除线'),adminCookie)).rows.length,0);
+  assert.ok(!ok(await req('/api/device/worker-cache?workflow=line&monitor=1&kind=pools',d1.secret)).rows.some(p=>p.line_name==='单选待删除线'));
+  assert.equal((await req('/api/device/worker-sessions',d1.secret,{...opening(d1,a.id),context:{...context(a.id),lineName:'单选待删除线'}})).status,409);
+  assert.equal((await req('/api/admin/production-lines',adminCookie,{name:'旧入口不能复活',lineName:'单选待删除线',operatorIds:[],requestId:randomUUID()})).status,409);
+  const legacySource=await product(ent,admin.id,7,true);assert.equal((await req('/api/admin/production-lines',adminCookie,{name:'历史文件不能复活',lineName:'单选待删除线',sourceUploadBatchId:legacySource.upload,operatorIds:[one.id],requestId:randomUUID()})).status,409);
+  assert.equal(ok(await req('/api/admin/production-line-management',adminCookie,target,'DELETE')).deletedCount,0);
+  const [[audit]]=await db.query("SELECT COUNT(*) AS n FROM operation_log WHERE enterprise_id=? AND module='生产线管理' AND action='删除' AND JSON_UNQUOTE(JSON_EXTRACT(content,'$.lineName'))='单选待删除线'",[ent]);assert.equal(audit.n,1);
+  ok(await req('/api/admin/production-line-management',adminCookie,{lineName:'单选待删除线',supervisorName:'新负责人'}));assert.equal(ok(await req('/api/admin/production-line-management?lineName='+encodeURIComponent('单选待删除线'),adminCookie)).rows[0].supervisor_name,'新负责人');
+ });
+ await check('批量删除先整批校验，混入进行中或越权产线全部回滚',async()=>{
+  const idle=ok(await req('/api/admin/production-line-management',adminCookie,{lineName:'批量空线'})),live=ok(await req('/api/admin/production-line-management?lineName='+encodeURIComponent('现场一号线'),adminCookie)).rows[0];assert.equal(live.can_delete,false);
+  const target={enterpriseId:ent,lineKey:idle.lineKey};assert.equal((await req('/api/admin/production-line-management',adminCookie,{lines:[target,{enterpriseId:ent,lineKey:live.line_key}]},'DELETE')).status,409);
+  assert.equal(ok(await req('/api/admin/production-line-management?lineName='+encodeURIComponent('批量空线'),adminCookie)).rows.length,1);
+  assert.equal((await req('/api/admin/production-line-management',adminCookie,{lines:[target,{enterpriseId:ent+99999,lineKey:live.line_key}]},'DELETE')).status,404);
+  const viewer=await user('viewer',ent),auth=(await req('/api/auth/login','',{username:viewer.username,password})).cookie;assert.equal((await req('/api/admin/production-line-management',auth,target,'DELETE')).status,403);
+  const another=ok(await req('/api/admin/production-line-management',adminCookie,{lineName:'批量另一条空线'}));const result=ok(await req('/api/admin/production-line-management',adminCookie,{lines:[target,target,{enterpriseId:ent,lineKey:another.lineKey}]},'DELETE'));assert.equal(result.deletedCount,2);
+ });
  await check('后台禁止手动结束，一台结束不能结束全线，缺口不能结束',async()=>{assert.equal((await req('/api/admin/production-lines/'+task,adminCookie,{action:'complete',recordsComplete:true},'PATCH')).status,409);assert.equal((await req('/api/device/worker-sessions/'+s1.sessionId+'/complete',d1.secret,{lastSequence:4})).status,409);await close(d1,s1,3);assert.equal((await status()).status,'active');ok(await heartbeat(d2,s2,'ended',2,{valid:1,duplicate:0,exception:0,pending:1}));assert.equal((await status()).monitor.pendingDevices,1);assert.equal((await status()).status,'active')});
  await check('只有结束收据与完整上传才自动结束，任务重复收据无重复日志',async()=>{assert.equal((await req('/api/device/worker-sessions/'+s2.sessionId+'/complete',d2.secret,{lastSequence:0})).status,409);const [[pb]]=await db.query('SELECT registration_no FROM product WHERE id=?',[b.id]);const codeB='1'+pb.registration_no.slice(-6)+'1001'+'000000000000000001235';ok(await req('/api/device/worker-sessions/'+s2.sessionId+'/events',d2.secret,{events:[event(codeB,1)]}));const final=await close(d2,s2,1);assert.equal(final.taskEnded,true);let row=await status();assert.equal(row.status,'completed');assert.ok(row.ended_at);assert.equal(row.monitor.endedDevices,2);assert.equal(row.monitor.runningDevices,0);await close(d2,s2,1);const [[log]]=await db.query("SELECT COUNT(*) AS n FROM production_task_change WHERE task_id=? AND action='auto_complete'",[task]);assert.equal(log.n,1);assert.equal((await req('/api/device/worker-sessions',d1.secret,{...opening(d1,a.id),context:{...context(a.id),taskId:task}})).status,409)});
  await check('同线第二轮自动建立新任务，删除旧任务只隐藏记录不删除码',async()=>{const next=ok(await req('/api/device/worker-sessions',d1.secret,opening(d1,b.id)));assert.notEqual(next.context.taskId,task);const [[before]]=await db.query('SELECT * FROM trace_code WHERE code=?',[code]);ok(await req('/api/admin/production-tasks/'+task,adminCookie,undefined,'DELETE'));const [[after]]=await db.query('SELECT * FROM trace_code WHERE code=?',[code]);assert.deepEqual(after,before);const notStarted=ok(await req('/api/admin/production-lines?status=not_started&keyword=现场一号线',adminCookie));assert.equal(notStarted.rows.length,1);assert.equal(notStarted.rows[0].display_status,'not_started');assert.equal(notStarted.rows[0].status,'active');assert.equal(ok(await req('/api/admin/production-lines?status=active&keyword=现场一号线',adminCookie)).rows.length,0)});
@@ -81,6 +101,20 @@ try{
   const [[after]]=await db.query('SELECT * FROM trace_code WHERE code=?',[code]);assert.deepEqual(after,before);
   const [[deleted]]=await db.query('SELECT status FROM production_task WHERE id=?',[old.context.taskId]);assert.equal(deleted.status,'deleted');
   const [audit]=await db.query("SELECT action FROM production_task_change WHERE task_id=? AND action IN ('auto_complete','delete') ORDER BY id",[old.context.taskId]);assert.deepEqual(audit.map(r=>r.action),['auto_complete','delete']);
+ });
+ await check('删除已完工历史产线不删除任务、码和采集，重新添加保留原归属',async()=>{
+  const run=opening(d2,a.id);run.context.lineName='完工后删除线';run.context.batchNo='DELETE'+tag;const opened=ok(await req('/api/device/worker-sessions',d2.secret,run));
+  const nextCode=head+'000000000000000001236';ok(await req('/api/device/worker-sessions/'+run.sessionId+'/events',d2.secret,{events:[event(nextCode,1)]}));await close(d2,run,1);
+  const [[taskBefore]]=await db.query('SELECT * FROM production_task WHERE id=?',[opened.context.taskId]),[[codeBefore]]=await db.query('SELECT * FROM trace_code WHERE code=?',[nextCode]),[eventsBefore]=await db.query('SELECT * FROM worker_event WHERE session_id=? ORDER BY sequence_no',[run.sessionId]);
+  const row=ok(await req('/api/admin/production-line-management?lineName='+encodeURIComponent('完工后删除线'),adminCookie)).rows[0];assert.equal(row.can_delete,true);ok(await req('/api/admin/production-line-management',adminCookie,{enterpriseId:ent,lineKey:row.line_key},'DELETE'));
+  assert.equal(ok(await req('/api/admin/production-line-management?lineName='+encodeURIComponent('完工后删除线'),adminCookie)).rows.length,0);assert.ok(!ok(await req('/api/device/worker-cache?workflow=line&monitor=1&kind=pools',d2.secret)).rows.some(p=>p.line_name==='完工后删除线'));
+  const [[taskAfter]]=await db.query('SELECT * FROM production_task WHERE id=?',[opened.context.taskId]),[[codeAfter]]=await db.query('SELECT * FROM trace_code WHERE code=?',[nextCode]),[eventsAfter]=await db.query('SELECT * FROM worker_event WHERE session_id=? ORDER BY sequence_no',[run.sessionId]);assert.deepEqual(taskAfter,taskBefore);assert.deepEqual(codeAfter,codeBefore);assert.deepEqual(eventsAfter,eventsBefore);
+  ok(await req('/api/admin/production-line-management',adminCookie,{lineName:'完工后删除线',supervisorName:'恢复负责人'}));assert.equal(ok(await req('/api/admin/production-line-management?lineName='+encodeURIComponent('完工后删除线'),adminCookie)).rows[0].collected,1);
+ });
+ await check('产线删除与设备新开工竞争同一行锁，至多一个操作成功',async()=>{
+  const added=ok(await req('/api/admin/production-line-management',adminCookie,{lineName:'删除开工竞争线'})),run=opening(d1,b.id);run.context.lineName='删除开工竞争线';
+  const [removed,opened]=await Promise.all([req('/api/admin/production-line-management',adminCookie,{enterpriseId:ent,lineKey:added.lineKey},'DELETE'),req('/api/device/worker-sessions',d1.secret,run)]);
+  assert.ok((removed.status===200&&opened.status===409)||(removed.status===409&&opened.status===200),JSON.stringify({removed,opened}));
  });
  console.log('自动生产任务：'+checks+'组真实数据库/API通过');
 }finally{await db.end()}

@@ -7,6 +7,10 @@ export async function migrateProductionMonitorSchema(db) {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`)
   const [supervisor]=await db.query("SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='production_line_runtime' AND COLUMN_NAME='supervisor_name'")
   if(!supervisor.length)await db.query("ALTER TABLE production_line_runtime ADD COLUMN supervisor_name VARCHAR(100) NOT NULL DEFAULT ''")
+  for(const [name,definition] of [['deleted_at','DATETIME(3) NULL'],['deleted_by','BIGINT NULL']]){
+    const [found]=await db.query("SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='production_line_runtime' AND COLUMN_NAME=?",[name])
+    if(!found.length)await db.query(`ALTER TABLE production_line_runtime ADD COLUMN ${name} ${definition}`)
+  }
   for (const [name, definition] of [
     ['heartbeat_ms','BIGINT NULL'],['report_version','BIGINT NOT NULL DEFAULT 0'],
     ['capture_state',"VARCHAR(20) NULL"],['reported_sequence','BIGINT NULL'],

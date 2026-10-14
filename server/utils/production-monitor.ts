@@ -17,6 +17,7 @@ export async function resolveAutomaticTask(conn:any,device:any,body:any,context:
  const key=sha(name.toLowerCase())
  await conn.execute('INSERT IGNORE INTO production_line_runtime(enterprise_id,line_key,line_name) VALUES(?,?,?)',[device.enterprise_id,key,name])
  const [[line]]=await conn.query('SELECT * FROM production_line_runtime WHERE enterprise_id=? AND line_key=? FOR UPDATE',[device.enterprise_id,key])
+ if(line.deleted_at)fail('生产线已删除，请重新选择；管理员重新添加后才能开工')
  let [[task]]=await conn.query("SELECT * FROM production_task WHERE id=? AND enterprise_id=? AND workflow='line-team' AND product_id IS NULL AND source_upload_id IS NULL AND status='active' FOR UPDATE",[line.current_task_id,device.enterprise_id])
  if(!task){
   const [matches]=await conn.query("SELECT * FROM production_task WHERE enterprise_id=? AND line_name=? AND workflow='line-team' AND product_id IS NULL AND source_upload_id IS NULL AND status='active' ORDER BY id DESC LIMIT 2 FOR UPDATE",[device.enterprise_id,line.line_name])

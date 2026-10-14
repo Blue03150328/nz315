@@ -1,4 +1,4 @@
-import {lockMonitoredTask,completeMonitoredTask} from './production-monitor'
+import {lockMonitoredTask,completeMonitoredTask,lineName as canonicalLineName} from './production-monitor'
 import { lineCache, openLineSession, lineEvent, offlineExportKey } from './line-production'
 import { randomBytes, randomUUID, createHash } from 'node:crypto'
 import type { AuthUser } from './auth'
@@ -67,7 +67,9 @@ export async function workerCache(device:AuthUser,params:any){
   const pools=await query<any[]>("SELECT id,product_id,state FROM worker_pool WHERE device_id=? AND state IN ('ready','active') ORDER BY created_at",[device.device_id])
   const codes=await query<any[]>("SELECT c.pool_id,c.code,c.state,p.product_id FROM worker_pool_code c JOIN worker_pool p ON p.id=c.pool_id WHERE p.device_id=? AND p.state IN ('ready','active') ORDER BY p.id,c.code_id",[device.device_id])
   if(params.workflow==='line'){const line=await lineCache(device);pools.splice(0,pools.length,...line.pools);codes.splice(0,codes.length,...line.codes)}
-  const lines=await query<any[]>("SELECT DISTINCT line_name FROM production_task WHERE enterprise_id=? AND workflow='line-team' AND line_name<>'' AND status<>'deleted' UNION SELECT line_name FROM production_line_runtime WHERE enterprise_id=? ORDER BY line_name",[device.enterprise_id,device.enterprise_id]);
+  const archived=await query<any[]>('SELECT line_name FROM production_line_runtime WHERE enterprise_id=? AND deleted_at IS NOT NULL',[device.enterprise_id]),hiddenNames=new Set(archived.map(l=>canonicalLineName(l.line_name).toLowerCase()));
+  if(params.workflow==='line'){const visible=pools.filter(p=>!hiddenNames.has(canonicalLineName(p.line_name).toLowerCase()));pools.splice(0,pools.length,...visible)}
+  const lines=(await query<any[]>("SELECT DISTINCT line_name FROM production_task WHERE enterprise_id=? AND workflow='line-team' AND line_name<>'' AND status<>'deleted' UNION SELECT line_name FROM production_line_runtime WHERE enterprise_id=? AND deleted_at IS NULL ORDER BY line_name",[device.enterprise_id,device.enterprise_id])).filter(l=>!hiddenNames.has(canonicalLineName(l.line_name).toLowerCase()));
   if(params.workflow==='line'&&params.monitor==='1')for(const line of lines)if(!pools.some(p=>p.line_name===line.line_name&&p.autoLine))pools.push({id:'auto:'+line.line_name,line_name:line.line_name,task_name:line.line_name,task_id:0,autoLine:true});
   snapshot={id:randomUUID(),created_at:Date.now(),expires_at:Date.now()+72*3600000,data_json:{products,pools,codes,stockVersion:params.workflow==='line'?(params.monitor==='1'?3:2):0}}
   await execute('INSERT INTO worker_cache(id,device_id,created_at,expires_at,data_json) VALUES(?,?,?,?,?)',[snapshot.id,device.device_id,snapshot.created_at,snapshot.expires_at,JSON.stringify(snapshot.data_json)])
