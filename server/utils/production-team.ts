@@ -10,10 +10,10 @@ import {teamDisplayStatusSql} from './production-team-status'
 const fail=(message:string,statusCode=409):never=>{throw createError({statusCode,statusMessage:message})}
 export function teamScope(user:AuthUser,row:any){if(!row||(user.role!=='platform_admin'&&Number(user.enterprise_id)!==Number(row.enterprise_id)))fail('记录不存在或不属于本企业',404)}
 async function members(conn:any,user:AuthUser,enterpriseId:number,ids:any){
- if(!Array.isArray(ids)||!ids.length||ids.length>500)fail('请至少选择一名厂长',400)
+ if(!Array.isArray(ids)||!ids.length||ids.length>500)fail('请至少选择一名操作员',400)
  const selected=[...new Set<number>((ids as unknown[]).map(value=>Number(value)))];if(selected.some(n=>!Number.isSafeInteger(n)||n<=0))fail('人员选择无效',400)
  const [rows]=await conn.query('SELECT id FROM user WHERE id IN (?) AND enterprise_id=? AND role=\'production_operator\' AND status=1 FOR UPDATE',[selected,enterpriseId])
- if(rows.length!==selected.length)fail('只能选择本厂启用的厂长账号（生产操作员）',400)
+ if(rows.length!==selected.length)fail('只能选择本厂启用的生产操作员账号',400)
  return selected
 }
 export async function teamOptions(user:AuthUser,keyword=''){
@@ -63,6 +63,7 @@ export async function createTeamTask(user:AuthUser,body:any){
 export async function teamTasks(user:AuthUser,q:any={}){
  const page=Math.max(1,Number(q.page)||1),size=20,conds:string[]=["t.status<>'deleted'"],args:any[]=[]
  if(user.role!=='platform_admin'){conds.push('t.enterprise_id=?');args.push(user.enterprise_id)}
+ if(q.enterpriseId){conds.push('t.enterprise_id=?');args.push(Number(q.enterpriseId))}
  if(q.keyword){conds.push("(t.name LIKE ? OR t.line_name LIKE ? OR u.file_name LIKE ? OR p.name LIKE ? OR p.registration_no LIKE ? OR EXISTS(SELECT 1 FROM production_task_member m JOIN user op ON op.id=m.user_id WHERE m.task_id=t.id AND (op.name LIKE ? OR op.username LIKE ?)) OR EXISTS(SELECT 1 FROM worker_run kr LEFT JOIN product kp ON kp.id=kr.product_id LEFT JOIN production_device kd ON kd.id=kr.device_id JOIN worker_session ks ON ks.run_id=kr.id WHERE kr.task_id=t.id AND (kp.name LIKE ? OR kp.trademark LIKE ? OR kp.registration_no LIKE ? OR JSON_UNQUOTE(JSON_EXTRACT(kr.context_json,'$.batchNo')) LIKE ? OR kd.name LIKE ? OR JSON_UNQUOTE(JSON_EXTRACT(ks.identity_json,'$.name')) LIKE ? OR JSON_UNQUOTE(JSON_EXTRACT(ks.identity_json,'$.username')) LIKE ?)))");args.push(...Array(14).fill('%'+String(q.keyword).trim()+'%'))}
  if(q.lineName){conds.push('t.line_name=?');args.push(String(q.lineName))}
  if(q.status==='history')conds.push("t.workflow<>'line-team'")

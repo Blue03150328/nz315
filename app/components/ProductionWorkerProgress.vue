@@ -19,8 +19,7 @@ onDeactivated(()=>{clearInterval(timer);timer=undefined})
 onBeforeUnmount(()=>clearInterval(timer))
 </script>
 <template><div class="space-y-4">
- <div class="flex flex-wrap items-center gap-3 justify-between"><h3 class="font-semibold">设备与员工进度 · {{ data?.task?.lineName }}</h3><UButton variant="outline" :loading="pending" @click="refresh()">刷新</UButton></div>
- <div class="flex flex-wrap gap-4"><span v-for="(label,key) in {runningDevices:'运行',pausedDevices:'暂停',offlineDevices:'离线',pendingDevices:'待同步',endedDevices:'已结束'}" :key="key">{{ label }} <strong>{{ data?.monitor?.[key]||0 }}</strong></span></div>
+ <div class="flex flex-wrap items-center gap-3 justify-between"><h3 class="font-semibold">员工扫码情况 · {{ data?.task?.lineName }}</h3><UButton variant="outline" :loading="pending" @click="refresh()">刷新</UButton></div>
  <div class="flex gap-3"><UInput v-model="keyword" placeholder="查询工号、姓名、设备、产品或批号" class="min-w-80"/><UButton v-if="userId" variant="outline" @click="userId=0">全部员工</UButton></div>
  <p class="text-sm text-muted">一行对应一名工人的一次采集，码数只统计服务器已确认的记录。</p>
  <p v-if="error" class="text-error">加载失败，请重试。</p>

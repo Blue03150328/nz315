@@ -5,6 +5,8 @@ export async function migrateProductionMonitorSchema(db) {
     current_task_id BIGINT NULL,created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     PRIMARY KEY(enterprise_id,line_key),KEY idx_line_task(current_task_id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`)
+  const [supervisor]=await db.query("SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='production_line_runtime' AND COLUMN_NAME='supervisor_name'")
+  if(!supervisor.length)await db.query("ALTER TABLE production_line_runtime ADD COLUMN supervisor_name VARCHAR(100) NOT NULL DEFAULT ''")
   for (const [name, definition] of [
     ['heartbeat_ms','BIGINT NULL'],['report_version','BIGINT NOT NULL DEFAULT 0'],
     ['capture_state',"VARCHAR(20) NULL"],['reported_sequence','BIGINT NULL'],
