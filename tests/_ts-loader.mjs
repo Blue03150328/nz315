@@ -5,6 +5,7 @@ import fs from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
 export async function resolve(specifier, context, next) {
+  if (specifier.startsWith('#scripts/')) return { url: new URL('../scripts/' + specifier.slice('#scripts/'.length), import.meta.url).href, shortCircuit: true }
   if (specifier.startsWith('#shared/')) {
     const url = new URL('../shared/' + specifier.slice('#shared/'.length) + '.ts', import.meta.url)
     if (fs.existsSync(fileURLToPath(url))) return { url: url.href, shortCircuit: true }

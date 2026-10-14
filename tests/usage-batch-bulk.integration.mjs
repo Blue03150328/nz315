@@ -149,6 +149,22 @@ try {
     await assert.rejects(() => ext.exportExternalSelection(viewer, { ...preview, format: 'txt' }), /重新预览/)
     await assert.rejects(() => ext.previewExternalExport(viewer, { ids: [id] }), /尚未完成/)
   })
+  let workerUsage, stockProduct
+  await check('工人上传无旧会话时按设备产线快照和本次产品筛选，批量冻结恢复可用', async () => {
+    const [product] = await db.execute("INSERT INTO product(enterprise_id,name,registration_no,spec_id,status) SELECT enterprise_id,'库存产品','PD20999888',spec_id,1 FROM product WHERE id=?", [a.product])
+    stockProduct = Number(product.insertId)
+    workerUsage = await batch(a)
+    const run = randomUUID(), session = randomUUID()
+    await db.execute("INSERT INTO worker_run(id,device_id,enterprise_id,product_id,mode,context_json,context_hash,state,device_snapshot) VALUES (?,1,?,?,'internal','{}',?,'ended',?)", [run, a.enterprise, stockProduct, '0'.repeat(64), JSON.stringify({ lineName: '工人上传产线' })])
+    await db.execute("INSERT INTO worker_session(id,run_id,device_id,user_id,grant_id,identity_json,state) VALUES (?,?,1,?,?,'{}','ended')", [session, run, admin.id, randomUUID()])
+    await db.execute("UPDATE production_collection_upload u JOIN code_usage_batch cb ON cb.upload_id=u.id SET u.session_id=NULL,u.worker_session_id=?,u.source_kind='worker',u.device_name_snapshot='工人设备',cb.product_id=?,cb.production_snapshot=? WHERE cb.id=?", [session, stockProduct, JSON.stringify({ batch_no: 'WORK001', produce_date: '2026-10-13' }), workerUsage.id])
+    const selection = { all: true, filters: { productId: stockProduct, lineName: '工人上传产线', deviceName: '工人设备', batchNo: 'WORK001' } }
+    let preview = await bulk.previewUsageSelection(admin, selection)
+    assert.equal(preview.batchCount, 1); assert.equal(preview.codeTotal, 1)
+    assert.equal((await bulk.flagUsageSelection(admin, { ...preview, flag: 1 })).affected, 1)
+    preview = await bulk.previewUsageSelection(admin, selection)
+    assert.equal((await bulk.flagUsageSelection(admin, { ...preview, flag: 0 })).affected, 1)
+  })
   if (process.env.NZ315_TEST_BUILD_DIR) {
     const dir = path.resolve(process.env.NZ315_TEST_BUILD_DIR), port = 3194, base = 'http://127.0.0.1:' + port
     const output = fs.createWriteStream(path.join(logdir, 'server.log'))
@@ -161,6 +177,11 @@ try {
       assert.equal((await request('/api/admin/codes/usage-batches/preview', '', { selection: { ids: [first.id] } })).status, 401)
       const list = JSON.parse((await request('/api/admin/codes/usage-batches?pageSize=20', ac)).data)
       assert.equal(list.rows.length, 20); assert.ok(list.total > 20); assert.ok(list.rows.every(row => row.lineName && row.deviceName)); assert.deepEqual(list.selectionFilters, {})
+      const worker = JSON.parse((await request('/api/admin/codes/usage-batches?productId=' + stockProduct, ac)).data)
+      assert.equal(worker.total, 1); assert.equal(worker.rows[0].id, workerUsage.id)
+      assert.equal(worker.rows[0].productName, '库存产品'); assert.equal(worker.rows[0].lineName, '工人上传产线')
+      assert.equal(worker.rows[0].deviceName, '工人设备'); assert.equal(worker.rows[0].batchNo, 'WORK001')
+      assert.equal(worker.rows[0].produceDate, '2026-10-13')
       const preview = JSON.parse((await request('/api/admin/codes/usage-batches/preview', vc, { selection: { all: true, filters: {} } })).data)
       assert.equal((await request('/api/admin/codes/usage-batches/flag', vc, { ...preview, flag: 0 })).status, 403)
       assert.equal((await request('/api/admin/codes/usage-batches/export', vc, { ...preview, format: 'txt' })).status, 200)
