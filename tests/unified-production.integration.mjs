@@ -83,6 +83,16 @@ try{
   const payload=JSON.stringify(data),content='NZ315-PRODUCTION-RECORDS/1\n'+JSON.stringify({payload,signature:createHmac('sha256',a.grant.exportKey).update(payload).digest('hex')})+'\n'
   ok(await req('/api/admin/production-records/import',cookie,{content,fileName:'unified-offline.txt'}));assert.equal(JSON.stringify((await db.query('SELECT * FROM worker_event WHERE session_id=? ORDER BY sequence_no',[left.sessionId]))[0]),before)
  })
+ await check('仅外码有效采集也启动生产状态，重复与异常不冒充已开工',async()=>{
+  const next=await open(a,{...context,batchNo:'EXTERNAL-ONLY-'+tag}),nextTask=next.context.taskId
+  assert.notEqual(nextTask,task)
+  ok(await req('/api/device/worker-sessions/'+next.sessionId+'/events',a.secret,{events:[event(foreign,1)]}))
+  let rows=ok(await req('/api/admin/production-lines',cookie)).rows,row=rows.find(r=>r.id===nextTask);assert.equal(row.display_status,'not_started');assert.equal(row.collected,0)
+  ok(await req('/api/device/worker-sessions/'+next.sessionId+'/events',a.secret,{events:[event('https://label.example/external-only?id='+tag,2)]}))
+  rows=ok(await req('/api/admin/production-lines',cookie)).rows;row=rows.find(r=>r.id===nextTask);assert.equal(row.display_status,'active');assert.equal(row.internal_count,0);assert.equal(row.external_count,1);assert.equal(row.collected,1)
+  assert.ok(ok(await req('/api/admin/production-lines?status=active',cookie)).rows.some(r=>r.id===nextTask))
+  ok(await req('/api/device/worker-sessions/'+next.sessionId+'/complete',a.secret,{lastSequence:2}));ok(await req('/api/device/worker-runs/'+next.runId+'/complete',a.secret,{sessions:[{id:next.sessionId,lastSequence:2}]}))
+ })
  fs.mkdirSync('.tools',{recursive:true});fs.writeFileSync('.tools/ui-private.json',JSON.stringify({cookie,username:admin.username,password,product:product.insertId,task}))
  console.log('统一生产：'+checks+'组真实隔离SQL/HTTP通过')
 }finally{await db.end()}
