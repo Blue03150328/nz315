@@ -5,7 +5,7 @@ import type { AuthUser } from './auth'
 import { query } from './db'
 import { transaction } from './production-task'
 import { requireUsageBatchSchema } from './usage-batch-schema'
-import { usageBatchFilter, usageFrom } from './usage-batch-list'
+import { usageBatchFilter, usageFrom, usageBatchNo, usageProduceDate } from './usage-batch-list'
 
 const fail = (statusMessage: string, statusCode = 400): never => { throw createError({ statusCode, statusMessage }) }
 export function usageSelection(input: any) {
@@ -87,13 +87,13 @@ export async function exportUsageSelection(user: AuthUser, body: any) {
   const csv = (value: unknown) => '"' + String(value ?? '').replaceAll('"', '""') + '"'
   const typeLabel: Record<string, string> = { '1': '持有人生产', '2': '委托加工', '3': '委托分装' }
   async function* chunks() {
-    yield body.format === 'csv' ? '\uFEFFsn,农药名称,登记证号,生产企业,生产类型,规格码,生成时间,绑定状态,登记类别,登记证后6位,自定义段,上传批次\r\n' : '\uFEFF'
+    yield body.format === 'csv' ? '\uFEFFsn,农药名称,登记证号,生产企业,生产类型,规格码,生成时间,绑定状态,登记类别,登记证后6位,自定义段,上传批次,生产日期,生产批号\r\n' : '\uFEFF'
     for (const batch of selected.rows) {
       let cursor = 0
       while (true) {
-        const rows = await query<any[]>(`SELECT c.id,c.code,c.status,ub.created_at,p.name,p.registration_no,e.name AS company_name FROM trace_code c JOIN product p ON p.id=c.product_id JOIN enterprise e ON e.id=c.enterprise_id JOIN upload_batch ub ON ub.id=c.upload_batch_id WHERE c.usage_batch_id=? AND c.upload_batch_id=? AND c.enterprise_id=? AND c.id>? ORDER BY c.id LIMIT 5000`, [batch.id, batch.parent_upload_batch_id, batch.enterprise_id, cursor])
+        const rows = await query<any[]>(`SELECT c.id,c.code,c.status,ub.created_at,p.name,p.registration_no,e.name AS company_name,${usageBatchNo} AS batch_no,${usageProduceDate} AS produce_date FROM trace_code c JOIN product p ON p.id=c.product_id JOIN enterprise e ON e.id=c.enterprise_id JOIN upload_batch ub ON ub.id=c.upload_batch_id JOIN code_usage_batch cb ON cb.id=c.usage_batch_id JOIN production_task t ON t.id=cb.task_id LEFT JOIN batch b ON b.id=t.batch_id WHERE c.usage_batch_id=? AND c.upload_batch_id=? AND c.enterprise_id=? AND c.id>? ORDER BY c.id LIMIT 5000`, [batch.id, batch.parent_upload_batch_id, batch.enterprise_id, cursor])
         if (!rows.length) break
-        yield rows.map(row => body.format === 'csv' ? [row.code, csv(row.name), csv(row.registration_no), csv(row.company_name), csv(typeLabel[row.code.slice(7, 8)] || ''), csv(row.code.slice(8, 11)), csv(String(row.created_at).slice(0, 19)), Number(row.status) === 2 ? '已绑定' : '未绑定', row.code.slice(0, 1), row.code.slice(1, 7), row.code.slice(11), batch.id].join(',') : body.format === 'urls' ? base + row.code : row.code).join('\r\n') + '\r\n'
+        yield rows.map(row => body.format === 'csv' ? [row.code, csv(row.name), csv(row.registration_no), csv(row.company_name), csv(typeLabel[row.code.slice(7, 8)] || ''), csv(row.code.slice(8, 11)), csv(String(row.created_at).slice(0, 19)), Number(row.status) === 2 ? '已绑定' : '未绑定', row.code.slice(0, 1), row.code.slice(1, 7), row.code.slice(11), batch.id, csv(String(row.produce_date ?? '').slice(0, 10)), csv(row.batch_no)].join(',') : body.format === 'urls' ? base + row.code : row.code).join('\r\n') + '\r\n'
         cursor = Number(rows.at(-1).id)
       }
     }

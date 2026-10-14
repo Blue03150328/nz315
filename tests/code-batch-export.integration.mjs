@@ -145,7 +145,7 @@ try {
     assert.match(String(r.headers.get('content-type')), /text\/csv/)
     const lines = r.text.replace(/^\uFEFF/, '').split('\r\n').filter(Boolean)
     assert.equal(lines.length, 1 + 5, '表头 1 行 + 数据 5 行')
-    assert.equal(lines[0], 'sn,农药名称,登记证号,生产企业,生产类型,规格码,生成时间,绑定状态,登记类别,登记证后6位,自定义段')
+    assert.equal(lines[0], 'sn,农药名称,登记证号,生产企业,生产类型,规格码,生成时间,绑定状态,登记类别,登记证后6位,自定义段,生产日期,生产批号')
     assert.equal(lines[1].split(',')[0], stockedCodes[0])
     assert.match(lines[1], /持有人生产/, '生产类型应由码第 8 位推得')
     assert.ok(lines[1].includes(',"001",'), '规格码列应取码第 9-11 位')

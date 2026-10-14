@@ -15,6 +15,8 @@ test('逐行导出不接受空文、换行、零字符和超过8192字节', () =
 test('CSV双引号与逗号按一列引用，原文不加入单引号', () => {
   assert.equal(externalCsvRow('https://x.invalid/?id=001,"abc"'), '"https://x.invalid/?id=001,""abc"""\r\n')
   assert.equal(externalCsvRow('=001'), '"=001"\r\n')
+  assert.equal(externalCsvRow('000123', '2026-10-14', '001,"甲"'), '"000123","2026-10-14","001,""甲"""\r\n')
+  assert.equal(externalCsvRow('000123', null, undefined), '"000123","",""\r\n')
 })
 test('采集UUID、工号和序号边界明确', () => {
   assert.equal(externalCollectionId(id.toUpperCase()), id)
