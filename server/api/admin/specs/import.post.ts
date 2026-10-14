@@ -64,7 +64,7 @@ export default defineEventHandler(async (event) => {
     if (excelRow === 1 && HEADER_RE.test(raw)) continue // 表头行（首行「规格」等）
     const parsed = parseSpecification(raw)
     if (!parsed) {
-      errors.push({ row: excelRow, value: raw, reason: '格式无法识别：如500毫升/瓶×10或500ml/瓶✖10，数量须为1～999999整数；单件可省略数量' })
+      errors.push({ row: excelRow, value: raw, reason: '格式无法识别：如500毫升×10瓶，兼容500ml/瓶✖10；数量须为1～999999整数' })
       continue
     }
     if (seen.has(parsed.name)) {
@@ -83,17 +83,9 @@ export default defineEventHandler(async (event) => {
 
   // 库内名称查重（一次取全，避免逐行查询）；注意：query() 返回行数组本身，勿用数组解构（AGENTS 踩坑）
   const dupMap = new Map<string, number>()
-  const checkDups = async (names: string[]) => {
-    const ph = names.map(() => '?').join(',')
-    const dups = await query<any[]>(
-      'SELECT spec_name FROM product_spec WHERE enterprise_id = ? AND spec_name IN (' + ph + ')',
-      [fid, ...names])
-    dups.forEach((d: any) => dupMap.set(String(d.spec_name), 1))
-  }
-  // 所有规模统一分块查询，每批最多500个名称。
-  for (let offset = 0; offset < okRows.length; offset += 500) {
-    await checkDups(okRows.slice(offset, offset + 500).map(r => r.name))
-  }
+  // 同企业至多999个规格码，新旧标准名称归一查重，自定义名称保持原文。
+  const dups = await query<any[]>('SELECT spec_name FROM product_spec WHERE enterprise_id = ?', [fid])
+  dups.forEach((d: any) => dupMap.set(parseSpecification(String(d.spec_name))?.name || String(d.spec_name), 1))
   const finalOk: typeof okRows = []
   for (const r of okRows) {
     if (dupMap.has(r.name)) {
@@ -113,7 +105,7 @@ export default defineEventHandler(async (event) => {
     await conn.beginTransaction()
     await lockSpecEnterprise(conn, fid as number)
     const [currentRows] = await conn.query<any[]>('SELECT spec_name FROM product_spec WHERE enterprise_id = ?', [fid])
-    const currentNames = new Set(currentRows.map(row => String(row.spec_name)))
+    const currentNames = new Set(currentRows.map(row => parseSpecification(String(row.spec_name))?.name || String(row.spec_name)))
     const insertedRows = finalOk.filter(row => {
       if (!currentNames.has(row.name)) return true
       errors.push({ row: row.row, value: row.raw, reason: '该规格名称已存在' })

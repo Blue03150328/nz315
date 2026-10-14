@@ -12,15 +12,11 @@ import { requireBackendUser } from '../../../utils/auth'
 import { usageBatchSchemaAvailable } from '../../../utils/usage-batch-schema'
 import { taskProduction } from '../../../utils/task-production'
 import { uploadCorrectionBlock } from '../../../utils/upload-correction-rules'
+import { usageBatchFilter, usageFrom, usageBeijing as beijing, usageBatchNo as batchNoExpr, usageProduceDate as produceDateExpr, usageLine } from '../../../utils/usage-batch-list'
 
 const DEFAULT_PAGE_SIZE = 20
 
 // 数据库会话时区保存的 NOW() 收据换算为北京时间（与全库口径一致：见 code-batch-usage.ts）。
-const beijing = (field: string) => `DATE_FORMAT(TIMESTAMPADD(SECOND,28800-TIMESTAMPDIFF(SECOND,UTC_TIMESTAMP(),NOW()),${field}),'%Y-%m-%d %H:%i:%s')`
-// 生产资料优先取本次上传快照，历史记录回退任务及共享业务批次；混合值不冒用其他记录。
-const productionExpr = (field: string) => `CASE WHEN JSON_CONTAINS(cb.production_snapshot,JSON_QUOTE('${field}'),'$.mixed_fields') THEN NULL ELSE COALESCE(NULLIF(JSON_UNQUOTE(JSON_EXTRACT(cb.production_snapshot,'$.${field}')),'null'),NULLIF(JSON_UNQUOTE(JSON_EXTRACT(t.production_snapshot,'$.${field}')),'null'),b.${field}) END`
-const batchNoExpr = productionExpr('batch_no')
-const produceDateExpr = productionExpr('produce_date')
 
 // 汇总判定：全部作废 > 部分作废 > 全部冻结 > 部分冻结 > 正常
 function summaryOf(total: number, frozen: number, voided: number) {
@@ -50,29 +46,9 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  const conds: string[] = ["u.state = 'completed'"]
-  const params: any[] = []
-  if (user.role !== 'platform_admin') { conds.push('ub.enterprise_id = ?'); params.push(user.enterprise_id) }
-  // 筛选：关联产品 / 生产批号 / 上传来源 / 上传时间范围
-  if (q.productId) { conds.push('COALESCE(cb.product_id,t.product_id) = ?'); params.push(Number(q.productId)) }
-  if (q.batchNo) { conds.push(`${batchNoExpr} LIKE ?`); params.push('%' + String(q.batchNo).trim().slice(0, 64) + '%') }
-  if (q.uploader) {
-    conds.push("COALESCE(NULLIF(u.uploader_username,''),NULLIF(u.uploader_name,''),NULLIF(s.device,'')) LIKE ?")
-    params.push('%' + String(q.uploader).trim().slice(0, 64) + '%')
-  }
-  if (q.dateFrom) { conds.push(`${beijing('u.completed_at')} >= ?`); params.push(String(q.dateFrom) + ' 00:00:00') }
-  if (q.dateTo) { conds.push(`${beijing('u.completed_at')} <= ?`); params.push(String(q.dateTo) + ' 23:59:59') }
-  // 保留指定总批次的筛选能力（接口兼容；码库界面不再按总批次呈现）
-  if (q.uploadBatchId) { conds.push('cb.parent_upload_batch_id = ?'); params.push(Number(q.uploadBatchId)) }
-
-  const FROM = `FROM code_usage_batch cb
-    JOIN production_collection_upload u ON u.id = cb.upload_id AND u.state = 'completed'
-    JOIN production_task t ON t.id = cb.task_id
-    LEFT JOIN batch b ON b.id = t.batch_id
-    LEFT JOIN product p ON p.id = COALESCE(cb.product_id,t.product_id)
-    LEFT JOIN upload_batch ub ON ub.id = cb.parent_upload_batch_id
-    LEFT JOIN production_collection_session s ON s.id = u.session_id`
-  const whereSql = 'WHERE ' + conds.join(' AND ')
+  const { sql, params, filters: selectionFilters } = usageBatchFilter(user, q)
+  const FROM = usageFrom
+  const whereSql = 'WHERE ' + sql
 
   const [cntRow] = await query<any[]>('SELECT COUNT(*) AS c ' + FROM + ' ' + whereSql, params)
   // 先取当前页上传批次，再汇总这些批次的码，避免每次刷新扫描全库。
@@ -86,7 +62,7 @@ export default defineEventHandler(async (event) => {
        p.name AS product_name,
        ${batchNoExpr} AS batch_no, ${produceDateExpr} AS produce_date,
        ${beijing('u.completed_at')} AS completed_at,
-       u.uploader_id, u.uploader_username, u.uploader_name, COALESCE(u.device_name_snapshot,s.device) AS device_name,
+       u.uploader_id, u.uploader_username, u.uploader_name, COALESCE(u.device_name_snapshot,s.device) AS device_name, ${usageLine} AS line_name,
        t.created_by AS task_created_by,t.status AS task_status,t.ended_at,u.state AS upload_state,u.source_kind,s.state AS legacy_session_state,
        ws.state AS worker_session_state,ws.last_sequence,ws.final_sequence,wr.state AS run_state,
        COUNT(c.id) AS code_total,
@@ -106,7 +82,7 @@ export default defineEventHandler(async (event) => {
      GROUP BY cb.id, cb.parent_upload_batch_id, cb.upload_id, cb.task_id, cb.spec_name_snapshot,
        t.name, t.product_id, t.production_snapshot, cb.product_id,cb.production_snapshot,p.name,
        b.batch_no, b.produce_date, u.completed_at,
-       u.uploader_id, u.uploader_username, u.uploader_name, s.device,u.device_name_snapshot,
+       u.uploader_id, u.uploader_username, u.uploader_name, s.device,u.device_name_snapshot,s.line_snapshot,t.line_name,wr.device_snapshot,
        t.created_by,t.status,t.ended_at,u.state,u.source_kind,s.state,ws.state,ws.last_sequence,ws.final_sequence,wr.state
      ORDER BY cb.id DESC`, ids) : []
 
@@ -115,6 +91,7 @@ export default defineEventHandler(async (event) => {
     page,
     pageSize,
     productionRecordsAvailable: true,
+    selectionFilters,
     unavailableReason: null,
     rows: rows.map((r: any) => {
       // 生产日期/批号使用本次上传快照，历史记录兼容任务与业务批次。
@@ -150,6 +127,7 @@ export default defineEventHandler(async (event) => {
         uploaderUsername,
         uploaderName,
         deviceName,
+        lineName: text(r.line_name),
         uploadSource: uploaderUsername || uploaderName || deviceName || '上传账号未记录',
         // 可冻结数（作废为终态，不计入）
         flagableCount: Math.max(0, codeTotal - voidedCount),

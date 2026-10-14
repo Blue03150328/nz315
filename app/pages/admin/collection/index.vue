@@ -7,7 +7,7 @@ import type { CodeImportForm } from '#shared/types/code-import'
 const { canWrite } = useUser()
 
 definePageMeta({ layout: 'admin', middleware: 'backend-guard', keepalive: true })
-useHead({ title: '生产采集' })
+useHead({ title: '追溯码离线上传' })
 
 const toast = useToast()
 const fileName = ref('')
@@ -107,10 +107,13 @@ const resetPage = () => {
     <!-- 页面标题区 -->
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="b-page-title">生产采集</h1>
+        <h1 class="b-page-title">追溯码离线上传</h1>
         <p class="b-page-desc">上传码文件或扫码链接清单（TXT/CSV）→ 校验 → 填写批次三要素导入（自动建档/匹配，码置「已绑定」）</p>
       </div>
-      <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetPage">重置</UButton>
+      <div class="flex flex-wrap gap-2">
+        <UButton to="/admin/generator" variant="outline" color="neutral" icon="i-lucide-arrow-left">返回追溯码生成</UButton>
+        <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetPage">重置</UButton>
+      </div>
     </div>
 
     <OfflineProductionImport v-if="canWrite" />

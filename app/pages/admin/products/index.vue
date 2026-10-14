@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { formatProductName } from '#shared/utils/product-name'
+import { formatSpecification } from '#shared/utils/specification'
 // 产品管理（PRD 5.4：SKU 化，规格来自主数据下拉选择）
 // 迭代史：登记数据源自动回填（默认值可编辑）→ 原药双通道组合框 → 2026-09-04：
 //   ① 归属企业选择器：无论生产类型都展示完整厂家列表 + 可输入搜索（EnterprisePicker）
@@ -107,9 +109,15 @@ const categoryOptions = computed(() => {
 })
 
 const selectedSpec = computed(() => (specData.value?.rows || []).find((s: any) => Number(s.id) === Number(form.specId)))
+const pesticideName = ref('')
+const autoProductName = ref(false)
+const generatedProductName = computed(() => formatProductName({ name: pesticideName.value, content: form.content, dosage: form.dosage, trademark: form.trademark, spec: selectedSpec.value }))
+watch(generatedProductName, value => { if (autoProductName.value) form.name = value })
+const applyProductName = () => { autoProductName.value = true; form.name = generatedProductName.value }
 
 /** 清空「登记数据源回填」字段并重置原药行（产品被清除/切换生产类型被过滤后调用） */
 function clearRegFields() {
+  pesticideName.value = ''
   Object.assign(form, {
     name: '', registrationNo: '', registrationExpire: '', regCategory: 1, holderName: '',
     dosage: '', toxicity: '低毒', content: '', category: '杀虫剂',
@@ -125,12 +133,9 @@ function clearRegFields() {
 async function onRegSelected(row: any) {
   pickedReg.value = row
   const productName = String(row.product_name || '').trim()
-  const content = String(row.content || '').trim()
-  const dosage = String(row.dosage || '').trim()
-  // 按“含量＋农药名称＋剂型”回填，数据源名称已有相同前后缀时避免重复。
-  const nameWithContent = content && !productName.startsWith(content) ? content + productName : productName
+  pesticideName.value = productName
+  autoProductName.value = true
   Object.assign(form, {
-    name: productName ? nameWithContent + (dosage && !nameWithContent.endsWith(dosage) ? dosage : '') : '',
     registrationNo: row.registration_no || '',
     registrationExpire: row.expire_date ? String(row.expire_date).slice(0, 10) : '',
     regCategory: Number(row.reg_category ?? 1),
@@ -140,6 +145,7 @@ async function onRegSelected(row: any) {
     content: row.content || '',
     category: row.category || '杀虫剂',
   })
+  form.name = generatedProductName.value
   await initOrigRows(row)
 }
 
@@ -227,6 +233,8 @@ function onCompanyChange() {
 }
 
 const openCreate = async () => {
+  autoProductName.value = false
+  pesticideName.value = ''
   editingId.value = null
   Object.assign(form, {
     trademark: '', name: '', registrationNo: '', registrationExpire: '', regCategory: 1, holderName: '',
@@ -246,6 +254,14 @@ const openCreate = async () => {
 }
 
 const openEdit = (row: any) => {
+  autoProductName.value = false
+  // 编辑旧产品时保留原保存名称；用户主动按字段生成后才应用新口径。
+  pesticideName.value = String(row.name || '').replace(/^[（(][^）)]+[）)]/, '').trim()
+  const spec = (specData.value?.rows || []).find((item: any) => Number(item.id) === Number(row.spec_id))
+  for (const suffix of [row.spec_name, spec ? formatSpecification(spec.net_content, spec.content_unit, spec.pack_unit, spec.pack_quantity ?? 1) : '', row.dosage]) {
+    if (suffix && pesticideName.value.endsWith(suffix)) pesticideName.value = pesticideName.value.slice(0, -String(suffix).length).trim()
+  }
+  if (row.content && pesticideName.value.startsWith(row.content)) pesticideName.value = pesticideName.value.slice(String(row.content).length)
   editingId.value = row.id
   // 编辑沿用产品原归属，清除上次新增弹窗的厂家选择，避免登记候选串用其他企业。
   enterpriseId.value = Number(row.enterprise_id) || null
@@ -501,7 +517,8 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
               <div class="grid grid-cols-2 gap-3">
                 <div>
                   <label class="b-label">农药名称 <span class="b-required">*</span></label>
-                  <UInput v-model="form.name" placeholder="自动带出含量、农药名称和剂型，可修改" />
+                  <UInput v-model="form.name" placeholder="按商标、含量、农药名称、剂型和规格生成，可修改" class="w-full" @update:model-value="autoProductName = false" />
+                  <UButton type="button" variant="link" size="xs" :disabled="!generatedProductName" @click="applyProductName">按字段生成名称</UButton>
                 </div>
                 <div>
                   <label class="b-label">登记证号 <span class="b-required">*</span></label>
@@ -568,7 +585,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                   :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
                 />
                 <p v-if="selectedSpec" class="b-help">
-                  规格：{{ selectedSpec.net_content ?? '-' }} {{ selectedSpec.content_unit }} / {{ selectedSpec.pack_unit }}<template v-if="Number(selectedSpec.pack_quantity ?? 1) > 1"> × {{ selectedSpec.pack_quantity }}</template>（自动带出）
+                  规格：{{ formatSpecification(selectedSpec.net_content, selectedSpec.content_unit, selectedSpec.pack_unit, selectedSpec.pack_quantity ?? 1) || selectedSpec.spec_name }}（自动带出）
                 </p>
               </div>
             </div>

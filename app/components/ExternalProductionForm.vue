@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { productWithSpec } from '#shared/utils/product-name'
 const props = defineProps<{ batch: any }>()
 const open = defineModel<boolean>('open', { default: false })
 const emit = defineEmits<{ saved: [] }>()
@@ -10,7 +11,7 @@ const productSearch = ref(''), productRows = ref<any[]>([]), productsLoading = r
 const productLabels = reactive(new Map<string, string>())
 let productRequest = 0
 const productItems = computed(() => {
-  const items = productRows.value.map(row => ({ value: String(row.id), label: `${row.name} · ${row.spec_name || '规格未填写'}（${row.registration_no}）` }))
+  const items = productRows.value.map(row => ({ value: String(row.id), label: `${productWithSpec(row)}（${row.registration_no}）` }))
   if (form.productId && !items.some(row => row.value === form.productId)) items.unshift({ value: form.productId, label: productLabels.get(form.productId) || '已选产品' })
   return items
 })
@@ -23,7 +24,7 @@ async function loadProducts() {
     const result = await $fetch<any>('/api/admin/products', { query: { enterpriseId: props.batch.enterprise_id, keyword: productSearch.value || undefined, status: 1, pageSize: 30 } })
     if (request === productRequest && open.value) {
       productRows.value = result.rows || []
-      for (const row of productRows.value) productLabels.set(String(row.id), `${row.name} · ${row.spec_name || '规格未填写'}（${row.registration_no}）`)
+      for (const row of productRows.value) productLabels.set(String(row.id), `${productWithSpec(row)}（${row.registration_no}）`)
     }
   } catch (error: any) {
     if (request === productRequest) productsError.value = error?.data?.statusMessage || '产品加载失败，请重试'

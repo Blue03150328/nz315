@@ -13,12 +13,14 @@ export function formatSpecification(netContent: unknown, contentUnit: string, pa
   const net = Number(netContent)
   const quantity = Number(packQuantity)
   if (!Number.isFinite(net) || net <= 0 || !contentUnit || !packUnit || !Number.isInteger(quantity) || quantity < 1 || quantity > MAX_PACK_QUANTITY) return ''
-  return `${net}${contentUnit}/${packUnit}${quantity > 1 ? '×' + quantity : ''}`
+  return `${net}${contentUnit}×${quantity}${packUnit}`
 }
 
 /** 兼容旧单件规格及新增成组规格；英文单位和乘号别名在导入时统一为中文及×。 */
 export function parseSpecification(value: string) {
-  const match = value.replace(/\s/g, '').match(/^(\d{1,9}(?:\.\d{1,3})?)(毫升|升|千克|克|片|包|粒|ml|kg|g|l)\/(瓶|袋|桶|盒|罐|支|箱)(?:[×✖x*](\d+))?$/i)
+  const normalized = value.replace(/\s/g, '')
+    .replace(/^(.+?)[×✖x*](\d+)(瓶|袋|桶|盒|罐|支|箱)$/i, '$1/$3×$2')
+  const match = normalized.match(/^(\d{1,9}(?:\.\d{1,3})?)(毫升|升|千克|克|片|包|粒|ml|kg|g|l)\/(瓶|袋|桶|盒|罐|支|箱)(?:[×✖x*](\d+))?$/i)
   if (!match) return null
   const net = Number(match[1])
   const quantity = match[4] === undefined ? 1 : Number(match[4])

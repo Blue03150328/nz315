@@ -183,6 +183,10 @@ body {
   .b-table tbody tr { background: #fff; border-bottom: 1px solid var(--b-divider); transition: background-color 0.15s; }
   .b-table tbody tr:hover { background: var(--b-fill); }
   .b-table tbody tr.is-selected { background: var(--b-fill); }
+  /* 码库网格表：横竖边线共用同一令牌，字段边界在滚动和多行文字下仍清晰。 */
+  .b-table-grid { border-collapse: collapse; }
+  .b-table-grid th, .b-table-grid td { border: 1px solid var(--b-divider-strong); }
+  .b-table-grid thead th { background: var(--b-fill); }
   .b-strong { color: var(--b-text-strong); }
   .b-scroll-x { overflow-x: auto; }
 

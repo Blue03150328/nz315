@@ -56,7 +56,11 @@ function owner(user: AuthUser, row: any) {
   if (row.state === 'active' && row.line_name_snapshot !== user.device_line) externalFail('本批生产线与设备当前归属不一致，请联系管理员恢复设备归属', 409)
 }
 
-const startResult = (row: any) => ({ ok: true, batch: externalBatchRow(row), batchId: row.id, lastSequence: Number(row.last_sequence), state: row.state, lineName: row.line_name_snapshot, workerNo: row.worker_no })
+// 后台删除不改变设备已经完成采集的事实，旧设备重试仍收到原完成状态和收据。
+const startResult = (row: any) => {
+  const batch = externalBatchRow(row.state === 'deleted' ? { ...row, state: 'completed' } : row)
+  return { ok: true, batch, batchId: row.id, lastSequence: Number(row.last_sequence), state: batch.state, lineName: row.line_name_snapshot, workerNo: row.worker_no }
+}
 
 export async function startExternalCollection(user: AuthUser, body: Record<string, unknown>) {
   await requireExternalCollectionSchema()

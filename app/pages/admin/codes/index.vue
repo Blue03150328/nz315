@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { formatCodeQuantity } from '#shared/utils/code-quantity'
+import { productWithSpec } from '#shared/utils/product-name'
 // 码库管理（2026-10-12 去子批次改造）：一行 = 扫描仪一次「完成本次上传」。
 // 不再有总批次 / 已用子批次 / 剩余子批次 / 使用记录；只记录已完成上传的码。
 // 数量一律精确显示（12,352张），不折算「万」。
@@ -17,7 +18,8 @@ const toast = useToast()
 const filters = reactive({
   productId: undefined as number | undefined,
   batchNo: '',
-  uploader: '',
+  lineName: '',
+  deviceName: '',
   dateFrom: '',
   dateTo: '',
 })
@@ -31,26 +33,57 @@ const { data: productData } = await useFetch<any>('/api/admin/products', {
   query: { page: 1, pageSize: 100, bindable: 1 },
 })
 const PRODUCT_OPTIONS = computed(() =>
-  (productData.value?.rows || []).map((p: any) => ({ value: Number(p.id), label: `${p.name} · ${p.spec_name || '规格未填写'}` })))
+  (productData.value?.rows || []).map((p: any) => ({ value: Number(p.id), label: productWithSpec(p) })))
 
-const { data, pending, refresh } = await useFetch<any>('/api/admin/codes/usage-batches', {
-  key: 'admin-code-usage-batches',
-  watch: false,
-  query: computed(() => ({
+const listQuery = computed(() => ({
     productId: filters.productId || undefined,
     batchNo: filters.batchNo || undefined,
-    uploader: filters.uploader || undefined,
+    lineName: filters.lineName || undefined,
+    deviceName: filters.deviceName || undefined,
     dateFrom: filters.dateFrom || undefined,
     dateTo: filters.dateTo || undefined,
     page: page.value,
     pageSize,
-  })),
-})
+  }))
+// 页面切换期间可能短暂并存两个实例，独立缓存键避免刷新复用旧实例的筛选闭包。
+const { data, pending, refresh } = await useAsyncData<any>('admin-code-usage-batches-' + useId(), () => $fetch('/api/admin/codes/usage-batches', { query: listQuery.value }), { watch: false })
 const totalPages = computed(() => Math.max(1, Math.ceil((data.value?.total || 0) / pageSize)))
 const batchRows = computed<any[]>(() => data.value?.rows || [])
 
 const doSearch = () => applyListQuery()
 const resetSearch = () => resetListQuery()
+
+// 跨页保留手动选择；全选使用已查询的筛选条件，勾掉单行作为排除项。
+const selectedIds = ref<number[]>([])
+const selectAllResults = ref(false)
+const excludedIds = ref<number[]>([])
+const selectedCount = computed(() => selectAllResults.value ? Math.max(0, Number(data.value?.total || 0) - excludedIds.value.length) : selectedIds.value.length)
+const isSelected = (row: any) => selectAllResults.value ? !excludedIds.value.includes(row.id) : selectedIds.value.includes(row.id)
+const pageSelected = computed(() => batchRows.value.length > 0 && batchRows.value.every(isSelected))
+const clearSelection = () => { selectedIds.value = []; excludedIds.value = []; selectAllResults.value = false }
+const toggleSelection = (row: any) => {
+  const ids = selectAllResults.value ? excludedIds : selectedIds
+  ids.value = ids.value.includes(row.id) ? ids.value.filter(id => id !== row.id) : [...ids.value, row.id]
+}
+const togglePage = () => { const checked = pageSelected.value; for (const row of batchRows.value) if (isSelected(row) === checked) toggleSelection(row) }
+const selectAll = () => { clearSelection(); selectAllResults.value = true }
+watch(() => JSON.stringify(data.value?.selectionFilters), clearSelection)
+const selectionPayload = () => selectAllResults.value ? { all: true, filters: { ...data.value?.selectionFilters }, excludeIds: [...excludedIds.value] } : { ids: [...selectedIds.value] }
+const preparingSelection = ref(false)
+const previewSelection = async () => {
+  preparingSelection.value = true
+  try { return await $fetch<any>('/api/admin/codes/usage-batches/preview', { method: 'POST', body: { selection: selectionPayload() } }) }
+  catch (error: any) { toast.add({ title: error?.data?.statusMessage || '所选范围加载失败，请重试', color: 'error' }); return null }
+  finally { preparingSelection.value = false }
+}
+const showEditModal = ref(false)
+const editingRow = ref<any>(null)
+const openEdit = (row: any = null) => { editingRow.value = row; showEditModal.value = true }
+const chooseEdit = async (action: 'correct' | 'freeze' | 'restore' | 'void') => {
+  if (action === 'correct') { showEditModal.value = false; openCorrect(editingRow.value); return }
+  await openFlag(editingRow.value, action)
+  showEditModal.value = false
+}
 
 // 码状态汇总标签（作废为终态最需关注，红系；冻结黄系；正常绿）
 const SUMMARY_BADGE: Record<string, string> = {
@@ -63,9 +96,7 @@ const SUMMARY_BADGE: Record<string, string> = {
 
 const batchSpec = (row: any) => row?.specName || '原规格资料未记录'
 const batchApi = (row: any, action = '') => `/api/admin/codes/usage-batches/${row.id}${action ? '/' + action : ''}`
-const batchScopeText = (row: any) => `本次上传的全部码，共 ${formatCodeQuantity(row?.codeTotal)}`
-// 上传来源：账号优先，无账号回退设备（服务端已按此口径回填 uploadSource）
-const uploadSourceText = (row: any) => row?.uploadSource || '上传账号未记录'
+const batchScopeText = (row: any) => `${row?.batchCount ? '所选 ' + row.batchCount + ' 批上传' : '本次上传'}的全部码，共 ${formatCodeQuantity(row?.codeTotal)}`
 // 接口统一返回北京时间；保留秒。
 const uploadTime = (value: string | null | undefined) => {
   if (!value) return '未记录'
@@ -77,7 +108,7 @@ const uploadTime = (value: string | null | undefined) => {
 let codesRefreshTimer: ReturnType<typeof setInterval> | undefined
 let codesPageActive = false
 const refreshVisibleCodes = async () => {
-  if (!codesPageActive || document.visibilityState !== 'visible' || pending.value || detailLoading.value || showCorrectModal.value || showFlagModal.value || showRowFlagModal.value) return
+  if (!codesPageActive || document.visibilityState !== 'visible' || pending.value || detailLoading.value || showCorrectModal.value || showFlagModal.value || showRowFlagModal.value || showEditModal.value || showExportModal.value) return
   await refresh()
   if (!codesPageActive) return
   if (showDetailModal.value) {
@@ -110,6 +141,7 @@ onUnmounted(stopCodesRefresh)
 const showFlagModal = ref(false)
 const flagging = ref(false)
 const flagTarget = ref<any>(null)
+const flagPreview = ref<any>(null)
 const flagAction = ref<'freeze' | 'void' | 'restore'>('freeze')
 const flagReason = ref('')
 const flagLabel = computed(() => ({ freeze: '冻结', void: '作废整批', restore: '恢复正常' })[flagAction.value])
@@ -119,25 +151,28 @@ const flagCount = computed(() => Number(flagAction.value === 'freeze'
   : flagAction.value === 'restore'
     ? flagTarget.value?.frozenCount
     : Number(flagTarget.value?.codeTotal || 0) - Number(flagTarget.value?.voidedCount || 0)))
-const openFlag = (row: any, action: 'freeze' | 'void' | 'restore' = 'freeze') => {
+const openFlag = async (row: any, action: 'freeze' | 'void' | 'restore' = 'freeze') => {
   if (!canWrite.value) return
-  flagTarget.value = row
+  flagPreview.value = row ? null : await previewSelection()
+  if (!row && !flagPreview.value) return
+  flagTarget.value = row || flagPreview.value
   flagAction.value = action
   flagReason.value = ''
   if (flagCount.value <= 0) { toast.add({ title: `本批次没有可${flagLabel.value === '作废整批' ? '作废' : flagLabel.value}的追溯码`, color: 'warning' }); return }
   showFlagModal.value = true
 }
 const submitFlag = async () => {
-  if (!canWrite.value || !flagTarget.value) return
+  if (!canWrite.value || !flagTarget.value || flagging.value) return
   const flag = { freeze: 1, void: 2, restore: 0 }[flagAction.value]
   if (flag === 2 && !flagReason.value.trim()) { toast.add({ title: '作废必须填写原因', color: 'warning' }); return }
   flagging.value = true
   try {
-    const res = await $fetch<any>(batchApi(flagTarget.value, 'flag'), {
-      method: 'POST', body: { flag, reason: flagReason.value.trim() },
+    const res = await $fetch<any>(flagPreview.value ? '/api/admin/codes/usage-batches/flag' : batchApi(flagTarget.value, 'flag'), {
+      method: 'POST', body: { flag, reason: flagReason.value.trim(), ...(flagPreview.value ? { selection: flagPreview.value.selection, previewHash: flagPreview.value.previewHash } : {}) },
     })
     toast.add({ title: flagLabel.value + '完成：' + formatCodeQuantity(res.affected), color: 'success' })
     showFlagModal.value = false
+    clearSelection()
     void refresh()
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || flagLabel.value + '失败', color: 'error' })
@@ -253,8 +288,14 @@ const submitCorrect = async () => {
 // ============ 导出本次上传的码 ============
 const showExportModal = ref(false)
 const exportTarget = ref<any>(null)
+const exportPreview = ref<any>(null)
 const exporting = ref(false)
-const openExport = (row: any) => { exportTarget.value = row; showExportModal.value = true }
+const openExport = async (row: any = null) => {
+  exportPreview.value = row ? null : await previewSelection()
+  if (!row && !exportPreview.value) return
+  exportTarget.value = row || exportPreview.value
+  showExportModal.value = true
+}
 // 从 Content-Disposition 的 filename*=UTF-8'' 取原始中文文件名（服务端已按 RFC 5987 编码）
 const fileNameFromResponse = (res: Response): string => {
   const cd = res.headers.get('content-disposition') || ''
@@ -267,7 +308,9 @@ const doExport = async (format: 'txt' | 'urls' | 'csv') => {
   if (!exportTarget.value || exporting.value) return
   exporting.value = true
   try {
-    const res = await fetch(batchApi(exportTarget.value, 'export') + '?format=' + format, { credentials: 'include' })
+    const res = exportPreview.value
+      ? await fetch('/api/admin/codes/usage-batches/export', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ selection: exportPreview.value.selection, previewHash: exportPreview.value.previewHash, format }) })
+      : await fetch(batchApi(exportTarget.value, 'export') + '?format=' + format, { credentials: 'include' })
     if (!res.ok) {
       let msg = '导出失败'
       try { msg = (await res.json())?.statusMessage || msg } catch { /* 非 JSON 错误体 */ }
@@ -432,7 +475,7 @@ const flagBadge = (f: number) => {
       <div class="b-card-head">
         <span class="b-card-title">筛选查询</span>
       </div>
-      <div class="b-form-grid md:grid-cols-2 xl:grid-cols-5">
+      <div class="b-form-grid md:grid-cols-2 xl:grid-cols-6">
         <div>
           <label class="b-label">关联产品</label>
           <USelect v-model="filters.productId" :items="PRODUCT_OPTIONS" placeholder="全部产品" class="w-full" :content="{ class: 'min-w-72' }" :ui="{ value: 'whitespace-normal break-words text-left', itemLabel: 'whitespace-normal break-words' }" />
@@ -442,8 +485,12 @@ const flagBadge = (f: number) => {
           <UInput v-model="filters.batchNo" placeholder="输入生产批号" @keyup.enter="doSearch" />
         </div>
         <div>
-          <label class="b-label">上传来源</label>
-          <UInput v-model="filters.uploader" placeholder="上传账号或设备名称" icon="i-lucide-search" @keyup.enter="doSearch" />
+          <label class="b-label">上传产线</label>
+          <UInput v-model="filters.lineName" placeholder="输入生产线" @keyup.enter="doSearch" />
+        </div>
+        <div>
+          <label class="b-label">上传设备</label>
+          <UInput v-model="filters.deviceName" placeholder="输入设备名称" @keyup.enter="doSearch" />
         </div>
         <div>
           <label class="b-label">上传时间起</label>
@@ -470,10 +517,20 @@ const flagBadge = (f: number) => {
         <span class="b-card-extra">每页 {{ pageSize }} 行 · 共 {{ data?.total || 0 }} 条</span>
       </div>
 
+      <div class="flex flex-wrap items-center gap-3 border-b border-[var(--b-border)] px-4 py-3">
+        <UCheckbox :model-value="pageSelected" :disabled="pending || !batchRows.length" label="全选本页" @update:model-value="togglePage" />
+        <UButton size="sm" variant="link" :disabled="pending || !data?.total" @click="selectAll">全选当前查询结果（{{ data?.total || 0 }}批）</UButton>
+        <span class="b-help">已选 {{ selectedCount }} 批</span>
+        <UButton v-if="selectedCount" size="sm" variant="link" @click="clearSelection">取消选择</UButton>
+        <UButton size="sm" variant="outline" icon="i-lucide-download" :disabled="!selectedCount || pending" :loading="preparingSelection" @click="openExport()">导出所选</UButton>
+        <UButton v-if="canWrite" size="sm" variant="outline" icon="i-lucide-pencil" :disabled="!selectedCount || pending" @click="openEdit()">批量编辑</UButton>
+      </div>
+
       <div class="b-scroll-x">
-        <table class="b-table" aria-label="上传记录">
+        <table class="b-table b-table-grid" aria-label="上传记录">
           <thead>
             <tr>
+              <th class="w-12"><span class="sr-only">选择上传批次</span></th>
               <th>产品名称</th>
               <th>包装规格</th>
               <th>生产批号</th>
@@ -481,15 +538,16 @@ const flagBadge = (f: number) => {
               <th class="text-right">码数量</th>
               <th>码状态</th>
               <th>上传时间</th>
-              <th>上传来源</th>
+              <th>上传产线</th>
+              <th>上传设备</th>
               <th class="text-right">操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="row in batchRows" :key="row.id" :data-batch-id="row.id">
+            <tr v-for="row in batchRows" :key="row.id" :data-batch-id="row.id" :class="{ 'is-selected': isSelected(row) }">
+              <td><UCheckbox :model-value="isSelected(row)" :aria-label="'选择上传批次' + row.id" @update:model-value="toggleSelection(row)" /></td>
               <td class="min-w-44">
                 <p class="break-words text-[13px] b-strong">{{ row.productName || '产品未记录' }}</p>
-                <p class="mt-1 text-xs text-[var(--b-text-muted)]">任务：{{ row.taskName || '名称未记录' }} · 编号 {{ row.taskId }}</p>
               </td>
               <td class="min-w-32"><span class="break-words" :class="{ 'text-[var(--b-text-muted)]': !row.specName }">{{ batchSpec(row) }}</span></td>
               <td class="min-w-28">{{ row.batchNo || '-' }}</td>
@@ -501,24 +559,19 @@ const flagBadge = (f: number) => {
               </td>
               <td class="min-w-44 whitespace-nowrap">{{ uploadTime(row.uploadAt) }}</td>
               <td class="min-w-32">
-                <p class="break-words">{{ uploadSourceText(row) }}</p>
-                <p v-if="row.uploaderUsername && row.deviceName" class="mt-1 text-xs text-[var(--b-text-muted)]">设备：{{ row.deviceName }}</p>
+                <p class="break-words">{{ row.lineName || '产线未记录' }}</p>
               </td>
+              <td class="min-w-32"><p class="break-words">{{ row.deviceName || '设备未记录' }}</p></td>
               <td>
                 <div class="flex min-w-64 flex-wrap justify-end gap-x-3 gap-y-1">
                   <UButton variant="link" color="neutral" size="xs" icon="i-lucide-eye" @click="openDetail(row)">详细</UButton>
                   <UButton v-if="row.canExport" variant="link" color="neutral" size="xs" icon="i-lucide-download" @click="openExport(row)">导出</UButton>
-                  <template v-if="canWrite">
-                    <UButton variant="link" color="neutral" size="xs" icon="i-lucide-wrench" :title="row.correctionReason || '仅修正本次上传的码'" :disabled="row.canCorrect === false" @click="openCorrect(row)">修正生产信息</UButton>
-                    <UButton variant="link" color="neutral" size="xs" icon="i-lucide-snowflake" :disabled="row.normalCount <= 0" @click="openFlag(row, 'freeze')">冻结</UButton>
-                    <UButton variant="link" color="neutral" size="xs" icon="i-lucide-rotate-ccw" :disabled="row.frozenCount <= 0" @click="openFlag(row, 'restore')">恢复</UButton>
-                    <UButton variant="link" color="error" size="xs" icon="i-lucide-ban" :disabled="row.codeTotal <= row.voidedCount" @click="openFlag(row, 'void')">作废整批</UButton>
-                  </template>
+                  <UButton v-if="canWrite" variant="link" color="neutral" size="xs" icon="i-lucide-pencil" @click="openEdit(row)">编辑</UButton>
                 </div>
               </td>
             </tr>
             <tr v-if="!pending && !batchRows.length">
-              <td colspan="9" class="b-empty">
+              <td colspan="11" class="b-empty">
                 <div class="b-empty-inner">
                   <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
                   <span class="text-sm">暂无上传记录，扫描仪点「完成本次上传」后才会在此记录；也可调整筛选条件后重试</span>
@@ -539,8 +592,22 @@ const flagBadge = (f: number) => {
       </div>
     </div>
 
+    <UModal v-model:open="showEditModal" :dismissible="!preparingSelection" title="编辑码库">
+      <template #content><div class="b-modal">
+        <div class="b-modal-head"><h3 class="b-modal-title">{{ editingRow ? '编辑本次上传' : '批量编辑所选上传' }}</h3></div>
+        <div class="b-modal-body space-y-3">
+          <p class="b-help">{{ editingRow ? batchScopeText(editingRow) : '已选 ' + selectedCount + ' 批，请选择操作' }}</p>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <UButton v-if="editingRow && canWrite" variant="outline" :disabled="editingRow.canCorrect === false" @click="chooseEdit('correct')">修正生产信息</UButton>
+            <UButton v-if="canWrite" variant="outline" :disabled="preparingSelection || (editingRow && editingRow.normalCount <= 0)" @click="chooseEdit('freeze')">冻结</UButton>
+            <UButton v-if="canWrite" variant="outline" :disabled="preparingSelection || (editingRow && editingRow.frozenCount <= 0)" @click="chooseEdit('restore')">恢复</UButton>
+            <UButton v-if="canWrite" color="error" variant="outline" :disabled="preparingSelection || (editingRow && editingRow.codeTotal <= editingRow.voidedCount)" @click="chooseEdit('void')">整批作废</UButton>
+          </div>
+        </div><div class="b-modal-foot"><UButton variant="outline" :disabled="preparingSelection" @click="showEditModal = false">取消</UButton></div>
+      </div></template>
+    </UModal>
     <!-- 整批冻结 / 恢复 / 作废整批 -->
-    <UModal v-model:open="showFlagModal">
+    <UModal v-model:open="showFlagModal" :dismissible="!flagging">
       <template #content>
         <div class="b-modal">
           <div class="b-modal-head">
@@ -549,7 +616,7 @@ const flagBadge = (f: number) => {
             </div>
             <div>
               <h3 class="b-modal-title">{{ flagTitle }}</h3>
-              <p class="b-modal-sub">{{ flagTarget?.productName }} · {{ flagTarget?.batchNo || '生产批号未记录' }}</p>
+              <p class="b-modal-sub">{{ flagPreview ? '所选 ' + flagPreview.batchCount + ' 批上传' : (flagTarget?.productName || '产品未记录') + ' · ' + (flagTarget?.batchNo || '生产批号未记录') }}</p>
             </div>
           </div>
           <div class="b-modal-body space-y-3">
@@ -566,7 +633,7 @@ const flagBadge = (f: number) => {
             </div>
           </div>
           <div class="b-modal-foot">
-            <UButton variant="outline" color="neutral" @click="showFlagModal = false">取消</UButton>
+            <UButton variant="outline" color="neutral" :disabled="flagging" @click="showFlagModal = false">取消</UButton>
             <UButton v-if="canWrite" :color="flagAction === 'void' ? 'error' : 'neutral'" variant="solid" :loading="flagging" @click="submitFlag">确认{{ flagLabel }}</UButton>
           </div>
         </div>
@@ -648,7 +715,7 @@ const flagBadge = (f: number) => {
             </div>
             <div>
               <h3 class="b-modal-title">导出本次上传的追溯码</h3>
-              <p class="b-modal-sub">{{ exportTarget?.productName }} · {{ exportTarget?.batchNo || '生产批号未记录' }}</p>
+              <p class="b-modal-sub">{{ exportPreview ? '所选 ' + exportPreview.batchCount + ' 批上传' : (exportTarget?.productName || '产品未记录') + ' · ' + (exportTarget?.batchNo || '生产批号未记录') }}</p>
             </div>
           </div>
           <div class="b-modal-body space-y-3">
@@ -707,7 +774,7 @@ const flagBadge = (f: number) => {
             </div>
 
             <div class="b-scroll-x">
-              <table class="b-table">
+              <table class="b-table b-table-grid">
                 <thead>
                   <tr>
                     <th>追溯码</th>

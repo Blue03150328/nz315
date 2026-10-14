@@ -370,7 +370,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
             <div>
               <label class="b-label-lg">规格名称 <span class="b-required">*</span></label>
               <div class="flex items-center gap-2">
-                <UInput v-model="form.specName" placeholder="如：500毫升/瓶×10（企业内唯一）" class="w-full" @input="autoName = false" />
+                <UInput v-model="form.specName" placeholder="如：500毫升×10瓶（企业内唯一）" class="w-full" @input="autoName = false" />
                 <UButton variant="outline" color="neutral" :disabled="!generatedName" @click="applyGeneratedName">按字段生成</UButton>
               </div>
             </div>
@@ -392,7 +392,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
                 <UInput v-model.number="form.packQuantity" type="number" :min="1" :max="MAX_PACK_QUANTITY" :step="1" placeholder="如：10" />
               </div>
             </div>
-            <p class="b-help">数量表示一组内的包装件数，如500毫升/瓶×10表示10瓶；单件数量为1。</p>
+            <p class="b-help">数量表示一组内的包装件数，如500毫升×10瓶表示10瓶；单件数量为1。</p>
             <div>
               <label class="b-label-lg">企业规格码</label>
               <div v-if="displayCode" class="w-fit rounded border border-[var(--b-border)] bg-[var(--b-fill)] px-2.5 py-1.5 font-code text-[13px] font-medium text-[var(--b-text-title)]">{{ displayCode }}</div>
@@ -462,7 +462,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
             <div class="b-note">
               <UIcon name="i-lucide-circle-help" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
               <p class="b-note-text">
-                模板仅一列「规格」，支持「500毫升/瓶×10」或「500ml/瓶✖10」，单件可写「200毫升/瓶」。数量须为正整数，英文单位会转为中文；规格码从本企业001～999空闲码中依次分配。无法识别或重复的行会列出失败原因。
+                模板仅一列「规格」，支持「500毫升×10瓶」，兼容「500ml/瓶✖10」和「200毫升/瓶」。数量须为正整数，英文单位会转为中文；规格码从本企业001～999空闲码中依次分配。无法识别或重复的行会列出失败原因。
               </p>
             </div>
             <!-- ① 模板下载 -->

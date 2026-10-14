@@ -47,7 +47,9 @@ const dateText = (value: unknown) => value ? String(value).slice(0, 10) : '待�
         <div v-else-if="loading && !detail" class="b-empty">正在加载采集批次…</div>
         <template v-if="detail && !error">
           <div class="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-            <div><span class="b-help">生产线</span><p class="b-strong break-all">{{ detail.batch.line_name }}</p></div>
+            <div><span class="b-help">上传产线</span><p class="b-strong break-all">{{ detail.batch.line_name }}</p></div>
+            <div><span class="b-help">上传设备</span><p class="b-strong break-all">{{ detail.batch.device_name }}</p></div>
+            <div><span class="b-help">关联产品当前规格</span><p class="b-strong break-all">{{ detail.batch.linked_spec_name || '规格未记录' }}</p></div>
             <div><span class="b-help">工号</span><p class="b-strong break-all">{{ detail.batch.worker_name_snapshot }} {{ detail.batch.worker_no }}</p></div>
             <div><span class="b-help">采集码数</span><p class="b-strong">{{ detail.batch.accepted_count }}</p></div>
             <div><span class="b-help">生产数量</span><p class="b-strong">{{ detail.batch.effective_production_quantity }} <span class="b-help">{{ detail.batch.production_quantity == null ? '按码数' : '手填' }}</span></p></div>
@@ -66,7 +68,7 @@ const dateText = (value: unknown) => value ? String(value).slice(0, 10) : '待�
           <p class="b-help mt-1">重复 {{ detail.batch.duplicate_count }} 条 · 异常 {{ detail.batch.rejected_count }} 条 · 设备：{{ detail.batch.device_name }}</p>
           <div class="b-card b-card-clip mt-4">
             <div class="b-card-head"><h3 class="b-card-title">本批溯源码</h3><span class="b-card-extra">共 {{ detail.total }} 条</span></div>
-            <div class="b-scroll-x"><table class="b-table"><thead><tr><th>序号</th><th>溯源码原文</th><th class="text-right">操作</th></tr></thead><tbody>
+            <div class="b-scroll-x"><table class="b-table b-table-grid"><thead><tr><th>序号</th><th>溯源码原文</th><th class="text-right">操作</th></tr></thead><tbody>
               <tr v-for="(row, index) in detail.rows" :key="row.id"><td>{{ (page - 1) * pageSize + Number(index) + 1 }}</td><td class="max-w-xl"><span class="whitespace-pre-wrap break-all font-mono text-xs">{{ row.raw_code }}</span></td><td class="text-right"><UButton size="sm" color="neutral" variant="link" @click="copy(row.raw_code)">复制</UButton></td></tr>
               <tr v-if="!detail.rows?.length"><td colspan="3" class="text-center">本批暂无已入库溯源码</td></tr>
             </tbody></table></div>

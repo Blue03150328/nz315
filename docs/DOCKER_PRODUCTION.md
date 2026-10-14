@@ -2,6 +2,8 @@
 
 本配置用于 Linux 正式服务器，网站进 Docker，数据库继续使用服务器现有 MySQL。它与包含演示数据库的本机 `compose.yml` 分开，正式发布不运行 `docker-db-init.mjs`，也不上传本机业务数据库。
 
+2026-10-14最新发布为`b20cf06`，当前实际Compose目录是`/var/www/.nz315-release-20261014-b20cf06`，文件为`compose.release.yml`；下方原始准备流程保留。日常管理、备份和精确回滚命令见[70号上线结果](handover/70-master整合推送与Docker上线（2026-10-14）.md)。现役版本以`/var/www/nz315/.docker-release.json`与公网构建交叉核对，旧.deploy-version不代表Docker现役。
+
 ## 运行结构
 
 | 项目 | 配置 |
