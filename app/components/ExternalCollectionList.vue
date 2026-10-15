@@ -15,6 +15,7 @@ const { applyListQuery, resetListQuery } = useAdminListRoute(filters, page, () =
 const batchId = computed(() => typeof route.query.batchId === 'string' ? route.query.batchId : undefined)
 const { data, pending, error, refresh } = await useAsyncData<{ rows: ExternalCollectionBatch[]; total: number; completedTotal: number; selectionFilters: Record<string, any> }>('external-collection-' + props.mode + '-' + useId(),
   () => $fetch('/api/admin/external-collections', { query: { ...Object.fromEntries(Object.entries(filters).filter(([, value]) => value)), batchId: batchId.value, page: page.value, pageSize } }), { watch: false })
+const selectionMode = ref(false)
 const selectedIds = ref<string[]>([]), allSelected = ref(false), excludedIds = ref<string[]>([])
 const exportOpen = ref(false), exportPreview = ref<any>(null), exportBusy = ref(false), previewBusy = ref(false)
 const selectedCount = computed(() => allSelected.value ? Math.max(0, Number(data.value?.completedTotal || 0) - excludedIds.value.length) : selectedIds.value.length)
@@ -22,6 +23,7 @@ const isSelected = (row: ExternalCollectionBatch) => row.state === 'completed' &
 const completedRows = computed(() => (data.value?.rows || []).filter(row => row.state === 'completed'))
 const pageSelected = computed(() => completedRows.value.length > 0 && completedRows.value.every(isSelected))
 const clearSelection = () => { selectedIds.value = []; excludedIds.value = []; allSelected.value = false }
+const toggleSelectionMode = () => { clearSelection(); selectionMode.value = !selectionMode.value }
 const toggleSelection = (row: ExternalCollectionBatch) => { if (row.state !== 'completed') return; const ids = allSelected.value ? excludedIds : selectedIds; ids.value = ids.value.includes(row.id) ? ids.value.filter(id => id !== row.id) : [...ids.value, row.id] }
 const togglePage = () => { const checked = pageSelected.value; for (const row of completedRows.value) if (isSelected(row) === checked) toggleSelection(row) }
 watch(() => JSON.stringify(data.value?.selectionFilters), clearSelection)
@@ -84,7 +86,7 @@ onBeforeUnmount(() => { clearInterval(timer); window.removeEventListener('focus'
         <div><label class="b-label">{{ isCodes ? '上传产线' : '生产线' }}</label><UInput v-model="filters.lineName" placeholder="搜索生产线" class="w-full" /></div>
         <div><label class="b-label">{{ isCodes ? '上传设备' : '采集设备' }}</label><UInput v-model="filters.deviceName" placeholder="搜索设备名称" class="w-full" /></div>
         <div v-if="isCodes"><label class="b-label">溯源码</label><UInput v-model="filters.rawCode" placeholder="搜索完整网址或码值，查找所属批次" class="w-full" /></div>
-        <div v-else><label class="b-label">操作工号</label><UInput v-model="filters.workerNo" placeholder="搜索采集工号" class="w-full" /></div>
+        <div><label class="b-label">操作工号</label><UInput v-model="filters.workerNo" placeholder="搜索采集工号" class="w-full" /></div>
         <div><label class="b-label">状态</label><USelect v-model="filters.state" :items="[{ label: '进行中', value: 'active' }, { label: '已完成', value: 'completed' }]" placeholder="全部状态" class="w-full" /></div>
         <div><label class="b-label">{{ isCodes ? '采集日期起' : '开始日期起' }}</label><UInput v-model="filters.dateFrom" type="date" class="w-full" /></div>
         <div><label class="b-label">{{ isCodes ? '采集日期止' : '开始日期止' }}</label><UInput v-model="filters.dateTo" type="date" class="w-full" /></div>
@@ -95,12 +97,15 @@ onBeforeUnmount(() => { clearInterval(timer); window.removeEventListener('focus'
     <div v-else class="b-card b-card-clip">
       <div class="b-card-head"><h2 class="b-card-title">{{ isCodes ? '上传记录' : '采集任务' }}</h2><span class="b-card-extra">每页 {{ pageSize }} 行 · 共 {{ data?.total || 0 }} 条</span></div>
       <div v-if="isCodes" class="flex flex-wrap items-center gap-3 border-b border-[var(--b-border)] px-4 py-3">
+        <UButton size="sm" variant="outline" :aria-pressed="selectionMode" @click="toggleSelectionMode">{{ selectionMode ? '退出多选' : '多选' }}</UButton>
+        <template v-if="selectionMode">
         <UCheckbox :model-value="pageSelected" :disabled="pending || !completedRows.length" label="全选本页" @update:model-value="togglePage" />
         <UButton size="sm" variant="link" :disabled="pending || !data?.completedTotal" @click="clearSelection(); allSelected = true">全选查询中的已完成批次（{{ data?.completedTotal || 0 }}批）</UButton>
         <span class="b-help">已选 {{ selectedCount }} 批</span><UButton v-if="selectedCount" size="sm" variant="link" @click="clearSelection">取消选择</UButton>
         <UButton size="sm" variant="outline" icon="i-lucide-download" :disabled="!selectedCount || pending" :loading="previewBusy" @click="openExport">导出所选</UButton>
+        </template>
       </div>
-      <div class="p-4"><ProductionGrid :columns="columns" :rows="rows" row-key="id" :storage-key="'external-library-columns:v1:'+props.mode+':'+user?.id">
+      <div class="p-4"><ProductionGrid :selection-mode="isCodes ? selectionMode : undefined" :columns="columns" :rows="rows" row-key="id" :storage-key="'external-library-columns:v1:'+props.mode+':'+user?.id">
         <template #cell-selection="{row}"><UCheckbox :model-value="isSelected(row)" :disabled="row.state!=='completed'" :aria-label="'选择采集批次'+row.id" @update:model-value="toggleSelection(row)" /></template>
         <template #cell-produce_date="{row}">{{ dateText(row.produce_date) }}</template>
         <template #cell-accepted_count="{row}">{{ formatCodeQuantity(row.accepted_count) }}</template>
@@ -120,7 +125,7 @@ onBeforeUnmount(() => { clearInterval(timer); window.removeEventListener('focus'
     </div></template></UModal>
     <UModal v-model:open="deleteOpen" title="删除采集批次" :dismissible="!deletingBusy"><template #content><div class="b-modal">
       <div class="b-modal-head"><h2 class="b-modal-title">删除采集批次</h2></div>
-      <div class="b-modal-body space-y-3 text-sm"><p v-if="deleting">{{ deleting.product_name_snapshot || '待补填产品' }} · {{ deleting.line_name }} · 工号 {{ deleting.worker_no }} · {{ formatCodeQuantity(deleting.accepted_count) }}</p><p>该批将从外部码库管理和外部生产任务移除，原始采集和去重记录保留，同一码再次采集不会重复入库。</p><p v-if="deleteError" class="text-error">{{ deleteError }}</p></div>
+      <div class="b-modal-body space-y-3 text-sm"><p v-if="deleting">{{ deleting.product_name_snapshot || '待补填产品' }} · {{ deleting.line_name }} · 工号 {{ deleting.worker_no }} · {{ formatCodeQuantity(deleting.accepted_count) }}</p><p>该批将从外部码库管理移除，原始采集和去重记录保留，同一码再次采集不会重复入库。</p><p v-if="deleteError" class="text-error">{{ deleteError }}</p></div>
       <div class="b-modal-foot"><UButton color="neutral" variant="outline" :disabled="deletingBusy" @click="deleteOpen = false">取消</UButton><UButton v-if="canWrite" color="error" :loading="deletingBusy" @click="remove">确认删除本批</UButton></div>
     </div></template></UModal>
   </div>

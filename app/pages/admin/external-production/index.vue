@@ -1,6 +1,7 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'admin', middleware: 'backend-guard' })
 const route=useRoute()
-await navigateTo({path:'/admin/production-tasks',query:{...route.query,view:'external-history'}},{replace:true})
+const {view,...query}=route.query
+await navigateTo({path:'/admin/codes',query:{...query,source:'external'}},{replace:true})
 </script>
 <template><div /></template>
