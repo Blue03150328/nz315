@@ -1,5 +1,7 @@
 # AGENTS.md — AI 协作指南（项目 Memory 系统）
 
+> **2026-10-15 09:04（北京时间）布局优化已Docker上线**：功能 `0f9cee7bb3e520cdd9af517b1c000f27399095e1`，镜像 `nz315-production:0f9cee7bb3e5`，源目录 `/var/www/.nz315-production-layout-20261015-0f9cee7b`，有效完整备份 `/var/backups/nz315/production-layout-20261015-0f9cee7b`。容器healthy；候选及HTTPS验证全宽／填高、短数字列、完整时间列和原API／鉴权。零DDL，42表原字段指纹一致，原凭据／Nginx／14下载／cynx保持；APK未变。本机Docker和Desktop主仓同步。用户手调的列布局保留，点“恢复默认列”应用新宽度。回滚用备份目录前版Compose/env，只回滚应用，勿覆盖业务库。
+
 > **2026-10-15 生产管理默认列宽及全屏空间**：admin布局全宽规则改为覆盖production-tasks及所有二级页，不再落回1600px容器；产线／任务面板填满视口，表格独立滚动、表头固定和分页底部。选择56px，常见码数76px，时间190px，长文本列接收大屏余宽；原拖列／手调／隐藏和账号缓存保留，恢复默认应用新宽度。四种屏幕、9项交互及日期／操作不截断验证通过，Docker生产构建与服务端类型通过；无DDL／APK变更，发布结果以回执确认。
 
 > **2026-10-14 空任务删除补修已上线**：6fcf198已直推master，21:51北京时间Docker healthy，源／备份为line-draft-delete-20261014-6fcf1987。无DDL，完整备份和42表原字段指纹相同；凭据、Nginx、14下载和cynx保持。线上金丝鸟账号范围GET已验证001/002均can_delete=true、draftTaskCount=1、unfinishedTaskCount=0；21/22空任务仍active，实际删除等用户确认，不代删生产数据。23隔离组及5页面检查通过，Desktop主仓及本机Docker同步；未改APK。
