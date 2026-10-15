@@ -58,6 +58,7 @@ const doSearch = () => applyListQuery()
 const resetSearch = () => resetListQuery()
 
 // 跨页保留手动选择；全选使用已查询的筛选条件，勾掉单行作为排除项。
+const selectionMode = ref(false)
 const selectedIds = ref<number[]>([])
 const selectAllResults = ref(false)
 const excludedIds = ref<number[]>([])
@@ -65,6 +66,8 @@ const selectedCount = computed(() => selectAllResults.value ? Math.max(0, Number
 const isSelected = (row: any) => selectAllResults.value ? !excludedIds.value.includes(row.id) : selectedIds.value.includes(row.id)
 const pageSelected = computed(() => batchRows.value.length > 0 && batchRows.value.every(isSelected))
 const clearSelection = () => { selectedIds.value = []; excludedIds.value = []; selectAllResults.value = false }
+const toggleSelectionMode = () => { clearSelection(); selectionMode.value = !selectionMode.value }
+watch(externalSource, () => { selectionMode.value = false; clearSelection() })
 const toggleSelection = (row: any) => {
   const ids = selectAllResults.value ? excludedIds : selectedIds
   ids.value = ids.value.includes(row.id) ? ids.value.filter(id => id !== row.id) : [...ids.value, row.id]
@@ -525,15 +528,18 @@ const flagBadge = (f: number) => {
       </div>
 
       <div class="flex flex-wrap items-center gap-3 border-b border-[var(--b-border)] px-4 py-3">
+        <UButton size="sm" variant="outline" :aria-pressed="selectionMode" @click="toggleSelectionMode">{{ selectionMode ? '退出多选' : '多选' }}</UButton>
+        <template v-if="selectionMode">
         <UCheckbox :model-value="pageSelected" :disabled="pending || !batchRows.length" label="全选本页" @update:model-value="togglePage" />
         <UButton size="sm" variant="link" :disabled="pending || !data?.total" @click="selectAll">全选当前查询结果（{{ data?.total || 0 }}批）</UButton>
         <span class="b-help">已选 {{ selectedCount }} 批</span>
         <UButton v-if="selectedCount" size="sm" variant="link" @click="clearSelection">取消选择</UButton>
         <UButton size="sm" variant="outline" icon="i-lucide-download" :disabled="!selectedCount || pending" :loading="preparingSelection" @click="openExport()">导出所选</UButton>
         <UButton v-if="canWrite" size="sm" variant="outline" icon="i-lucide-pencil" :disabled="!selectedCount || pending" @click="openEdit()">批量编辑</UButton>
+        </template>
       </div>
 
-      <div class="p-4"><ProductionGrid :columns="libraryColumns" :rows="batchRows" row-key="id" :storage-key="'internal-library-columns:v1:'+user?.id">
+      <div class="p-4"><ProductionGrid :selection-mode="selectionMode" :columns="libraryColumns" :rows="batchRows" row-key="id" :storage-key="'internal-library-columns:v1:'+user?.id">
         <template #cell-selection="{row}"><UCheckbox :model-value="isSelected(row)" :aria-label="'选择上传批次'+row.id" @update:model-value="toggleSelection(row)" /></template>
         <template #cell-specName="{row}">{{ batchSpec(row) }}</template>
         <template #cell-codeTotal="{row}">{{ formatCodeQuantity(row.codeTotal) }}</template>

@@ -1,8 +1,7 @@
 <script setup lang="ts">
-definePageMeta({layout:'admin',middleware:'backend-guard',keepalive:true})
+definePageMeta({layout:'admin',middleware:['backend-guard','external-history'],keepalive:true})
 useHead({title:'生产任务'})
 const {canManageUsers,user}=useUser(),toast=useToast(),route=useRoute()
-const historyExternal=computed(()=>route.query.view==='external-history')
 const filters=reactive({keyword:'',lineName:String(route.query.lineName||''),enterpriseId:String(route.query.enterpriseId||''),operatorId:'',status:'',dateFrom:'',dateTo:''}),keyword=ref(''),page=ref(1)
 const {data,pending,error,refresh}=await useFetch<any>('/api/admin/production-lines',{query:computed(()=>({...filters,page:page.value}))})
 const {data:options,pending:optionBusy,refresh:refreshOptions}=await useFetch<any>('/api/admin/production-lines/options',{})
@@ -59,8 +58,6 @@ function openDetail(t:any){detailTask.value=t;showDetail.value=true}
 <template>
  <div class="production-page">
   <ProductionManagementTabs />
-  <ExternalCollectionList v-if="historyExternal" mode="tasks" />
-  <template v-else>
   <div class="flex flex-wrap justify-between items-center gap-3"><div><h1 class="b-page-title">生产任务</h1><p class="b-page-desc">工人选择生产线后自动加入任务；所有参与设备结束并完整上传后，任务自动结束。</p></div><div class="flex gap-2"><UButton v-if="canManageUsers" color="error" variant="outline" :disabled="!selectedIds.length||busy" @click="openBulkDelete">批量删除<span v-if="selectedIds.length">（{{ selectedIds.length }}）</span></UButton></div></div>
   <div class="b-card production-panel">
    <form class="flex flex-wrap items-end gap-3" @submit.prevent="filters.keyword=keyword.trim();refresh()"><label class="min-w-64 flex-1"><span class="block mb-1 text-sm">模糊搜索</span><UInput v-model="keyword" placeholder="产品、生产线、员工姓名或工号" class="w-full" /></label><label><span class="block mb-1 text-sm">操作员</span><USelectMenu v-model="filters.operatorId" :items="operatorOptions" value-key="value" placeholder="全部操作员" :clear="true" :search-input="{placeholder:'姓名或工号'}" /></label><label><span class="block mb-1 text-sm">创建日期从</span><input v-model="filters.dateFrom" type="date" class="rounded border p-2" /></label><label><span class="block mb-1 text-sm">至</span><input v-model="filters.dateTo" type="date" class="rounded border p-2" /></label><UButton type="submit">查询</UButton><UButton variant="outline" @click="resetSearch">重置</UButton><UButton variant="outline" :loading="pending" @click="refresh()">刷新</UButton></form>
@@ -80,7 +77,6 @@ function openDetail(t:any){detailTask.value=t;showDetail.value=true}
   <UModal v-model:open="showDetail" :title="(detailTask?.line_name||'')+' · 员工扫码情况'" :ui="{content:'max-w-[95vw]'}"><template #body><ProductionWorkerProgress v-if="detailTask" :key="detailTask.id" :task-id="detailTask.id" /></template></UModal>
   <UModal v-model:open="showDelete" :title="deleteTargets.length===1?'删除生产任务':'批量删除生产任务'" :dismissible="!busy" :close="false"><template #body><p class="mb-3">确认删除以下 {{ deleteTargets.length }} 个任务？</p><ul class="mb-3 max-h-60 overflow-y-auto space-y-2"><li v-for="t in deleteTargets" :key="t.id"><strong>{{ t.line_name||'-' }}</strong> · 任务编号 {{ t.id }}</li></ul><p class="text-sm text-muted">删除后任务不再出现在列表中。追溯码、生产资料、人员和设备扫码历史完整保留；已领用码不会释放或再次分配。</p><p v-if="deleteTargets.length>1" class="mt-2 text-sm text-muted">所有所选任务必须符合删除条件；任一任务不能删除时，整批保持原样。</p></template><template #footer><UButton color="error" :loading="busy" :disabled="busy" @click="removeTasks">确认删除</UButton><UButton variant="outline" :disabled="busy" @click="showDelete=false">取消</UButton></template></UModal>
   <UModal v-model:open="showCodes" :title="(codeTask?.line_name||'')+' · 码明细'" :close="{ 'aria-label':'关闭' }" :ui="{content:'max-w-5xl'}"><template #body><div class="space-y-3"><div class="flex flex-wrap gap-3"><select v-model="codeSource" class="rounded border p-2"><option value="internal">内部码</option><option value="external">外部码</option></select><UInput v-model="codeKeyword" placeholder="码原文模糊查询" /><select v-if="codeSource==='internal'" v-model="codeState" class="rounded border p-2"><option value="">全部</option><option value="used">已扫码</option><option value="reserved">未扫描</option></select></div><p v-if="codeBusy">正在加载…</p><ProductionGrid :columns="codeColumns.filter(c=>codeSource==='external'?!['code','used_at'].includes(c.key):!['raw_code','captured_at'].includes(c.key))" :rows="codeData?.rows||[]" :row-key="codeSource==='external'?'id':'code_id'" :storage-key="'task-code-columns:v1:'+codeSource+':'+user?.id" /><div class="flex gap-3"><UButton :disabled="codePage<=1" variant="outline" @click="codePage--">上一页</UButton><span>第 {{ codePage }} 页，共 {{ codeData?.filteredTotal||0 }} 个码</span><UButton :disabled="codePage*100>=(codeData?.filteredTotal||0)" variant="outline" @click="codePage++">下一页</UButton></div></div></template></UModal>
- </template>
  </div>
 </template>
 <style scoped>input[type=checkbox]{width:18px;height:18px;accent-color:var(--ui-primary)}
