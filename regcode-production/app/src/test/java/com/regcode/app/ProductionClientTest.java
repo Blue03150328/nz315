@@ -140,6 +140,17 @@ public class ProductionClientTest {
         assertEquals(0,client.request("POST","/api/device/worker-sessions/"+id+"/delete","{}").getInt("status"));
         assertEquals(0,client.request("GET","/api/device/worker-runs/"+id+"/complete","{}").getInt("status"));
     }
+    @Test public void workerHeartbeatReachesServerWithDeviceIdentityAndCounters() throws Exception {
+        String id="3beff054-1b7d-4c72-8c25-e8937024b523",path="/api/device/worker-sessions/"+id+"/heartbeat";
+        String body=new JSONObject().put("version",1).put("state","running").put("sequence",3).put("valid",1).put("duplicate",1).put("exception",1).put("pending",3).toString();
+        assertEquals(0,client.request("POST",path,body).getInt("status"));
+        client.deviceCredential("d".repeat(64));
+        assertEquals(200,client.request("POST",path,body).getInt("status"));
+        assertEquals(path,requestPath.get());assertEquals("Bearer "+"d".repeat(64),authorization.get());
+        assertEquals("running",new JSONObject(payload.get()).getString("state"));assertEquals(3,new JSONObject(payload.get()).getInt("sequence"));
+        assertEquals(0,client.request("GET",path,"{}").getInt("status"));
+        assertEquals(0,client.request("POST","/api/device/worker-sessions/not-a-session/heartbeat",body).getInt("status"));
+    }
     @Test public void restoringWorkerCredentialCannotSendOldDeviceTokenToAnotherServer() throws Exception {
         String token="e".repeat(64);JSONObject credential=new JSONObject().put("server",base).put("credential",token).put("registered",true);
         assertTrue(client.restoreRegisteredDevice(base,credential));client.request("GET","/api/device/context","{}");assertEquals("Bearer "+token,authorization.get());

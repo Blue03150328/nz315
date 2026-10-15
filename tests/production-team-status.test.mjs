@@ -22,10 +22,10 @@ test('生产任务展示状态与筛选一致，已结束和历史任务优先',
  production_task_code AS (SELECT 3 task_id,'used' state UNION ALL SELECT 4,'used' UNION ALL SELECT 7,'used'),
  worker_event AS (SELECT 8 session_id,'external' classification,'saved' result_state UNION ALL SELECT 9,'external','duplicate' UNION ALL SELECT 10,'external','exception')`
  try{
-  // 无设备且零码、设备参与但零码、有码但无设备、设备与码均有、零码已结束、历史、设备已结束会话。
+  // 未登记会话仍未开始；已有会话即开工，零上传、重复或异常不应退回未开始。
   const [rows]=await db.query(`${fixtures} SELECT t.id,${teamDisplayStatusSql} AS display_status FROM tasks t ORDER BY t.id`)
-  assert.deepEqual(rows.map(r=>r.display_status),['not_started','not_started','not_started','active','completed','history','active','active','not_started','not_started'])
-  for(const [status,ids] of [['not_started',[1,2,3,9,10]],['active',[4,7,8]],['completed',[5]],['history',[6]]]){
+  assert.deepEqual(rows.map(r=>r.display_status),['not_started','active','not_started','active','completed','history','active','active','active','active'])
+  for(const [status,ids] of [['not_started',[1,3]],['active',[2,4,7,8,9,10]],['completed',[5]],['history',[6]]]){
    const [filtered]=await db.query(`${fixtures} SELECT t.id FROM tasks t WHERE (${teamDisplayStatusSql})=? ORDER BY t.id`,[status])
    assert.deepEqual(filtered.map(r=>r.id),ids)
   }
