@@ -1,5 +1,7 @@
 # 正式网站 Docker 部署
 
+**2026-10-15 固定信息列移除已Docker上线**：运行 `520e7a87a76824019f3b621c1b6f173a75de2167`，镜像 `nz315-production:520e7a87a768`，目录 `/var/www/.nz315-fixed-columns-20261015-520e7a87`，有效完整备份 `/var/backups/nz315/fixed-columns-20261015-520e7a87`。产线厂家列、任务名称列移除，总部厂家筛选在顶部；旧布局自动过滤移除列，其他列设置保留。12项浏览器及Docker构建通过，候选／HTTPS核对列与筛选、旧API鉴权，healthy。零DDL，42表原字段指纹保持，凭据／Nginx／14下载／cynx和APK保持。Desktop主仓及本机Docker同步，前版Compose保留；只回滚应用，勿覆盖业务库。
+
 **2026-10-15 09:04（北京时间）布局优化已Docker上线**：功能 `0f9cee7bb3e520cdd9af517b1c000f27399095e1`，镜像 `nz315-production:0f9cee7bb3e5`，源目录 `/var/www/.nz315-production-layout-20261015-0f9cee7b`，有效完整备份 `/var/backups/nz315/production-layout-20261015-0f9cee7b`。容器healthy；候选及HTTPS验证全宽／填高、短数字列、完整时间列和原API／鉴权。零DDL，42表原字段指纹一致，原凭据／Nginx／14下载／cynx保持；APK未变。本机Docker和Desktop主仓同步。用户手调的列布局保留，点“恢复默认列”应用新宽度。回滚用备份目录前版Compose/env，只回滚应用，勿覆盖业务库。
 
 **当前空任务删除补修（2026-10-14 21:51北京时间）**：运行 `nz315-production:6fcf19870bf1`，源目录 `/var/www/.nz315-line-draft-delete-20261014-6fcf1987`，有效完整备份 `/var/backups/nz315/line-draft-delete-20261014-6fcf1987`。零DDL、42表原字段指纹相同，healthy；金丝鸟001/002可删除并在确认时软删未开工空任务，未代执行生产删除。上面／下文1a和07为历史发布记录；稳定Compose入口已同步新镜像，APK及其他服务保持。
