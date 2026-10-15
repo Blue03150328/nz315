@@ -53,4 +53,8 @@ test('后六位相同的不同登记类别能准确归属，完整头歧义拒�
   assert.deepEqual(validateImportRows(['2' + code.slice(1)], ctx).productGroups, { 8: 1 })
   ctx.products.push({ id: 9, head: code.slice(0, 11) })
   assert.equal(validateImportRows([code], ctx).invalid, 1)
+  // 同证同规格的两个商标不能从码头部猜归属；明确选择产品后分别可用。
+  assert.match(validateImportRows([code], ctx).preview[0].reason, /选择具体产品/)
+  assert.deepEqual(validateImportRows([code], ctx, 7).productGroups, { 7: 1 })
+  assert.deepEqual(validateImportRows([code], ctx, 9).productGroups, { 9: 1 })
 })

@@ -23,6 +23,7 @@ import { usageBatchDDL, migrateUsageBatchSchema } from './usage-batch-schema.mjs
 import { externalCollectionDDL, migrateExternalCollectionSchema } from './external-collection-schema.mjs';
 import { migrateWorkerSchema } from './worker-schema.mjs';
 import { migrateProductionMonitorSchema } from './production-monitor-schema.mjs';
+import { migrateProductSkuSchema } from './product-sku-schema.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // 读取 .env（简易解析，无 dotenv 依赖）
@@ -102,7 +103,7 @@ const DDL = [
     enterprise_id BIGINT NOT NULL,
     trademark VARCHAR(100) NULL COMMENT '产品商标',
     name VARCHAR(255) NOT NULL COMMENT '农药名称',
-    registration_no VARCHAR(32) NOT NULL COMMENT '登记证号（全局唯一）',
+    registration_no VARCHAR(32) NOT NULL COMMENT '登记证号（不同规格或商标可共用）',
     registration_expire DATE NULL COMMENT '登记证有效期至',
     reg_category TINYINT NULL COMMENT '1=PD 2=WP',
     holder_name VARCHAR(255) NULL COMMENT '登记证持有人名称',
@@ -118,7 +119,9 @@ const DDL = [
     manual_image VARCHAR(500) NULL,
     status TINYINT NOT NULL DEFAULT 1 COMMENT '0停用 1启用',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uq_registration_no (registration_no),
+    sku_trademark VARCHAR(100) GENERATED ALWAYS AS (TRIM(COALESCE(trademark, ''))) VIRTUAL,
+    UNIQUE KEY uq_product_sku (enterprise_id, registration_no, spec_id, sku_trademark),
+    KEY idx_product_registration (registration_no),
     KEY idx_enterprise (enterprise_id),
     KEY idx_spec (spec_id),
     KEY idx_reg_expire (registration_expire)
@@ -355,6 +358,7 @@ const DDL = [
 
 // 增量迁移：CREATE TABLE IF NOT EXISTS 不会修改已存在的表，历史库需单独补列/补索引（幂等）
 async function migrate(conn) {
+  await migrateProductSkuSchema(conn);
   const hasColumn = async (table, column) => {
     const [rows] = await conn.query(
       'SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1',

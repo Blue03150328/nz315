@@ -251,29 +251,7 @@ const OFFLINE_TOOL = {
   // 发布件校验值：客户下载后可用 `certutil -hashfile 文件名 SHA256` 核对，确认拿到的是官方发布件、未被替换
   sha256: '04373ae1dc21752636f1b68945edb2dca8cff19c8b005b2ace1070cbc0a72fe8',
 }
-const toolDownloading = ref(false)
-
-/** 离线工具下载：走 fetch → Blob → 临时 a 标签。
- *  不用 <a href download> 直链——SPA 客户端路由会拦截无路由路径（同 specs/index.vue 模板下载的踩坑记录） */
-const downloadOfflineTool = async () => {
-  toolDownloading.value = true
-  try {
-    const blob: any = await $fetch(OFFLINE_TOOL.url, { responseType: 'blob' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = OFFLINE_TOOL.fileName
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
-    toast.add({ title: '离线工具下载已开始', color: 'success' })
-  } catch {
-    toast.add({ title: '离线工具下载失败，请稍后重试', color: 'error' })
-  } finally {
-    toolDownloading.value = false
-  }
-}
+// external 显式绕过 SPA 路由，浏览器直接接收附件并显示进度，避免完整90MB Blob等待。
 </script>
 <template>
   <div class="space-y-4">
@@ -503,11 +481,14 @@ const downloadOfflineTool = async () => {
           color="neutral"
           variant="solid"
           icon="i-lucide-download"
-          :loading="toolDownloading"
-          @click="downloadOfflineTool"
+          :href="OFFLINE_TOOL.url"
+          :download="OFFLINE_TOOL.fileName"
+          external
+          target="_blank"
         >
           下载离线工具
         </UButton>
+        <span class="text-xs text-muted">浏览器下载列表可查看进度；文件较大，下载一次即可离线使用。</span>
       </div>
     </div>
 

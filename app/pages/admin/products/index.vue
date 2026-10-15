@@ -20,12 +20,6 @@ const TOXICITY = ['微毒', '低毒', '中等毒', '高毒', '剧毒']
 const REG_CATEGORIES = [{ value: 1, label: 'PD（代码1）' }, { value: 2, label: 'WP（代码2）' }]
 const PRODUCE_TYPES = [{ value: 1, label: '持有人生产' }, { value: 2, label: '委托加工' }, { value: 3, label: '委托分装' }]
 
-// 规格主数据（含停用）：编辑已绑定「已停用规格」的产品时下拉需能显示当前值
-const { data: specData } = await useFetch<any>('/api/admin/specs', {
-  key: 'admin-specs-all',
-  query: { page: 1, pageSize: 100 },
-})
-
 const { data, pending, refresh, error } = await useFetch<any>('/api/admin/products', {
   key: 'admin-products',
   query: computed(() => ({
@@ -108,7 +102,7 @@ const categoryOptions = computed(() => {
   return list
 })
 
-const selectedSpec = computed(() => (specData.value?.rows || []).find((s: any) => Number(s.id) === Number(form.specId)))
+const selectedSpec = ref<any>(null)
 const pesticideName = ref('')
 const autoProductName = ref(false)
 const generatedProductName = computed(() => formatProductName({ name: pesticideName.value, content: form.content, dosage: form.dosage, trademark: form.trademark, spec: selectedSpec.value }))
@@ -233,6 +227,7 @@ function onCompanyChange() {
 }
 
 const openCreate = async () => {
+  selectedSpec.value = null
   autoProductName.value = false
   pesticideName.value = ''
   editingId.value = null
@@ -257,8 +252,8 @@ const openEdit = (row: any) => {
   autoProductName.value = false
   // 编辑旧产品时保留原保存名称；用户主动按字段生成后才应用新口径。
   pesticideName.value = String(row.name || '').replace(/^[（(][^）)]+[）)]/, '').trim()
-  const spec = (specData.value?.rows || []).find((item: any) => Number(item.id) === Number(row.spec_id))
-  for (const suffix of [row.spec_name, spec ? formatSpecification(spec.net_content, spec.content_unit, spec.pack_unit, spec.pack_quantity ?? 1) : '', row.dosage]) {
+  selectedSpec.value = null
+  for (const suffix of [row.spec_name, row.dosage]) {
     if (suffix && pesticideName.value.endsWith(suffix)) pesticideName.value = pesticideName.value.slice(0, -String(suffix).length).trim()
   }
   if (row.content && pesticideName.value.startsWith(row.content)) pesticideName.value = pesticideName.value.slice(String(row.content).length)
@@ -572,17 +567,13 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
               </div>
               <div>
                 <label class="b-label-lg">规格（来自主数据，不可手填）<span class="b-required">*</span></label>
-                <USelect
+                <SpecPicker
                   v-model="form.specId"
-                  :items="(specData?.rows || []).map((s: any) => ({
-                    value: Number(s.id),
-                    label: Number(s.status) === 1 ? s.spec_name : s.spec_name + '（已停用）',
-                    disabled: Number(s.status) !== 1 && Number(s.id) !== Number(form.specId),
-                  }))"
-                  placeholder="选择规格"
-                  class="w-full"
-                  :content="{ class: 'min-w-72' }"
-                  :ui="{ itemLabel: { class: 'whitespace-normal break-words' } }"
+                  :product-id="editingId"
+                  :enterprise-id="enterpriseId"
+                  :company="isPlatformAdmin && !editingId ? pickedCompany : null"
+                  :disabled="isPlatformAdmin && !enterpriseId && !pickedCompany"
+                  @selected="selectedSpec = $event"
                 />
                 <p v-if="selectedSpec" class="b-help">
                   规格：{{ formatSpecification(selectedSpec.net_content, selectedSpec.content_unit, selectedSpec.pack_unit, selectedSpec.pack_quantity ?? 1) || selectedSpec.spec_name }}（自动带出）

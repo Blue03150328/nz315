@@ -12,7 +12,7 @@ const root = fileURLToPath(new URL('../', import.meta.url))
 const expected = expectedColumns(root)
 const found = new Set(expected.map(c => c.join('.')))
 
-test('上线脚本解析现有17表213列并保留两列迁移边界', () => {
+test('上线脚本解析现有17表214列并保留两列迁移边界', () => {
   assert.deepEqual(latestColumns(root), expected)
   assert.deepEqual(latestMissing(expected, found), [])
   const missing = new Set(found)
@@ -30,9 +30,10 @@ test('源码标记必须存在且与现役公网构建一致，未知或过时�
   }
 })
 
-test('现有源码全部17表和213列被发布检查覆盖', () => {
+test('现有源码全部17表和214列被发布检查覆盖', () => {
   assert.equal(new Set(expected.map(c => c[0])).size, 17)
-  assert.equal(expected.length, 213)
+  assert.equal(expected.length, 214)
+  assert.ok(found.has('product.sku_trademark'))
   assert.deepEqual(permittedMissing(expected, found), [])
 })
 test('仅允许补充记账剂型与门店两列', () => {
@@ -42,7 +43,7 @@ test('仅允许补充记账剂型与门店两列', () => {
   assert.deepEqual(permittedMissing(expected, actual), ['farm_bill.dosage', 'farm_bill.store_name'])
 })
 test('其他缺列和旧结构拒绝自动迁移', () => {
-  for (const column of ['user.session_epoch', 'trace_code.expire_date', 'trace_code.qc_result', 'product_original.ingredient', 'product_spec.pack_quantity']) {
+  for (const column of ['user.session_epoch', 'trace_code.expire_date', 'trace_code.qc_result', 'product_original.ingredient', 'product_spec.pack_quantity', 'product.sku_trademark']) {
     const actual = new Set(found)
     actual.delete(column)
     assert.throws(() => permittedMissing(expected, actual), /未覆盖/)

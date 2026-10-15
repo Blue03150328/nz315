@@ -5,6 +5,7 @@ import { getPool, query } from '../../utils/db'
 import { requireWritableUser } from '../../utils/auth'
 import { normalizeOrgName, registrationExistsInRegistry } from '../../utils/regdata'
 import { triggerAlert } from '../../utils/risk-alert'
+import { parseProductSku, validateProductSku, productSkuWriteError } from '../../utils/product-sku'
 
 /** 厂家名（登记数据源 company）→ 系统企业 id：企业名称归一化相等匹配；未入驻返回 null */
 async function resolveEnterpriseByCompany(companyName: string): Promise<number | null> {
@@ -26,6 +27,7 @@ export default defineEventHandler(async (event) => {
   if (!registrationNo) throw createError({ statusCode: 400, statusMessage: '请输入登记证号' })
   if (!name) throw createError({ statusCode: 400, statusMessage: '请输入农药名称' })
   if (!body.specId) throw createError({ statusCode: 400, statusMessage: '请选择规格（来自产品规格主数据）' })
+  const { specId, trademark } = parseProductSku(body)
   if (!String(body.category || '').trim()) throw createError({ statusCode: 400, statusMessage: '请选择产品类别' })
 
   // 原药行校验：至少 1 行，每行登记证号与企业名称必填（含手动输入的自定义内容，需非空）
@@ -34,10 +36,6 @@ export default defineEventHandler(async (event) => {
   const validOriginals = originals.filter((row: any) => String(row.regNo || '').trim() || String(row.company || '').trim() || String(row.ingredient || '').trim())
   if (!validOriginals.length) throw createError({ statusCode: 400, statusMessage: '原药信息至少保留 1 行有效记录' })
   for (const row of validOriginals) if (!String(row.regNo || '').trim() || !String(row.company || '').trim()) throw createError({ statusCode: 400, statusMessage: '原药登记证号与原药生产企业名称需同时填写' })
-
-  // 登记证号全局唯一（PRD 5.4 业务规则1）
-  const [dup] = await query<any[]>('SELECT id FROM product WHERE registration_no = ? LIMIT 1', [registrationNo])
-  if (dup) throw createError({ statusCode: 400, statusMessage: '该登记证号已存在' })
 
   let fid: number | null = user.enterprise_id
   if (user.role === 'platform_admin') {
@@ -58,6 +56,7 @@ export default defineEventHandler(async (event) => {
       }
     }
   }
+  if (!Number.isSafeInteger(fid) || Number(fid) <= 0) throw createError({ statusCode: 400, statusMessage: '请指定有效的归属厂家' })
 
   // 🔴 N1 修复（2026-09-23）：登记证号必须存在于国家农药登记资料库（`pesticide_reg`）。
   //    PRD 5.9 异常清单第 3 条要求「后台预警 + 产品建档时阻断」——此前两半都没做：
@@ -79,20 +78,21 @@ export default defineEventHandler(async (event) => {
   const conn = await pool.getConnection()
   try {
     await conn.beginTransaction()
+    await validateProductSku(conn, Number(fid), registrationNo, specId, trademark)
     const [result]: any[] = await conn.query(
       `INSERT INTO product (enterprise_id, trademark, name, registration_no, registration_expire, reg_category,
          holder_name, produce_type, dosage, content, spec_id,
          category, toxicity, is_restricted, label_image, manual_image, status)
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [fid,
-       String(body.trademark || '').trim(),
+       trademark,
        name, registrationNo,
        body.registrationExpire || null,
        body.regCategory !== undefined ? Number(body.regCategory) : 1,
        String(body.holderName || '').trim(),
        body.produceType !== undefined ? Number(body.produceType) : 1,
        String(body.dosage || '').trim(), String(body.content || '').trim(),
-       Number(body.specId),
+       specId,
        String(body.category || '').trim(), String(body.toxicity || '').trim(),
        body.isRestricted ? 1 : 0,
        String(body.labelImage || '').trim() || null,
@@ -122,7 +122,7 @@ export default defineEventHandler(async (event) => {
     return { ok: true, id: result.insertId }
   } catch (e: any) {
     await conn.rollback()
-    throw e
+    throw productSkuWriteError(e)
   } finally {
     conn.release()
   }

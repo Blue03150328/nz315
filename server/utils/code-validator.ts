@@ -71,7 +71,7 @@ export function validateCode(
       if (diff) {
         const [start, end, label] = diff
         base.reason = `第${start + 1}${end > start + 1 ? '–' + end : ''}位${label}与产品不一致（应为${product.head.slice(start, end)}，实际${code.slice(start, end)}）`
-      } else base.reason = '码头部匹配多个产品，请检查产品建档'
+      } else base.reason = '码头部匹配多个产品，请先选择具体产品（含商标）'
     } else base.reason = productId === undefined ? '登记证后6位(' + code.slice(1, 7) + ')未匹配产品' : '码归属与所选产品不一致'
     base.reasonCode = 'PRODUCT_MISMATCH'
     return base
