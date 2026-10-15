@@ -1,5 +1,7 @@
 # AGENTS.md — AI 协作指南（项目 Memory 系统）
 
+> **2026-10-15 实时状态与APK3.1.9已上线**：网站b990a3d于09:38北京时间Docker healthy，源 `/var/www/.nz315-heartbeat-20261015-b990a3d5`，有效完整备份 `/var/backups/nz315/heartbeat-20261015-b990a3d5`。零DDL、42表原字段指纹一致；原凭据及cynx保持。实际金丝鸟HTTPS范围003线运行设备1、离线0，26号任务display_status=active且collected=0；现场3.1.9原签名覆盖，心跳从空恢复暂停与运行，未注入业务测试码。609事件安装前私有备份；未卸载清数据，保持原任务。09:40新增3.1.9 APK下载，原14文件及旧下载保持，仅添加精准Nginx下载location，回退配置存备份。
+
 > **2026-10-15 生产实时状态修复**：线上003线设备002工人老刘的会话已登记但heartbeat_ms为空；APK ProductionClient白名单漏heartbeat且WorkerEngine静默重试。仅设备身份、POST和UUID会话范围放行心跳，3.1.9/versionCode18原签名覆盖，609条本机数据先备份。任务显示改为登记会话即进行中，不以10～15分钟上传的有效码判断，码数仍按服务器收据。新JVM回归原版失败、修复后143 JVM通过，网站125单测／5跳过＋真实CTE／23隔离组、类型及构建通过；实机已核对暂停／运行真实心跳。发布及数据复核另记，不伪造心跳或补写业务码。
 
 > **2026-10-15 固定信息列移除已Docker上线**：运行 `520e7a87a76824019f3b621c1b6f173a75de2167`，镜像 `nz315-production:520e7a87a768`，目录 `/var/www/.nz315-fixed-columns-20261015-520e7a87`，有效完整备份 `/var/backups/nz315/fixed-columns-20261015-520e7a87`。产线厂家列、任务名称列移除，总部厂家筛选在顶部；旧布局自动过滤移除列，其他列设置保留。12项浏览器及Docker构建通过，候选／HTTPS核对列与筛选、旧API鉴权，healthy。零DDL，42表原字段指纹保持，凭据／Nginx／14下载／cynx和APK保持。Desktop主仓及本机Docker同步，前版Compose保留；只回滚应用，勿覆盖业务库。
