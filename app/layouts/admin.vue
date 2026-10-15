@@ -4,6 +4,7 @@
 // 路由高亮说明：数据概览（/admin 根路径）仅精确匹配当前路由；其余模块按前缀匹配，
 // 否则 /admin 前缀会吞掉全部 /admin/* 子路由，导致数据概览永远高亮
 const route = useRoute()
+const productionPage = computed(() => route.path === '/admin/production-tasks' || route.path.startsWith('/admin/production-tasks/'))
 const router = useRouter()
 const toast = useToast()
 const { user, roleLabel, logout, canWrite, canManageUsers, clearLocalSession } = useUser()
@@ -182,7 +183,7 @@ const onLogout = async () => {
     />
 
     <!-- 右侧内容区：<lg 不占侧栏宽度 -->
-    <div class="min-w-0 flex-1 lg:ml-60">
+    <div class="min-w-0 flex-1 lg:ml-60" :class="{ 'production-content': productionPage }">
       <!-- 移动端顶栏：汉堡按钮拉开抽屉（lg 起隐藏，桌面端无此栏） -->
       <div class="sticky top-0 z-30 flex items-center gap-3 border-b border-[var(--b-border)] bg-white px-4 py-3 lg:hidden">
         <button
@@ -200,7 +201,7 @@ const onLogout = async () => {
       </div>
       <!-- 内容区：放宽容器适配 PC 大屏（企业后台信息密度）；
            左右内边距与 --b-content-px（main.css）保持一致，批量操作条吸底靠该变量全宽出血，改一处即可 -->
-      <main :class="route.path === '/admin/production-tasks' ? 'w-full max-w-none px-4 py-6 lg:px-5' : 'mx-auto max-w-[1600px] px-4 py-6 lg:px-8 lg:py-8'">
+      <main :class="productionPage ? 'production-main w-full max-w-none p-3 lg:p-4' : 'mx-auto max-w-[1600px] px-4 py-6 lg:px-8 lg:py-8'">
         <!-- 只读账号提示条（2026-09-19）：写入口已按角色全部隐藏，此处统一说明，避免用户以为"功能丢了" -->
         <div v-if="!canWrite" class="mb-4 rounded-lg border border-border bg-warning-soft px-4 py-2.5 text-sm text-default">
           当前为<strong>只读账号</strong>，仅可查看数据，新增/修改/删除等操作入口已隐藏。如需写权限，请联系厂家主账号或平台管理员开通。
@@ -210,3 +211,6 @@ const onLogout = async () => {
     </div>
   </div>
 </template>
+<style scoped>
+.production-content{display:flex;flex-direction:column;height:100dvh;min-height:0}.production-content>div{flex-shrink:0}.production-main{display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto}
+</style>

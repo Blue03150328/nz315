@@ -15,7 +15,7 @@ const busy=ref(false)
 function resetSearch(){keyword.value='';Object.assign(filters,{keyword:'',lineName:'',enterpriseId:'',operatorId:'',status:'',dateFrom:'',dateTo:''});page.value=1}
 watch(()=>[route.query.lineName,route.query.enterpriseId],()=>{filters.lineName=String(route.query.lineName||'');filters.enterpriseId=String(route.query.enterpriseId||'')})
 const details=ref<Record<number,boolean>>({}),codeTask=ref<any>(null),showCodes=ref(false),codePage=ref(1),codeState=ref(''),codeKeyword=ref(''),codeSource=ref('internal')
-const codeColumns=[{key:'code',label:'追溯码',width:340},{key:'raw_code',label:'外部标签原文',width:500},{key:'product_name',label:'产品',width:260},{key:'batch_no',label:'批号',width:160},{key:'produce_date',label:'生产日期',width:150},{key:'operator_name',label:'操作员',width:180},{key:'device',label:'设备',width:160},{key:'used_at',label:'内部采集时间',width:210},{key:'captured_at',label:'外部采集时间',width:210}]
+const codeColumns=[{key:'code',label:'追溯码',width:340},{key:'raw_code',label:'外部标签原文',width:500},{key:'product_name',label:'产品',width:240,flex:2},{key:'batch_no',label:'批号',width:160},{key:'produce_date',label:'生产日期',width:150},{key:'operator_name',label:'操作员',width:180},{key:'device',label:'设备',width:160},{key:'used_at',label:'内部采集时间',width:210},{key:'captured_at',label:'外部采集时间',width:210}]
 const {data:codeData,pending:codeBusy,refresh:refreshCodes}=await useFetch<any>(()=>codeTask.value?`/api/admin/production-tasks/${codeTask.value.id}${codeSource.value==='external'?'/external-codes':''}`:'/api/admin/production-lines',{immediate:false,query:{page:codePage,state:codeState,keyword:codeKeyword}})
 async function openCodes(t:any){codeTask.value=t;codePage.value=1;codeState.value='';codeKeyword.value='';showCodes.value=true;await refreshCodes()}
 watch(codeSource,()=>{codePage.value=1;codeState.value=''})
@@ -51,22 +51,22 @@ onMounted(startRefresh)
 onActivated(startRefresh)
 onDeactivated(()=>{clearInterval(timer);timer=undefined})
 onBeforeUnmount(()=>clearInterval(timer))
-const columns=computed(()=>[...(canManageUsers.value?[{key:'selection',label:'选择',width:90}]:[]),{key:'name',label:'任务名称',width:210},{key:'line_name',label:'生产线',width:160},{key:'operatorLabel',label:'操作员',width:240},{key:'productLabel',label:'产品',width:240},{key:'statusLabel',label:'状态',width:140},{key:'collected',label:'有效码合计',width:130},{key:'internal_count',label:'内部码',width:130},{key:'external_count',label:'外部码',width:130},{key:'duplicates',label:'重复码',width:110},{key:'exceptions',label:'异常码',width:110},{key:'started',label:'开始时间',width:200},{key:'stopped',label:'结束时间',width:200},{key:'actions',label:'操作',width:270}])
+const columns=computed(()=>[...(canManageUsers.value?[{key:'selection',label:'选择',width:56,minWidth:56,align:'center' as const}]:[]),{key:'name',label:'任务名称',width:150,flex:1},{key:'line_name',label:'生产线',width:124},{key:'operatorLabel',label:'操作员',width:160},{key:'productLabel',label:'产品',width:240,flex:2},{key:'statusLabel',label:'状态',width:116},{key:'collected',label:'有效码合计',width:100,minWidth:72,align:'right' as const},{key:'internal_count',label:'内部码',width:76,minWidth:72,align:'right' as const},{key:'external_count',label:'外部码',width:76,minWidth:72,align:'right' as const},{key:'duplicates',label:'重复码',width:76,minWidth:72,align:'right' as const},{key:'exceptions',label:'异常码',width:76,minWidth:72,align:'right' as const},{key:'started',label:'开始时间',width:190},{key:'stopped',label:'结束时间',width:190},{key:'actions',label:'操作',width:224}])
 const taskRows=computed(()=>(data.value?.rows||[]).map((t:any)=>{const operators=(t.operators||[]).filter((p:any)=>!p.removed_at||p.started_ms||p.started_at);return {...t,...t.monitor,operatorLabel:operators.map((p:any)=>`${p.name||'-'}（${p.username||'-'}）`).join('、')||'-',productLabel:t.actual_product_names||t.product_name||'-',statusLabel:t.display_status==='not_started'?'未开始':t.display_status==='active'?'进行中':'已结束',started:clock(t.started_ms,t.started_at),stopped:t.status==='active'?'-':clock(t.stopped_ms,t.stopped_at||t.ended_at)}}))
 const detailTask=ref<any>(null),showDetail=ref(false)
 function openDetail(t:any){detailTask.value=t;showDetail.value=true}
 </script>
 <template>
- <div class="space-y-4">
+ <div class="production-page">
   <ProductionManagementTabs />
   <ExternalCollectionList v-if="historyExternal" mode="tasks" />
   <template v-else>
   <div class="flex flex-wrap justify-between items-center gap-3"><div><h1 class="b-page-title">生产任务</h1><p class="b-page-desc">工人选择生产线后自动加入任务；所有参与设备结束并完整上传后，任务自动结束。</p></div><div class="flex gap-2"><UButton v-if="canManageUsers" color="error" variant="outline" :disabled="!selectedIds.length||busy" @click="openBulkDelete">批量删除<span v-if="selectedIds.length">（{{ selectedIds.length }}）</span></UButton></div></div>
-  <div class="b-card p-5 space-y-4">
+  <div class="b-card production-panel">
    <form class="flex flex-wrap items-end gap-3" @submit.prevent="filters.keyword=keyword.trim();refresh()"><label class="min-w-64 flex-1"><span class="block mb-1 text-sm">模糊搜索</span><UInput v-model="keyword" placeholder="任务、产品、生产线、文件、员工姓名或工号" class="w-full" /></label><label><span class="block mb-1 text-sm">操作员</span><USelectMenu v-model="filters.operatorId" :items="operatorOptions" value-key="value" placeholder="全部操作员" :clear="true" :search-input="{placeholder:'姓名或工号'}" /></label><label><span class="block mb-1 text-sm">创建日期从</span><input v-model="filters.dateFrom" type="date" class="rounded border p-2" /></label><label><span class="block mb-1 text-sm">至</span><input v-model="filters.dateTo" type="date" class="rounded border p-2" /></label><UButton type="submit">查询</UButton><UButton variant="outline" @click="resetSearch">重置</UButton><UButton variant="outline" :loading="pending" @click="refresh()">刷新</UButton></form>
    <p class="text-sm text-muted">拖动表头移动整列，拖动列边线调整宽度；支持左右滚动。码数只统计服务器已确认的记录。</p>
    <p v-if="error" class="text-error">查询失败，请重试。</p><p v-else-if="pending&&!data?.rows">正在加载…</p>
-   <ProductionGrid :columns="columns" :rows="taskRows" row-key="id" :storage-key="'production-task-columns:v3:'+user?.id">
+   <ProductionGrid class="production-table" fill-height :columns="columns" :rows="taskRows" row-key="id" :storage-key="'production-task-columns:v3:'+user?.id">
     <template #filter-selection><input v-if="canManageUsers" type="checkbox" aria-label="选择当前页可删除任务" :checked="allSelected" :indeterminate="selectedIds.length>0&&!allSelected" :disabled="!removableRows.length||busy" @change="togglePage(($event.target as HTMLInputElement).checked)"></template>
     <template #filter-line_name><USelectMenu v-model="filters.lineName" :items="lineOptions" value-key="value" placeholder="全部生产线" aria-label="按生产线筛选" :clear="true" :search-input="{placeholder:'搜索生产线'}" class="w-full" size="xs" /></template>
     <template #filter-operatorLabel><USelectMenu v-model="filters.operatorId" :items="operatorOptions" value-key="value" placeholder="全部操作员" aria-label="按操作员筛选" :clear="true" :search-input="{placeholder:'搜索姓名或工号'}" class="w-full" size="xs" /></template>
@@ -83,4 +83,6 @@ function openDetail(t:any){detailTask.value=t;showDetail.value=true}
  </template>
  </div>
 </template>
-<style scoped>input[type=checkbox]{width:18px;height:18px;accent-color:var(--ui-primary)}</style>
+<style scoped>input[type=checkbox]{width:18px;height:18px;accent-color:var(--ui-primary)}
+.production-page{display:flex;flex-direction:column;flex:1;min-height:0;gap:12px}.production-page>div{flex-shrink:0}.production-page>.production-panel{display:flex;flex-direction:column;flex:1;min-height:300px;padding:12px;gap:12px}.production-panel>.production-table{flex:1;min-height:0}
+</style>
