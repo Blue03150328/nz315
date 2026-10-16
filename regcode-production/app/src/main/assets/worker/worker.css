@@ -17,3 +17,13 @@ body[data-page=prepare] .prepare-dates input{font-size:16px}
 
 /* 登录后的页面仅保留当前操作内容，身份仍随每条采集记录保存。 */
 body[data-page=home]>header,body[data-page=scan]>header,body[data-page=ended]>header,body[data-page=history]>header,body[data-page=products]>header{display:none}
+
+.record-card{width:100%;text-align:left;white-space:normal;padding:16px;border:1px solid #cbd8ce;border-radius:12px;background:#fff;margin:0 0 12px;color:#1f3327;height:auto}
+.record-card-top{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap}.record-card-top>span,.detail-link{color:#35694d;font-size:17px}.record-card p{margin:7px 0;font-size:18px;overflow-wrap:anywhere}.record-product{font-weight:600}.record-counts{display:flex;gap:12px;flex-wrap:wrap;font-size:17px;margin:12px 0}.record-counts b{font-size:24px}.detail-link{display:block;text-align:right}
+.record-fields{background:#fff;border:1px solid #d6dfd9;border-radius:10px;overflow:hidden}.record-field{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px;padding:12px;border-bottom:1px solid #e2e8e4;font-size:18px}.record-field>span{color:#596c60}.record-field>strong{font-weight:500;overflow-wrap:anywhere;white-space:normal}.record-timeline{border-left:3px solid #4d8063;padding-left:16px;margin:16px}.record-timeline p{font-size:18px}.record-events article{background:#fff;border:1px solid #d4dfd7;padding:14px;margin:12px 0;border-radius:8px}.record-events pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:18px;line-height:1.5;user-select:text}.record-events small{overflow-wrap:anywhere}.record-events p{font-size:18px}
+
+body[data-page=recordDetail]>header{display:none}
+
+body[data-page=history] main{padding:12px}body[data-page=history] .page-heading{margin-bottom:10px}
+.record-scope-note{font-size:15px;margin:6px 0 12px;color:#596c60}.record-filters{margin:8px 0;color:#52685b;font-size:17px}.record-filters summary{cursor:pointer;padding:6px 0}.record-filter-dates{margin-top:8px}.record-filter-dates label{margin:0;font-size:17px}.record-filter-dates input{padding:8px;min-height:48px;font-size:17px;width:100%}
+body[data-page=history] .history-search{gap:6px;margin:10px 0}body[data-page=history] .history-search button{font-size:17px;min-width:50px;width:auto;padding:8px;min-height:48px;margin:0}body[data-page=history] .history-search input{min-width:0;min-height:48px;padding:8px;font-size:18px}body[data-page=history] #historyCount{font-size:16px;margin:8px 0}

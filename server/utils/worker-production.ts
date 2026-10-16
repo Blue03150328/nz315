@@ -1,3 +1,4 @@
+import { isCaptureRole } from './capture-role'
 import {lockMonitoredTask,completeMonitoredTask,lineName as canonicalLineName} from './production-monitor'
 import { lineCache, openLineSession, lineEvent, offlineExportKey } from './line-production'
 import { randomBytes, randomUUID, createHash } from 'node:crypto'
@@ -26,31 +27,31 @@ export async function workerLogin(device:AuthUser,body:any){
  const username=String(body.username||'').trim(),key=device.device_id+':'+username,rec=attempts.get(key)
  if(rec&&rec.until>Date.now()&&rec.count>=5)fail('登录失败次数过多，请15分钟后重试',429)
  const [user]=await query<any[]>('SELECT * FROM user WHERE username=?',[username])
- if(!user||user.role!=='production_operator'||Number(user.enterprise_id)!==Number(device.enterprise_id)||Number(user.status)!==1||!await verifyPassword(String(body.password||''),user.password)){
-  const old=rec&&rec.until>Date.now()?rec:{count:0,until:Date.now()+900000};old.count++;attempts.set(key,old);fail('工号或密码错误，或账号不属于本厂生产操作员',401)
+ if(!user||!isCaptureRole(user.role)||Number(user.enterprise_id)!==Number(device.enterprise_id)||Number(user.status)!==1||!await verifyPassword(String(body.password||''),user.password)){
+  const old=rec&&rec.until>Date.now()?rec:{count:0,until:Date.now()+900000};old.count++;attempts.set(key,old);fail('工号或密码错误，或账号不属于本厂普工或线长',401)
  }
  return transaction(async conn=>{
   await lockProductionDevice(conn,device)
   const [[locked]]=await conn.query<any[]>('SELECT * FROM user WHERE id=? FOR UPDATE',[user.id])
-  if(locked.password!==user.password||Number(locked.status)!==1||locked.role!=='production_operator'||Number(locked.enterprise_id)!==Number(device.enterprise_id))fail('账号资料已变更，请重新登录',401)
+  if(locked.password!==user.password||Number(locked.status)!==1||!isCaptureRole(locked.role)||Number(locked.enterprise_id)!==Number(device.enterprise_id))fail('账号资料已变更，请重新登录',401)
   const token=randomBytes(32).toString('hex'),id=randomUUID(),issuedAt=Date.now(),expiresAt=issuedAt+72*3600000
-  const identity={id:Number(user.id),name:user.name||user.username,username:user.username,enterpriseId:Number(user.enterprise_id),enterpriseName:device.enterprise_name,deviceId:device.device_id,deviceName:device.name,lineName:device.device_line,role:'production_operator'}
+  const identity={id:Number(user.id),name:user.name||user.username,username:user.username,enterpriseId:Number(user.enterprise_id),enterpriseName:device.enterprise_name,deviceId:device.device_id,deviceName:device.name,lineName:device.device_line,role:user.role}
   await conn.execute('INSERT INTO worker_grant(id,device_id,user_id,enterprise_id,token_hash,user_version,identity_json,issued_at,expires_at) VALUES(?,?,?,?,?,?,?,?,?)',[id,device.device_id,user.id,user.enterprise_id,hash(token),user.session_epoch,JSON.stringify(identity),issuedAt,expiresAt])
   await conn.execute('UPDATE user SET last_login_at=NOW() WHERE id=?',[user.id])
   await audit(conn,{...device,id:user.id},'operator_login',null,{grantId:id});attempts.delete(key)
   return {ok:true,grant:token,grantId:id,exportKey:offlineExportKey(id),issuedAt,expiresAt,serverTime:issuedAt,identity,device:{id:device.device_id,name:device.name,lineName:device.device_line,enterpriseName:device.enterprise_name}}
  })
 }
-async function grantOf(device:AuthUser,token:string,historical=false){
+export async function grantOf(device:AuthUser,token:string,historical=false){
  if(!/^[a-f0-9]{64}$/.test(token||''))fail('请工人登录',401)
  const [g]=await query<any[]>('SELECT g.*,u.status AS user_status,u.role AS user_role,u.session_epoch AS current_version,u.enterprise_id AS current_enterprise FROM worker_grant g JOIN user u ON u.id=g.user_id WHERE token_hash=? AND device_id=?',[hash(token),device.device_id])
  if(!g||Number(g.enterprise_id)!==Number(device.enterprise_id))fail('工人授权与设备不一致',401)
- g.changed=Number(g.user_status)!==1||g.user_role!=='production_operator'||Number(g.current_version)!==Number(g.user_version)||Number(g.current_enterprise)!==Number(g.enterprise_id)
- if(!historical&&(g.changed||Number(g.expires_at)<Date.now()))fail('工人授权失效，请重新登录',401)
+ g.changed=Number(g.user_status)!==1||!isCaptureRole(g.user_role)||Number(g.current_version)!==Number(g.user_version)||Number(g.current_enterprise)!==Number(g.enterprise_id)
+ if(!historical&&(g.changed||json(g.identity_json).role!==g.user_role||Number(g.expires_at)<Date.now()))fail('工人授权失效，请重新登录',401)
  return g
 }
 export async function workerCheck(device:AuthUser,token:string){const g=await grantOf(device,token),expiresAt=Date.now()+72*3600000;await execute('UPDATE worker_grant SET expires_at=? WHERE id=?',[expiresAt,g.id]);return {ok:true,identity:json(g.identity_json),expiresAt,serverTime:Date.now()}}
-export async function workerDownloadUser(device:AuthUser,token:string):Promise<AuthUser>{const g=await grantOf(device,token);return {...device,id:Number(g.user_id),role:'production_operator'}}
+export async function workerDownloadUser(device:AuthUser,token:string):Promise<AuthUser>{const g=await grantOf(device,token);if(g.user_role!=='line_leader')fail('仅线长可下载采集记录',403);return {...device,id:Number(g.user_id),role:'line_leader'}}
 export async function workerTracePreview(codeId:number){
  let row:any
  try { [row]=await query<any[]>("SELECT r.context_json,r.effective_context,r.qc_state FROM worker_pool_code p JOIN worker_run r ON r.pool_id=p.pool_id WHERE p.code_id=? AND p.state='captured' ORDER BY r.created_at DESC LIMIT 1",[codeId]) }
@@ -110,7 +111,7 @@ export async function openWorkerSession(device:AuthUser,body:any,verifiedGrant?:
    if(context.mode==='production'){
     const [[pool]]=await conn.query<any[]>('SELECT * FROM worker_pool WHERE id=? FOR UPDATE',[context.poolId]);if(!pool||pool.device_id!==device.device_id||pool.product_id!==context.productId||pool.state!=='ready')fail('预配码池不属于设备、产品，或仍待审核')
     const [[p]]=await conn.query<any[]>('SELECT * FROM product WHERE id=?',[context.productId]);if(!p||Number(p.status)!==1)fail('产品已停用')
-    const [[spec]]=await conn.query<any[]>('SELECT spec_name FROM product_spec WHERE id=?',[p.spec_id]);productSnapshot={id:p.id,name:p.name,registrationNo:p.registration_no,specName:spec?.spec_name}
+    const [[spec]]=await conn.query<any[]>('SELECT spec_name FROM product_spec WHERE id=?',[p.spec_id]);productSnapshot={id:p.id,name:p.name,trademark:p.trademark,content:p.content,dosage:p.dosage,registrationNo:p.registration_no,specName:spec?.spec_name}
     const [others]=await conn.query<any[]>('SELECT context_json,effective_context FROM worker_run WHERE enterprise_id=? AND product_id=?',[device.enterprise_id,context.productId])
     const [[old]]=await conn.query<any[]>('SELECT produce_date,expire_date FROM batch WHERE product_id=? AND batch_no=?',[context.productId,context.batchNo])
     contextConflict=!!((old&&(String(old.produce_date).slice(0,10)!==context.produceDate||String(old.expire_date).slice(0,10)!==context.expireDate))||others.some(r=>{const c=contextOfRun(r);return batchKey(c.batchNo)===batchKey(context.batchNo)&&(c.produceDate!==context.produceDate||c.expireDate!==context.expireDate)}))
@@ -166,7 +167,7 @@ export async function syncWorkerEvents(device:AuthUser,sessionId:string,body:any
     if(old){result='duplicate';reason='重复采集，原文保留，不重复导出'}else result='saved'
      classification=traceUrlClassification(event.rawCode,String(useRuntimeConfig().public.traceBaseUrl))
    }
-   if(!within||Number(g.us)!==1||Number(g.uv)!==Number(g.user_version)||g.ur!=='production_operator'||Number(g.ue)!==Number(run.enterprise_id)){
+   if(!within||Number(g.us)!==1||Number(g.uv)!==Number(g.user_version)||!isCaptureRole(g.ur)||Number(g.ue)!==Number(run.enterprise_id)){
     await conn.execute('UPDATE worker_run SET review_needed=1 WHERE id=?',[run.id]);reason=(reason?reason+'；':'')+'工人授权或采集时间需管理员核对，历史数据保留'
    }
    await conn.execute('INSERT INTO worker_event(id,session_id,sequence_no,code,raw_code,kind,result_state,classification,reason,payload_hash,captured_at,dedup_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',[event.eventId,sessionId,event.sequence,unified&&classification!=='internal'?null:event.code,event.rawCode,event.kind,result,classification,reason,hash(event),event.capturedAt.replace('T',' ').replace('Z',''),dedup])
@@ -184,6 +185,7 @@ export async function finishWorkerSession(device:AuthUser,id:string,body:any){re
  if(!Number.isSafeInteger(body.lastSequence)||Number(s.last_sequence)!==body.lastSequence)fail('尚有未收到的采集记录，不能结束')
  if(Number(s.reported_sequence||0)>body.lastSequence)fail('设备上报还有未收到的采集记录，不能结束')
  const [[run]]=await conn.query<any[]>('SELECT * FROM worker_run WHERE id=?',[s.run_id])
+ if(body.lastActionSequence!==undefined){const [[a]]=await conn.query<any[]>('SELECT sequence_no,kind FROM worker_action WHERE session_id=? ORDER BY sequence_no DESC LIMIT 1',[id]);if(!Number.isSafeInteger(body.lastActionSequence)||Number(a?.sequence_no||0)!==body.lastActionSequence||a?.kind!=='end')fail('操作记录尚未完整上传，不能结束')}
  if(s.final_sequence!=null&&Number(s.final_sequence)!==body.lastSequence)fail('结束序号不一致')
  const stop=body.stoppedAt?new Date(String(body.stoppedAt)):null
  if(stop&&(!Number.isFinite(stop.getTime())||stop.getTime()>Date.now()+60000||(s.started_ms&&stop.getTime()<Number(s.started_ms))))fail('结束采集时间无效')
@@ -287,7 +289,7 @@ export async function processWorkerBindings(){
 export async function exportWorkerTxt(user:AuthUser,id:string,classification?:string){
  const [r]=await query<any[]>('SELECT * FROM worker_run WHERE id=?',[collectionId(id)]);scope(user,r)
  if(r.mode!=='external')fail('仅外码采集可导出原文TXT')
- if(user.role!=='production_operator')deviceManager(user)
+ if(!isCaptureRole(user.role))deviceManager(user)
  const conds=["s.run_id=?","e.result_state='saved'"],args:any[]=[id]
  if(user.role==='production_operator'){const [own]=await query<any[]>('SELECT id FROM worker_session WHERE run_id=? AND user_id=? LIMIT 1',[id,user.id]);if(!own)fail('只能下载自己参与采集的记录',403);conds.push('s.user_id=?');args.push(user.id)}
  if(classification&&classification!=='all'){if(!['internal','external','own','other_enterprise','not_imported','unparsed'].includes(classification))fail('分类无效',400);conds.push('e.classification=?');args.push(classification)}
@@ -302,7 +304,7 @@ export async function workerHeartbeat(device:AuthUser,id:string,body:any){
  return transaction(async conn=>{
   await lockProductionDevice(conn,device);const [[seed]]=await conn.query<any[]>('SELECT r.* FROM worker_run r JOIN worker_session s ON s.run_id=r.id WHERE s.id=? AND s.device_id=?',[id,device.device_id]);if(!seed)fail('采集会话不存在',404);if(seed.task_id)await lockMonitoredTask(conn,Number(seed.task_id));
   const [[s]]=await conn.query<any[]>('SELECT * FROM worker_session WHERE id=? FOR UPDATE',[id]);if(s.state==='completed'||version<=Number(s.report_version))return {ok:true,ignored:true};
-  const [[u]]=await conn.query<any[]>('SELECT u.status,u.role,u.enterprise_id,u.session_epoch,g.user_version FROM worker_grant g JOIN user u ON u.id=g.user_id WHERE g.id=?',[s.grant_id]);if(!u||u.status!==1||u.role!=='production_operator'||Number(u.enterprise_id)!==Number(device.enterprise_id)||u.session_epoch!==u.user_version)fail('工人权限已失效，请重新登录',403);
+  const [[u]]=await conn.query<any[]>('SELECT u.status,u.role,u.enterprise_id,u.session_epoch,g.user_version FROM worker_grant g JOIN user u ON u.id=g.user_id WHERE g.id=?',[s.grant_id]);if(!u||u.status!==1||!isCaptureRole(u.role)||Number(u.enterprise_id)!==Number(device.enterprise_id)||u.session_epoch!==u.user_version)fail('工人权限已失效，请重新登录',403);
   if(sequence<Number(s.last_sequence)||sequence<Number(s.reported_sequence||0))return {ok:true,ignored:true};
   await conn.execute('UPDATE worker_session SET heartbeat_ms=?,report_version=?,capture_state=?,reported_sequence=?,local_valid=?,local_duplicate=?,local_exception=?,local_pending=? WHERE id=?',[Date.now(),version,body.state,sequence,...values,id]);return {ok:true,serverTime:Date.now()}
  })

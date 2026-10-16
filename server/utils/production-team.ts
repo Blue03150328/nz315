@@ -12,14 +12,14 @@ export function teamScope(user:AuthUser,row:any){if(!row||(user.role!=='platform
 async function members(conn:any,user:AuthUser,enterpriseId:number,ids:any){
  if(!Array.isArray(ids)||!ids.length||ids.length>500)fail('请至少选择一名操作员',400)
  const selected=[...new Set<number>((ids as unknown[]).map(value=>Number(value)))];if(selected.some(n=>!Number.isSafeInteger(n)||n<=0))fail('人员选择无效',400)
- const [rows]=await conn.query('SELECT id FROM user WHERE id IN (?) AND enterprise_id=? AND role=\'production_operator\' AND status=1 FOR UPDATE',[selected,enterpriseId])
+ const [rows]=await conn.query('SELECT id FROM user WHERE id IN (?) AND enterprise_id=? AND role IN (\'production_operator\',\'line_leader\') AND status=1 FOR UPDATE',[selected,enterpriseId])
  if(rows.length!==selected.length)fail('只能选择本厂启用的生产操作员账号',400)
  return selected
 }
 export async function teamOptions(user:AuthUser,keyword=''){
  const condition=user.role==='platform_admin'?'':' AND u.enterprise_id=?',args:any[]=user.role==='platform_admin'?[]:[user.enterprise_id]
  const uploads=await query<any[]>(`SELECT u.id,u.file_name,u.product_id,u.enterprise_id,p.name AS product_name,en.name AS enterprise_name,COUNT(*) AS total FROM upload_batch u JOIN trace_code c ON c.upload_batch_id=u.id JOIN product p ON p.id=u.product_id JOIN enterprise en ON en.id=u.enterprise_id LEFT JOIN production_code_reservation r ON r.code_id=c.id WHERE p.status=1${condition} AND (u.file_name LIKE ? OR p.name LIKE ?) GROUP BY u.id,u.file_name,u.product_id,u.enterprise_id,p.name,en.name HAVING SUM(c.status<>1 OR c.abnormal_flag<>0 OR c.batch_id IS NOT NULL OR c.bound_at IS NOT NULL OR c.produce_date IS NOT NULL OR c.expire_date IS NOT NULL OR c.qc_result IS NOT NULL OR c.quality_cert_no IS NOT NULL OR c.batch_no IS NOT NULL OR r.code_id IS NOT NULL)=0 ORDER BY u.id DESC LIMIT 200`,[...args,'%'+keyword+'%','%'+keyword+'%'])
- const operators=await query<any[]>(`SELECT u.id,u.name,u.username,u.enterprise_id,e.name AS enterprise_name FROM user u JOIN enterprise e ON e.id=u.enterprise_id WHERE u.role='production_operator' AND u.status=1${condition} ORDER BY u.name,u.id`,args)
+ const operators=await query<any[]>(`SELECT u.id,u.name,u.username,u.enterprise_id,e.name AS enterprise_name FROM user u JOIN enterprise e ON e.id=u.enterprise_id WHERE u.role IN ('production_operator','line_leader') AND u.status=1${condition} ORDER BY u.name,u.id`,args)
  const lines=await query<any[]>(`SELECT DISTINCT line_name FROM production_task WHERE status<>'deleted' AND line_name<>''${user.role==='platform_admin'?'':' AND enterprise_id=?'} ORDER BY line_name`,args)
  return {uploads,operators,lines:lines.map(l=>l.line_name)}
 }
