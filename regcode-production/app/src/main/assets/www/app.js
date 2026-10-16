@@ -354,7 +354,13 @@
     catch(error){readQueue();if(error.status===0&&state.queue.session){queuePage();toast('网络未连接，本机记录已恢复；联网后重新验证设备',true);}else deviceActivation(error.message);}
     finally{busy(false);}
   }
-  function bootDevice() {
+  function legacyHistory(){
+    const q=readQueue(),external=readExternal(),pending=!!q.session||number(external.batchCounts&&external.batchCounts.pending)>0||external.batch&&external.batch.state==='open',c=q.counts||{},e=external.queueCounts||{};
+    selectPage('legacy-history','<div class="heading"><h1 id="legacyHistoryTitle">历史记录与旧队列</h1></div><div class="card"><p>这里保留旧版采集数据。当前工人的记录请到“我的记录与备份”查看。</p><p>旧任务待上传 '+number(c.waiting)+' 条</p><p>旧外码共 '+number(e.total)+' 条 · 待上传 '+number(e.waiting)+' 条</p><button id="legacyBackup" class="secondary wide">导出旧版完整备份</button>'+(pending?'<button id="legacyResume" class="secondary wide">恢复旧队列处理</button>':'<p class="muted">暂无未完成的旧队列</p>')+'</div>');
+    click('legacyBackup',exportBackup);click('legacyResume',()=>bootDevice(true));
+  }
+  function bootDevice(resumeQueue) {
+    if(!resumeQueue&&new URLSearchParams(location.search).get("history")==="1"){legacyHistory();return;}
     readQueue();const session=state.queue.session;
     // 升级前账号采集的队列必须仍由原账号同步，不转换历史会话的身份。
     if(session&&number(session.context&&session.context.deviceId)===0){state.deviceMode=false;login('先登录原账号，完成旧任务同步后即可使用设备激活');return;}
@@ -387,7 +393,7 @@
       if ($('confirmDialog').open) { $('confirmDialog').close('cancel'); return; }
       if(state.page==='external'){externalSetup();return;}if(state.page==='external-setup'){if(state.user)tasks();else deviceActivation();return;}
       if (state.page === 'scan' || state.page === 'task' || state.page === 'create' || state.page === 'settings') { if (state.user) tasks(); else login(); }
-      else Native.exit();
+      else if(state.page==='legacy-history')Native.openWorkerApp();else Native.exit();
     }
   };
   on('settingsButton', 'click', () => { if (!blockedNavigation()) showSettings(); });

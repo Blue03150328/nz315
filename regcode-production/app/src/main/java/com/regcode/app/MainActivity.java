@@ -185,7 +185,7 @@ public class MainActivity extends Activity {
 
     public final class ProductionBridge {
         @JavascriptInterface public void openWorkerApp(){openPage("file:///android_asset/worker/index.html");}
-        @JavascriptInterface public void openLegacyApp(){openPage("file:///android_asset/www/index.html");}
+        @JavascriptInterface public void openLegacyApp(){openPage("file:///android_asset/www/index.html?history=1");}
         @JavascriptInterface public String settings() {
             try { return new JSONObject().put("server", preferences.getString("server", BuildConfig.DEFAULT_SERVER)).put("mode", preferences.getString("mode", "auto"))
                     .put("action", preferences.getString("action", "")).put("extra", preferences.getString("extra", "scannerdata"))
@@ -319,6 +319,7 @@ public class MainActivity extends Activity {
             JSONObject result;
             try{JSONObject body=new JSONObject(input);
                 switch(action){
+                    case "history": result=workerEngine.history();break;
                     case "login": result=workerEngine.login(body.getString("username"),body.getString("password"));break;
                     case "start": synchronized(collectionModeLock){requireLegacyFinished();result=new JSONObject().put("ok",true).put("run",workerEngine.start(body));}break;
                     case "resume": synchronized(collectionModeLock){requireLegacyFinished();workerEngine.resume(body.getString("runId"));result=workerEngine.snapshot();}break;
@@ -335,7 +336,7 @@ public class MainActivity extends Activity {
         @JavascriptInterface public void backup(){try{final long user=workerEngine.userId();runOnUiThread(()->{if(choosingBackup)return;workerBackupUser=user;workerBackup=true;openDocument(BACKUP_DOCUMENT,"application/json","nz315-worker-backup-"+System.currentTimeMillis()+".json");});}catch(Exception e){notifyText(e.getMessage());}}
         @JavascriptInterface public void txt(String runId){workerEngine.async(()->{
             try{
-                JSONObject current=workerEngine.snapshot(),record=null;JSONArray history=current.getJSONArray("history");
+                JSONObject current=workerEngine.snapshot(),record=null;JSONArray history=workerEngine.history().getJSONArray("rows");
                 for(int i=0;i<history.length();i++){JSONObject row=history.getJSONObject(i);if(runId.equals(row.getString("id")))record=row;}
                 if(record==null)throw new Exception("未找到本人的采集记录");
                 boolean production="production".equals(record.getString("mode"));

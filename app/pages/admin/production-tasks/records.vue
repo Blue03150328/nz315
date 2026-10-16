@@ -2,7 +2,10 @@
 definePageMeta({layout:'admin',middleware:['backend-guard','external-history'],keepalive:true})
 useHead({title:'生产任务'})
 const {canManageUsers,user}=useUser(),toast=useToast(),route=useRoute()
-const filters=reactive({keyword:'',lineName:String(route.query.lineName||''),enterpriseId:String(route.query.enterpriseId||''),operatorId:'',status:'',dateFrom:'',dateTo:''}),keyword=ref(''),page=ref(1)
+// 默认按北京时间查询昨天至今天；重置时重新计算日期。
+function defaultDateRange(){const format=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Shanghai'}),now=Date.now();return {dateFrom:format.format(now-86400000),dateTo:format.format(now)}}
+const initialRange=useState('production-task-default-range',defaultDateRange)
+const filters=reactive({keyword:'',lineName:String(route.query.lineName||''),enterpriseId:String(route.query.enterpriseId||''),operatorId:'',status:'',...initialRange.value}),keyword=ref(''),page=ref(1)
 const {data,pending,error,refresh}=await useFetch<any>('/api/admin/production-lines',{query:computed(()=>({...filters,page:page.value}))})
 const {data:options,pending:optionBusy,refresh:refreshOptions}=await useFetch<any>('/api/admin/production-lines/options',{})
 watch(keyword,(value,_,cleanup)=>{const timer=setTimeout(()=>{filters.keyword=value.trim();page.value=1},300);cleanup(()=>clearTimeout(timer))})
@@ -11,7 +14,7 @@ const operatorOptions=computed(()=>(options.value?.operators||[]).map((p:any)=>(
 const lineOptions=computed(()=>(options.value?.lines||[]).map((name:string)=>({label:name,value:name})))
 const statuses=[{label:'全部状态',value:'all'},{label:'未开始',value:'not_started'},{label:'进行中',value:'active'},{label:'已结束',value:'completed'}]
 const busy=ref(false)
-function resetSearch(){keyword.value='';Object.assign(filters,{keyword:'',lineName:'',enterpriseId:'',operatorId:'',status:'',dateFrom:'',dateTo:''});page.value=1}
+function resetSearch(){keyword.value='';Object.assign(filters,{keyword:'',lineName:'',enterpriseId:'',operatorId:'',status:'',...defaultDateRange()});page.value=1}
 watch(()=>[route.query.lineName,route.query.enterpriseId],()=>{filters.lineName=String(route.query.lineName||'');filters.enterpriseId=String(route.query.enterpriseId||'')})
 const details=ref<Record<number,boolean>>({}),codeTask=ref<any>(null),showCodes=ref(false),codePage=ref(1),codeState=ref(''),codeKeyword=ref(''),codeSource=ref('internal')
 const codeColumns=[{key:'code',label:'追溯码',width:340},{key:'raw_code',label:'外部标签原文',width:500},{key:'product_name',label:'产品',width:240,flex:2},{key:'batch_no',label:'批号',width:160},{key:'produce_date',label:'生产日期',width:150},{key:'operator_name',label:'操作员',width:180},{key:'device',label:'设备',width:160},{key:'used_at',label:'内部采集时间',width:210},{key:'captured_at',label:'外部采集时间',width:210}]
@@ -50,7 +53,7 @@ onMounted(startRefresh)
 onActivated(startRefresh)
 onDeactivated(()=>{clearInterval(timer);timer=undefined})
 onBeforeUnmount(()=>clearInterval(timer))
-const columns=computed(()=>[...(canManageUsers.value?[{key:'selection',label:'选择',width:56,minWidth:56,align:'center' as const}]:[]),{key:'line_name',label:'生产线',width:124},{key:'operatorLabel',label:'操作员',width:160},{key:'productLabel',label:'产品',width:240,flex:2},{key:'statusLabel',label:'状态',width:116},{key:'collected',label:'有效码合计',width:100,minWidth:72,align:'right' as const},{key:'internal_count',label:'内部码',width:76,minWidth:72,align:'right' as const},{key:'external_count',label:'外部码',width:76,minWidth:72,align:'right' as const},{key:'duplicates',label:'重复码',width:76,minWidth:72,align:'right' as const},{key:'exceptions',label:'异常码',width:76,minWidth:72,align:'right' as const},{key:'started',label:'开始时间',width:190},{key:'stopped',label:'结束时间',width:190},{key:'actions',label:'操作',width:224}])
+const columns=computed(()=>[...(canManageUsers.value?[{key:'selection',label:'选择',width:56,minWidth:56,align:'center' as const}]:[]),{key:'started',label:'开始时间',width:190},{key:'stopped',label:'结束时间',width:190},{key:'line_name',label:'生产线',width:124},{key:'operatorLabel',label:'操作员',width:160},{key:'productLabel',label:'产品',width:240,flex:2},{key:'statusLabel',label:'状态',width:116},{key:'collected',label:'有效码合计',width:100,minWidth:72,align:'right' as const},{key:'internal_count',label:'内部码',width:76,minWidth:72,align:'right' as const},{key:'external_count',label:'外部码',width:76,minWidth:72,align:'right' as const},{key:'duplicates',label:'重复码',width:76,minWidth:72,align:'right' as const},{key:'exceptions',label:'异常码',width:76,minWidth:72,align:'right' as const},{key:'actions',label:'操作',width:224}])
 const taskRows=computed(()=>(data.value?.rows||[]).map((t:any)=>{const operators=(t.operators||[]).filter((p:any)=>!p.removed_at||p.started_ms||p.started_at);return {...t,...t.monitor,operatorLabel:operators.map((p:any)=>`${p.name||'-'}（${p.username||'-'}）`).join('、')||'-',productLabel:t.actual_product_names||t.product_name||'-',statusLabel:t.display_status==='not_started'?'未开始':t.display_status==='active'?'进行中':'已结束',started:clock(t.started_ms,t.started_at),stopped:t.status==='active'?'-':clock(t.stopped_ms,t.stopped_at||t.ended_at)}}))
 const detailTask=ref<any>(null),showDetail=ref(false)
 function openDetail(t:any){detailTask.value=t;showDetail.value=true}
@@ -63,7 +66,7 @@ function openDetail(t:any){detailTask.value=t;showDetail.value=true}
    <form class="flex flex-wrap items-end gap-3" @submit.prevent="filters.keyword=keyword.trim();refresh()"><label class="min-w-64 flex-1"><span class="block mb-1 text-sm">模糊搜索</span><UInput v-model="keyword" placeholder="产品、生产线、员工姓名或工号" class="w-full" /></label><label><span class="block mb-1 text-sm">操作员</span><USelectMenu v-model="filters.operatorId" :items="operatorOptions" value-key="value" placeholder="全部操作员" :clear="true" :search-input="{placeholder:'姓名或工号'}" /></label><label><span class="block mb-1 text-sm">创建日期从</span><input v-model="filters.dateFrom" type="date" class="rounded border p-2" /></label><label><span class="block mb-1 text-sm">至</span><input v-model="filters.dateTo" type="date" class="rounded border p-2" /></label><UButton type="submit">查询</UButton><UButton variant="outline" @click="resetSearch">重置</UButton><UButton variant="outline" :loading="pending" @click="refresh()">刷新</UButton></form>
    <p class="text-sm text-muted">拖动表头移动整列，拖动列边线调整宽度；支持左右滚动。码数只统计服务器已确认的记录。</p>
    <p v-if="error" class="text-error">查询失败，请重试。</p><p v-else-if="pending&&!data?.rows">正在加载…</p>
-   <ProductionGrid class="production-table" fill-height :columns="columns" :rows="taskRows" row-key="id" :storage-key="'production-task-columns:v3:'+user?.id">
+   <ProductionGrid class="production-table" fill-height :layout-version="4" :leading-columns="['selection','started','stopped']" :columns="columns" :rows="taskRows" row-key="id" :storage-key="'production-task-columns:v3:'+user?.id">
     <template #filter-selection><input v-if="canManageUsers" type="checkbox" aria-label="选择当前页可删除任务" :checked="allSelected" :indeterminate="selectedIds.length>0&&!allSelected" :disabled="!removableRows.length||busy" @change="togglePage(($event.target as HTMLInputElement).checked)"></template>
     <template #filter-line_name><USelectMenu v-model="filters.lineName" :items="lineOptions" value-key="value" placeholder="全部生产线" aria-label="按生产线筛选" :clear="true" :search-input="{placeholder:'搜索生产线'}" class="w-full" size="xs" /></template>
     <template #filter-operatorLabel><USelectMenu v-model="filters.operatorId" :items="operatorOptions" value-key="value" placeholder="全部操作员" aria-label="按操作员筛选" :clear="true" :search-input="{placeholder:'搜索姓名或工号'}" class="w-full" size="xs" /></template>
