@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { productWithSpec } from '#shared/utils/product-name'
 // 追溯码生成（PRD 5.5.1：离线生成工具 Web 版——生成不入库，导出文件后经生产采集导入）
 // 自定义段配置对齐 PRD 3.2：时间戳段 + 随机数字段 + 校验位段；导出命名对齐 PRD 5.5.1 强制命名规范
 // 二维码图片输出对齐合规第一条（QR/DM 码制，供印刷厂赋码）：2026-09-15 起改为「下载官方离线工具、本机生成」，服务端不再渲染 PNG
@@ -22,11 +21,6 @@ useHead({ title: '追溯码生成' })
 const toast = useToast()
 const runtime = useRuntimeConfig()
 const traceBaseUrl = runtime.public?.traceBaseUrl || 'https://www.nz315.cn/trace?code='
-
-const { data: productData } = await useFetch<any>('/api/admin/products', {
-  key: 'admin-products-gen',
-  query: { page: 1, pageSize: 100, status: 1 },
-})
 
 // 自定义段配置（码第 12 位后 21 位）已按平台标准固定（PRD 3.2）：时间戳=毫秒级 / 随机=6位随机+2位校验 / 校验=MD5取后2位
 // 用户不可选择修改、仅展示——防止客户乱配置导致追溯码结构错乱；服务端生成接口亦不接受配置参数（generate.post.ts 固定）
@@ -58,11 +52,7 @@ const onBeforeUnload = (e: BeforeUnloadEvent) => {
 onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
 onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload))
 
-const selectedProduct = computed(() => (productData.value?.rows || []).find((p: any) => Number(p.id) === Number(form.productId)))
-const productOptions = computed(() => (productData.value?.rows || []).map((p: any) => ({
-  value: Number(p.id),
-  label: productWithSpec(p) + '（' + p.registration_no + '）',
-})))
+const selectedProduct = ref<any>(null)
 
 // 码第 1-11 位实时预览（1049 强制结构）
 const headPreview = computed(() => {
@@ -82,6 +72,7 @@ const SEGMENT_COLORS = ['b-tag-danger', 'b-tag-info', 'b-tag-warning', 'b-tag-su
 // 页内【重置】：清空生成表单与全部结果/预览，恢复页面初始状态（Keep-Alive 缓存页互不影响）
 const resetPage = () => {
   Object.assign(form, { productId: null, quantity: 100 })
+  selectedProduct.value = null
   showBigConfirm.value = false
   result.value = null
   downloaded.value = false
@@ -274,13 +265,10 @@ const OFFLINE_TOOL = {
         <div class="b-form-grid">
           <div>
             <label class="b-label">产品（码第 1-11 位来源）<span class="b-required">*</span></label>
-            <USelect
+            <ProductPicker
               v-model="form.productId"
-              :items="productOptions"
-              placeholder="选择产品"
-              class="w-full"
-              :content="{ class: 'min-w-72' }"
-              :ui="{ value: 'whitespace-normal break-words text-left', itemLabel: 'whitespace-normal break-words' }"
+              :disabled="generating || stocking"
+              @selected="selectedProduct = $event"
             />
             <p v-if="selectedProduct" class="b-help">
               规格：{{ selectedProduct.spec_name || '规格未填写' }} · 规格码：{{ selectedProduct.spec_code || '未配置' }}

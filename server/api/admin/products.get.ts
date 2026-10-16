@@ -17,7 +17,7 @@ export default defineEventHandler(async (event) => {
   }
   if (q.keyword) {
     const kw = '%' + String(q.keyword).trim().slice(0, 64) + '%'
-    conds.push('(p.name LIKE ? OR p.trademark LIKE ? OR p.registration_no LIKE ?)'); params.push(kw, kw, kw)
+    conds.push('(p.name LIKE ? OR p.trademark LIKE ? OR p.registration_no LIKE ? OR s.spec_name LIKE ? OR s.spec_code LIKE ?)'); params.push(kw, kw, kw, kw, kw)
   }
   if (q.category) { conds.push('p.category = ?'); params.push(String(q.category)) }
   if (q.status !== undefined && q.status !== '') { conds.push('p.status = ?'); params.push(Number(q.status)) }
@@ -33,7 +33,7 @@ export default defineEventHandler(async (event) => {
   const pageSize = Math.min(100, Math.max(1, parseInt(String(q.pageSize || '20'))))
   const offset = (page - 1) * pageSize
 
-  const [cntRow] = await query<any[]>('SELECT COUNT(*) AS c FROM product p ' + whereSql, params)
+  const [cntRow] = await query<any[]>('SELECT COUNT(*) AS c FROM product p LEFT JOIN product_spec s ON s.id = p.spec_id ' + whereSql, params)
   const rows = await query<any[]>(
     `SELECT p.*, s.spec_name, s.spec_code,
        (SELECT COUNT(*) FROM trace_code t WHERE t.product_id = p.id) AS code_count,

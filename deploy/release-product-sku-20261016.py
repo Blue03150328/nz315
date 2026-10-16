@@ -16,13 +16,15 @@ import urllib.request
 
 os.umask(0o077)
 MODE, COMMIT = sys.argv[1:3]
+KIND = sys.argv[3] if len(sys.argv) > 3 else 'sku'
+assert KIND in ['sku', 'generator-search'], '未知发布范围'
 assert re.fullmatch(r'[0-9a-f]{40}', COMMIT)
 ROOT = pathlib.Path('/var/www/nz315')
 NODE = '/usr/local/node22/bin/node'
-DEST = pathlib.Path('/var/www/.nz315-sku-20261016-' + COMMIT[:8])
-SAFE = pathlib.Path('/var/backups/nz315/sku-20261016-' + COMMIT[:8])
+DEST = pathlib.Path('/var/www/.nz315-' + KIND + '-20261016-' + COMMIT[:8])
+SAFE = pathlib.Path('/var/backups/nz315/' + KIND + '-20261016-' + COMMIT[:8])
 STATE = SAFE / 'state.json'
-CANDIDATE = 'nz315-sku-candidate-' + COMMIT[:8]
+CANDIDATE = 'nz315-' + KIND + '-candidate-' + COMMIT[:8]
 CONTAINER = 'nz315-production-app-1'
 IMAGE = 'nz315-production:' + COMMIT[:12]
 os.environ['PATH'] = '/usr/local/node22/bin:' + os.environ['PATH']
@@ -106,7 +108,7 @@ if MODE == 'prepare':
     assert not SAFE.exists() and not DEST.exists(), '发布目录已存在，请查状态后继续'
     assert shutil.disk_usage('/').free > 1024 ** 3, '磁盘不足1GB，未发布'
     base = json.loads((ROOT / '.docker-release.json').read_text())
-    state = {'status': 'preparing', 'commit': COMMIT, 'previous': base, 'releaseDirectory': str(DEST), 'backup': str(SAFE), 'databaseMigration': 'product-sku-only'}
+    state = {'status': 'preparing', 'commit': COMMIT, 'previous': base, 'releaseDirectory': str(DEST), 'backup': str(SAFE), 'databaseMigration': 'product-sku-only' if KIND == 'sku' else False}
     SAFE.mkdir(mode=0o700, parents=True)
     stable()
     assert get('https://api.github.com/repos/Blue03150328/nz315/commits/master')['sha'] == COMMIT, '主仓版本不一致'
@@ -139,7 +141,7 @@ elif MODE == 'build':
     run([NODE, 'node_modules/typescript/bin/tsc', '--noEmit', '-p', 'tsconfig.release.json'], cwd=DEST, env=env)
     state['candidateBuild'] = json.loads((DEST / '.output/public/_nuxt/builds/latest.json').read_text())
     compiled = '\n'.join(p.read_text(errors='replace') for p in (DEST / '.output/public/_nuxt').glob('*.js'))
-    for label in ['输入关键词选择规格', '浏览器下载列表可查看进度']:
+    for label in ['输入关键词选择规格', '浏览器下载列表可查看进度'] + (['输入关键词选择产品'] if KIND == 'generator-search' else []):
         assert label in compiled, '生产产物缺少功能标识：' + label
     (DEST / 'Dockerfile.release').write_text('FROM ' + state['previous']['image'] + '\nUSER root\nCOPY --chown=node:node .output /app/.output\nLABEL org.opencontainers.image.revision="' + COMMIT + '"\nUSER node\n')
     (DEST / '.dockerignore').write_text('*\n!.output\n!.output/**\n!Dockerfile.release\n')
@@ -174,14 +176,19 @@ elif MODE == 'publish':
         dump_database()
         state['status'] = 'backup-verified'
         save()
-        migration = DB_PREFIX + 'try{const {migrateProductSkuSchema}=await import(' + json.dumps(str(DEST / 'scripts/product-sku-schema.mjs')) + ');await migrateProductSkuSchema(db);}finally{await db.end()}'
-        run([NODE, '--input-type=module', '-e', migration])
+        if KIND == 'sku':
+            migration = DB_PREFIX + 'try{const {migrateProductSkuSchema}=await import(' + json.dumps(str(DEST / 'scripts/product-sku-schema.mjs')) + ');await migrateProductSkuSchema(db);}finally{await db.end()}'
+            run([NODE, '--input-type=module', '-e', migration])
         after = snapshot()
         before = state['beforeDatabase']
         assert before['tables'] == after['tables'], '原表数据指纹变化，已停止切换'
         added = [c for c in after['cols'] if c['TABLE_NAME'] == 'product' and c['COLUMN_NAME'] == 'sku_trademark']
         assert len(added) == 1 and added[0]['EXTRA'] == 'VIRTUAL GENERATED', '产品派生列不符合预期'
-        assert before['cols'] == [c for c in after['cols'] if c not in added], '原字段定义改变'
+        if KIND == 'sku':
+            previous_added = [c for c in before['cols'] if c['TABLE_NAME'] == 'product' and c['COLUMN_NAME'] == 'sku_trademark']
+            assert [c for c in before['cols'] if c not in previous_added] == [c for c in after['cols'] if c not in added], '原字段定义改变'
+        else:
+            assert before['cols'] == after['cols'] and before['indexes'] == after['indexes'], '本轮禁止数据库结构变化'
         sku = [r for r in after['indexes'] if r['name'] == 'uq_product_sku']
         assert len(sku) == 4 and all(r['unique'] for r in sku), 'SKU唯一索引不完整'
         state['afterMigration'] = after
@@ -198,7 +205,7 @@ elif MODE == 'publish':
         state['status'] = 'deployed'
         state['at'] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         save()
-        record = {'status': 'deployed', 'commit': COMMIT, 'image': IMAGE, 'imageId': state['imageId'], 'at': state['at'], 'releaseDirectory': str(DEST), 'compose': 'compose.production.yml', 'backup': str(SAFE), 'previous': {'commit': state['previous']['commit'], 'image': state['previous']['image'], 'compose': str(SAFE / 'previous-compose.yml'), 'environment': str(SAFE / 'previous.env')}, 'runtime': 'docker', 'databaseMigration': 'product-sku-only', 'publicBuild': state['candidateBuild'], 'validation': {'candidate': True, 'https': True, 'allOriginalTableFingerprintsUnchangedAtMigration': True, 'allOriginalColumnsUnchanged': True, 'assetsUnchanged': True, 'otherServicesUnchanged': True}}
+        record = {'status': 'deployed', 'commit': COMMIT, 'image': IMAGE, 'imageId': state['imageId'], 'at': state['at'], 'releaseDirectory': str(DEST), 'compose': 'compose.production.yml', 'backup': str(SAFE), 'previous': {'commit': state['previous']['commit'], 'image': state['previous']['image'], 'compose': str(SAFE / 'previous-compose.yml'), 'environment': str(SAFE / 'previous.env')}, 'runtime': 'docker', 'databaseMigration': state['databaseMigration'], 'publicBuild': state['candidateBuild'], 'validation': {'candidate': True, 'https': True, 'allOriginalTableFingerprintsUnchangedAtMigration': True, 'allOriginalColumnsUnchanged': True, 'assetsUnchanged': True, 'otherServicesUnchanged': True}}
         (DEST / '.docker-release.json').write_text(json.dumps(record, indent=2))
         for name in ['.docker-release.json', '.docker-deploy.env', 'compose.production.yml']:
             shutil.copy2(DEST / name, ROOT / name)
