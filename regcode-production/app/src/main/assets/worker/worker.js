@@ -2,7 +2,8 @@
  const $=id=>document.getElementById(id),esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  let page='login',q={},scanning=false,busy=false,foreground=true,last='',noticeTimer,pendingEnd=null,endedRun='';const calls=new Map();
  const click=(id,fn)=>{if($(id))$(id).onclick=()=>{if(!busy)fn();}};
- function toast(text){$('notice').textContent=text;$('notice').hidden=false;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('notice').hidden=true,6000);}
+ function clearNotice(){clearTimeout(noticeTimer);$('notice').hidden=true;}
+ function toast(text){$('notice').textContent=text;$('notice').hidden=false;clearTimeout(noticeTimer);noticeTimer=setTimeout(clearNotice,3000);}
  function read(){q=JSON.parse(WorkerNative.snapshot());if(!q.ok)throw Error(q.error||'本机数据无法读取');header();return q;}
  function header(context,productId){
   if(q.registrationRequired){$('companyLabel').textContent='农资315 · 设备激活';$('deviceLabel').textContent='设备未登记';$('lineLabel').hidden=true;return;}
@@ -20,7 +21,7 @@
  function scanBack(){stop();if(q.run&&q.run.mode==='production')prepare();else home();}
 
  function stop(){scanning=false;WorkerNative.scanning(false);}
- function show(name,html){stop();page=name;$('main').innerHTML=html;if(['login','home','history','activate','error'].includes(name)&&typeof Native.openLegacyApp==='function'){$('main').insertAdjacentHTML('beforeend','<button id="legacyEntry">历史记录与旧队列</button><p class="muted">旧采集与原文记录继续保留；新采集统一从生产扫码开始。</p>');click('legacyEntry',()=>Native.openLegacyApp());}window.scrollTo(0,0);}
+ function show(name,html){stop();clearNotice();page=name;document.body.dataset.page=name;$('main').innerHTML=html;if(['login','home','history','activate','error'].includes(name)&&typeof Native.openLegacyApp==='function'){$('main').insertAdjacentHTML('beforeend','<button id="legacyEntry">历史记录与旧队列</button><p class="muted">旧采集与原文记录继续保留；新采集统一从生产扫码开始。</p>');click('legacyEntry',()=>Native.openLegacyApp());}window.scrollTo(0,0);}
  function call(action,data){busy=true;document.querySelectorAll('button').forEach(b=>b.disabled=true);return new Promise((resolve,reject)=>{const id=Native.requestId(),timer=setTimeout(()=>{calls.delete(id);busy=false;document.querySelectorAll('button').forEach(b=>b.disabled=false);reject(Error('操作尚未确认，本机记录保留，请核对后重试'));},120000);calls.set(id,r=>{clearTimeout(timer);busy=false;document.querySelectorAll('button').forEach(b=>b.disabled=false);if(r.ok!==false)resolve(r);else reject(Error(r.error||'操作未完成'));});WorkerNative.call(id,action,JSON.stringify(data||{}));});}
  window.WorkerApi={receive(id,result){const done=calls.get(id);if(done){calls.delete(id);done(result);}}};
  async function confirm(text){stop();$('confirmText').textContent=text;return new Promise(resolve=>{$('confirm').addEventListener('close',()=>resolve($('confirm').returnValue==='yes'),{once:true});$('confirm').showModal();});}
@@ -33,21 +34,43 @@
  async function logout(){try{await call('logout');login();}catch(error){toast(error.message);}}
  function assignedPools(){return (q.pools||[]).filter(p=>q.identity&&(!Array.isArray(p.memberIds)||p.memberIds.includes(q.identity.id)));}
 
- function taskChoice(){return '<label><span>生产线（输入或选择）</span><input id="line" list="worker-lines" maxlength="100" placeholder="例如：一号线" required><datalist id="worker-lines">'+WorkerPreparation.lines(q.pools).map(name=>'<option value="'+esc(name)+'">').join('')+'</datalist></label>';}
+ // 页面内候选按钮兼容PDA WebView，不依赖系统datalist弹层。
+ function searchField(kind,label,placeholder){return '<div class="picker-search"><label for="'+kind+'Search">'+label+'</label><div class="row"><input id="'+kind+'Search" type="search" maxlength="100" placeholder="'+placeholder+'" autocomplete="off"><button id="'+kind+'SearchClear" type="button" aria-label="清空'+label+'">清空</button></div></div>';}
+ function taskChoice(){return '<div id="lineChoice" class="line-choice"><label for="line">生产线（输入或选择）</label><div class="row"><input id="line" maxlength="100" placeholder="例如：一号线" autocomplete="off" required><button id="linePicker" type="button" aria-controls="linePanel" aria-expanded="false">选择产线</button></div><div id="linePanel" hidden>'+searchField('line','产线关键词','输入产线名称关键词')+'<p id="lineCount" class="muted picker-count" role="status"></p><div id="lineOptions" class="line-options" aria-label="生产线候选" hidden></div></div></div>';}
+ function closeLines(){if($('lineOptions')){$('linePanel').hidden=true;$('lineOptions').hidden=true;$('linePicker').setAttribute('aria-expanded','false');}}
+ function lineOptions(filter){
+  const panel=$('lineOptions'),all=WorkerPreparation.lines(q.pools),names=all.filter(name=>WorkerPreparation.matches(name,filter));panel.innerHTML='';$('lineCount').textContent='匹配 '+names.length+' / '+all.length+' 条产线';
+  for(const name of names){const button=document.createElement('button');button.type='button';button.textContent=name;button.onclick=()=>{if(busy||$('line').disabled)return;$('line').value=name;header({lineName:name});closeLines();$('linePicker').focus();};panel.appendChild(button);}
+  if(!names.length){const hint=document.createElement('p');hint.className='muted';hint.textContent='暂无匹配产线，可直接输入名称';panel.appendChild(hint);}
+ }
+ function openLines(filter){if(busy||$('line').disabled)return;$('lineSearch').value=filter;lineOptions(filter);$('linePanel').hidden=false;$('lineOptions').hidden=false;$('linePicker').setAttribute('aria-expanded','true');}
  function prepare(){
-  read();const dates=WorkerPreparation.defaults(new Date());show('prepare',heading('生产准备','back','right')+'<div class="card">'+taskChoice()+'<label><span>选择产品</span><select id="product"></select></label><p id="productHint" class="muted"></p>'+field('produceDate','生产日期','date',dates.produceDate)+field('expireDate','有效期至','date',dates.expireDate)+field('batchNo','生产批号','text','')+'<button id="start" class="primary">确认资料，进入扫码</button></div>');
-  click('back',home);products();$('product').onchange=productChanged;$('line').oninput=()=>header({lineName:$('line').value.trim()});
+  read();const dates=WorkerPreparation.defaults(new Date());show('prepare',heading('生产准备','back','right')+'<div class="card">'+taskChoice()+searchField('product','产品关键词','名称／商标／登记证号／规格')+'<p id="productCount" class="muted picker-count" role="status"></p><label><span>选择产品</span><select id="product"></select></label><p id="productHint" class="muted"></p>'+field('produceDate','生产日期','date',dates.produceDate)+field('expireDate','有效期至','date',dates.expireDate)+field('batchNo','生产批号','text','')+'<button id="start" class="primary">确认资料，进入扫码</button></div>');
+  click('back',home);products();$('product').onchange=()=>{products(true);productChanged();};
+  click('linePicker',()=>{if($('lineOptions').hidden){$('line').blur();openLines('');$('lineSearch').focus();}else closeLines();});
+  $('lineSearch').oninput=()=>{if(!busy&&!$('line').disabled)lineOptions($('lineSearch').value);};
+  click('lineSearchClear',()=>{if($('line').disabled)return;$('lineSearch').value='';lineOptions('');$('lineSearch').focus();});
+  $('lineSearch').onkeydown=e=>{if(e.key==='Escape'){closeLines();$('linePicker').focus();}};
+  $('productSearch').oninput=()=>{if(!busy)products(true);};
+  click('productSearchClear',()=>{$('productSearch').value='';products(true);$('productSearch').focus();});
+  $('line').oninput=()=>{const value=$('line').value.trim();header({lineName:value});openLines(value);};
   if(q.run&&q.run.mode==='production'){$('product').value=String(q.run.context.productId);productChanged();}
   click('start',async()=>{const id=Number($('product').value),p=(q.products||[]).find(p=>Number(p.id)===id);if(!p){toast('请选择本厂启用产品');return;}const old=(q.openRuns||[]).find(r=>r.mode==='production'&&Number(r.context.productId)===id),lineName=$('line').value.trim();if(!lineName){toast('请输入或选择生产线');return;}
    const data=old?{...old.context}:{mode:'production',productId:id,lineWorkflow:true,stockWorkflow:true,unifiedScan:true,autoLine:true,taskId:0,lineName,productName:p.name,trademark:p.trademark,content:p.content,dosage:p.dosage,registrationNo:p.registration_no,specName:p.spec_name,batchNo:$('batchNo').value.trim(),produceDate:$('produceDate').value,expireDate:$('expireDate').value};
    if(!data.batchNo||!data.produceDate||!data.expireDate||data.expireDate<data.produceDate){toast('请核对批号、生产日期和有效期');return;}if(!await confirm(lineName+'\n'+WorkerPreparation.label(p)+'\n批号 '+data.batchNo+'\n生产 '+data.produceDate+'，有效期至 '+data.expireDate))return;try{await call('start',data);scan();}catch(error){read();toast(error.message);}});
  }
- function products(){$('product').dataset.snapshot=q.cache&&q.cache.id||'empty';const old=$('product').value,rows=q.products||[];$('product').innerHTML='<option value="">请选择产品</option>'+rows.map(p=>'<option value="'+p.id+'">'+esc(WorkerPreparation.label(p))+'</option>').join('');if(rows.some(p=>String(p.id)===old))$('product').value=old;productChanged();}
- function prepareCacheUpdate(){read();if(($('product').dataset.snapshot||'')===(q.cache&&q.cache.id||'empty'))return;const saved={line:$('line').value,produceDate:$('produceDate').value,expireDate:$('expireDate').value,batchNo:$('batchNo').value};products();if(!$('line').disabled)for(const key of Object.keys(saved))$(key).value=saved[key];}
+ function products(filterOnly){
+  const select=$('product'),old=select.value,all=q.products||[],keyword=$('productSearch').value,rows=all.filter(p=>WorkerPreparation.productMatches(p,keyword)),selected=all.find(p=>String(p.id)===old),retained=selected&&!rows.includes(selected);
+  select.dataset.snapshot=q.cache&&q.cache.id||'empty';select.innerHTML='<option value="">'+(rows.length?'请选择产品':'暂无匹配产品，请更换关键词')+'</option>'+(retained?[selected,...rows]:rows).map(p=>'<option value="'+esc(p.id)+'">'+(retained&&p===selected?'【已选】':'')+esc(WorkerPreparation.label(p))+'</option>').join('');if(selected)select.value=old;
+  $('productCount').textContent='匹配 '+rows.length+' / '+all.length+' 个产品'+(retained?'，已选产品保留':'')+(all.length?'':'，请联网更新产品缓存');
+  // 只改筛选列表时不触发产品切换，避免清空工人已填批号和日期。
+  if(!filterOnly)productChanged();
+ }
+ function prepareCacheUpdate(){read();header({lineName:$('line').value.trim()});if(($('product').dataset.snapshot||'')===(q.cache&&q.cache.id||'empty'))return;const saved={line:$('line').value,produceDate:$('produceDate').value,expireDate:$('expireDate').value,batchNo:$('batchNo').value};products();if(!$('line').disabled)for(const key of Object.keys(saved))$(key).value=saved[key];if(!$('lineOptions').hidden)lineOptions($('lineSearch').value);header({lineName:$('line').value.trim()});}
  function productChanged(){
   const id=Number($('product').value),p=(q.products||[]).find(p=>Number(p.id)===id),old=(q.openRuns||[]).find(r=>r.mode==='production'&&Number(r.context.productId)===id);
   $('productHint').textContent=old?'继续原批，生产资料保持不变':p?WorkerPreparation.label(p):'';$('productHint').hidden=!$('productHint').textContent;
-  $('line').disabled=!!old;if(old)$('line').value=old.context.lineName||'';header(old?old.context:{lineName:$('line').value.trim()},id);
+  for(const key of ['line','linePicker','lineSearch','lineSearchClear'])$(key).disabled=!!old;if(old){$('line').value=old.context.lineName||'';closeLines();}header(old?old.context:{lineName:$('line').value.trim()},id);
   const dates=WorkerPreparation.defaults(new Date());for(const key of ['produceDate','expireDate','batchNo']){$(key).disabled=!!old;$(key).value=old?old.context[key]:key==='batchNo'?'':dates[key];}
  }
 
@@ -59,7 +82,7 @@
 
  function endNotice(){const run=q.run,cached=run?(q.pools||[]).find(p=>p.task_id===run.context.taskId):null,local=q.counts||{};let text='有效采集 '+Number(local.collected||0)+' · 待上传 '+Number(local.waiting||0);if(cached&&Number(cached.collected)<Number(cached.total))text+='\n整线尚有未扫描或未上传记录。';return text+'\n'+(q.networkAvailable?'结束后自动上传。':'当前离线，结束后请导出TXT或联网补传。');}
 
- function beginEnd(){if(pendingEnd||busy)return;read();if(!q.run)return;const wasScanning=scanning;stop();if($('toggle'))$('toggle').textContent='开始连续采集';const dialog=$('confirm'),cancel=dialog.querySelector('button[value=cancel]'),yes=dialog.querySelector('button[value=yes]');yes.hidden=true;cancel.textContent='取消结束，继续采集';const state={runId:q.run.id,wasScanning,deadline:Date.now()+5000,timer:null};pendingEnd=state;
+ function beginEnd(){if(pendingEnd||busy)return;read();if(!q.run)return;clearNotice();const wasScanning=scanning;stop();if($('toggle'))$('toggle').textContent='开始连续采集';const dialog=$('confirm'),cancel=dialog.querySelector('button[value=cancel]'),yes=dialog.querySelector('button[value=yes]');yes.hidden=true;cancel.textContent='取消结束，继续采集';const state={runId:q.run.id,wasScanning,deadline:Date.now()+5000,timer:null};pendingEnd=state;
   const reset=()=>{yes.hidden=false;cancel.textContent='取消';};
   dialog.addEventListener('close',()=>{reset();if(pendingEnd===state){clearInterval(state.timer);pendingEnd=null;if(state.wasScanning&&foreground&&!q.blocked){scanning=true;WorkerNative.scanning(true);if($('toggle'))$('toggle').textContent='暂停采集';}toast('已取消结束，数据保留，可以继续采集');}},{once:true});
   function tick(){if(pendingEnd!==state)return;const seconds=Math.max(0,Math.ceil((state.deadline-Date.now())/1000));$('confirmText').textContent=seconds+' 秒后结束采集，可点击下方取消。\n\n'+endNotice();if(seconds===0){clearInterval(state.timer);pendingEnd=null;dialog.close('commit');endedRun=state.runId;call('finish').then(()=>ended()).catch(error=>{toast(error.message);scan();});}}
@@ -94,6 +117,8 @@
   $('cachedList').innerHTML=rows.length?rows.map(p=>'<div class="card"><h2>'+esc([p.trademark,p.name].filter(Boolean).join(' · '))+'</h2><p>规格 '+esc(p.spec_name||'—')+'<br>登记证号 '+esc(p.registration_no||'—')+'</p><p class="muted">'+'可在生产准备选择'+'</p></div>').join(''):'<p>暂无完整产品缓存，请联网等待下载。</p>';
  }
 
+ document.addEventListener('pointerdown',e=>{if(page==='prepare'&&$('lineChoice')&&!$('lineChoice').contains(e.target))closeLines();});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape')closeLines();});
  window.PDAScanAdapter={onScan:raw=>collect(String(raw))};document.addEventListener('keydown',e=>{if(page!=='scan'||!scanning||!foreground||busy||!$('scanInput'))return;if(e.key.length===1&&!e.ctrlKey&&!e.altKey&&!e.metaKey&&e.target!==$('scanInput')){e.preventDefault();$('scanInput').focus();$('scanInput').value+=e.key;}},true);
  window.App={lifecycle(value){foreground=value;if(!value){if(pendingEnd&&$('confirm').open)$('confirm').close('cancel');stop();if($('toggle'))$('toggle').textContent='开始连续采集';}},back(){if(pendingEnd){$('confirm').close('cancel');return;}if(busy)return;if(page==='login'||page==='activate')Native.exit();else if(page==='scan')scanBack();else home();}};
  setInterval(()=>{if(!foreground||busy)return;try{if(page==='scan')update();else if(page==='ended')endUpdate();else if(page==='products'){cacheUpdate();if(!q.identity)login();}else if(page==='prepare'){prepareCacheUpdate();}else if(page==='home'){read();if(!q.identity)login();else if($('cachedProducts'))$('cachedProducts').textContent='本机产品（'+(q.products||[]).length+'）';}else if(page==='login'){read();}registrationRoute();}catch(error){stop();toast(error.message);}},1000);

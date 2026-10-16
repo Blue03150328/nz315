@@ -20,10 +20,10 @@ prepareExternal(worker){worker=worker.trim();if(!worker||worker.length>64)return
 collectExternal(raw){window.__nativeCalls.push('external');if(!armed)return JSON.stringify({ok:false,error:'已暂停'});if(!q.batch||q.batch.state!=='open')return JSON.stringify({ok:false,error:'旧采集已结束，请从生产扫码开始新采集'});window.__captured.push(raw);if(!q.batch||q.batch.state!=='open'){sequence=0;q.batch={id:crypto.randomUUID(),state:'open',worker_no:q.selection.workerNo};q.counts={collected:0,accepted:0,localDuplicates:0,duplicates:0,rejected:0};q.recent=[];}const localKind=events.includes(raw)?'duplicate':'valid';events.push(raw);q.counts[localKind==='valid'?'collected':'localDuplicates']++;q.queueCounts.waiting++;const event={eventId:crypto.randomUUID(),sequence:++sequence,rawCode:raw,capturedAt:new Date().toISOString(),localKind};q.recent.unshift({event,localKind,receipt:null});return JSON.stringify({ok:true,event});},
 collect(){throw new Error('外部采集不能调用内部码解析');},finishExternal(){if(!q.batch||q.batch.state!=='open')return JSON.stringify({...q,finishRequested:false});q.batch.state='sealed';archived.push(q.batch.id);q.batchCounts.pending++;return JSON.stringify({...q,finishRequested:true});},uploadExternal:()=>JSON.stringify({ok:true,message:'正在补传'}),configure:()=>'',};
 window.__resumeLegacy=()=>{q.batch={id:'legacy-open',state:'open',worker_no:'001'};q.counts={collected:0,accepted:0,localDuplicates:0,duplicates:0,rejected:0};};
-window.WorkerNative={scanning(value){armed=value;},snapshot:()=>JSON.stringify({ok:true,identity:new URLSearchParams(location.search).has('worker')?{id:1,name:'隔离工人'}:null,device:{enterpriseName:context.enterpriseName,name:'隔离设备'},registrationRequired:window.__registrationRequired,unconfirmedWork:window.__unconfirmed,allWaiting:0,message:'隔离测试',history:[],run:window.__workerRun||null,counts:{},recent:[],openRuns:[],products:[{id:1,name:"已入库产品甲",registration_no:"PD00000001",spec_name:"200毫升"},{id:2,name:"已入库产品乙",registration_no:"PD00000002",spec_name:"500毫升"}],pools:[{task_id:9,product_id:1,task_name:"任务甲",line_name:"一号线",memberIds:[1]}]}),backup(){window.__workerBackup=true;},upload(){},call(id,action,raw){if(action!=='start')throw Error('此网页测试不提交其他业务');window.__lastWorkerStart=JSON.parse(raw);window.__workerRun={id:'mock-run',mode:'production',context:window.__lastWorkerStart};setTimeout(()=>WorkerApi.receive(id,{ok:true}),0);}};
+window.WorkerNative={scanning(value){armed=value;},snapshot:()=>JSON.stringify({ok:true,identity:new URLSearchParams(location.search).has('worker')?{id:1,name:'隔离工人'}:null,device:{enterpriseName:context.enterpriseName,name:'隔离设备'},registrationRequired:window.__registrationRequired,unconfirmedWork:window.__unconfirmed,allWaiting:0,message:'隔离测试',history:[],run:window.__workerRun||null,cache:{id:window.__cacheId||'initial'},counts:{duplicates:window.__duplicates||0},recent:[],openRuns:window.__openRuns||[],products:window.__products||[{id:1,name:"已入库产品甲",registration_no:"PD00000001",spec_name:"200毫升"},{id:2,name:"已入库产品乙",registration_no:"PD00000002",spec_name:"500毫升"}],pools:window.__pools||[{task_id:9,product_id:1,task_name:"任务甲",line_name:"一号线",memberIds:[1]},{line_name:'二号线',memberIds:[999]}]}),collect(raw){window.__duplicates=(window.__duplicates||0)+1;return JSON.stringify({ok:true,event:{eventId:String(window.__duplicates),kind:'duplicate',rawCode:raw,reason:'重复扫码，保留记录但不重复计数。'.repeat(100)}});},backup(){window.__workerBackup=true;},upload(){},call(id,action,raw){if(action!=='start')throw Error('此网页测试不提交其他业务');window.__lastWorkerStart=JSON.parse(raw);window.__workerRun={id:'mock-run',mode:'production',context:window.__lastWorkerStart};setTimeout(()=>WorkerApi.receive(id,{ok:true}),0);}};
 })();`;
 async function delay(ms){await new Promise(resolve=>setTimeout(resolve,ms));}
-test('真实网页覆盖统一生产入口、旧批续传、原文、暂停与离线记录',{skip:!fs.existsSync(edge),timeout:30000},async()=>{
+test('真实网页覆盖统一生产入口、旧批续传、原文、暂停与离线记录',{skip:!fs.existsSync(edge),timeout:45000},async()=>{
   const server=http.createServer((request,response)=>{
     const requested=new URL(request.url,'http://localhost').pathname.slice(1)||'index.html',worker=requested.startsWith('worker/'),name=worker?requested.slice(7):requested;
     if(name==='mock-native.js'){response.setHeader('Content-Type','text/javascript');response.end(fixture);return;}
@@ -55,8 +55,80 @@ test('真实网页覆盖统一生产入口、旧批续传、原文、暂停与�
     await command('Page.navigate',{url:origin+'/worker/index.html?worker=1'});await wait('!!document.getElementById("production")');assert.equal(await evaluate('document.getElementById("external")===null'),true);assert.equal(await evaluate('document.getElementById("legacyEntry").textContent'),'历史记录与旧队列');
     await evaluate('document.getElementById("production").click()');await wait('!!document.getElementById("product")');
     assert.equal(await evaluate('document.getElementById("product").options.length'),3);
+    // 使用实际触摸事件选择候选，不能只赋值绕过WebView下拉兼容问题。
+    assert.equal(await evaluate('!!document.getElementById("linePicker")'),true,'提供不依赖datalist的产线选择按钮');
+    const tap=async selector=>{const point=await evaluate('(()=>{const b=document.querySelector('+JSON.stringify(selector)+');b.scrollIntoView({block:"center"});const r=b.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()');await command('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[point]});await command('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});};
+    await command('Emulation.setDeviceMetricsOverride',{width:360,height:640,deviceScaleFactor:1,mobile:true});
+    await command('Emulation.setTouchEmulationEnabled',{enabled:true});
+    await tap('#linePicker');assert.equal(await evaluate('document.getElementById("lineOptions").hidden'),false);
+    if(process.env.NZ315_UI_SHOTS){fs.mkdirSync(process.env.NZ315_UI_SHOTS,{recursive:true});const shot=await command('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(process.env.NZ315_UI_SHOTS,'line-picker.png'),Buffer.from(shot.result.data,'base64'));}
+    await tap('#lineOptions button:nth-child(2)');assert.equal(await evaluate('document.getElementById("line").value'),'二号线');assert.equal(await evaluate('document.getElementById("lineLabel").textContent'),'二号线');
+    assert.equal(await evaluate('document.getElementById("lineOptions").hidden'),true);
+    await evaluate('document.getElementById("line").value="一";document.getElementById("line").dispatchEvent(new Event("input"))');assert.equal(await evaluate('document.querySelectorAll("#lineOptions button").length'),1);
+    await evaluate('document.getElementById("line").value="自定义产线";document.getElementById("line").dispatchEvent(new Event("input"))');assert.equal(await evaluate('document.getElementById("lineLabel").textContent'),'自定义产线');
+    await evaluate('window.__pools=[{line_name:"新产线"},{line_name:"新产线"},{line_name:"<产线&测试>"}];window.__cacheId="updated"');await delay(1100);
+    assert.equal(await evaluate('document.getElementById("line").value'),'自定义产线');assert.equal(await evaluate('document.getElementById("lineLabel").textContent'),'自定义产线');
+    await tap('.page-heading h1');await tap('#linePicker');assert.deepEqual(await evaluate('[...document.querySelectorAll("#lineOptions button")].map(b=>b.textContent)'),['新产线','<产线&测试>']);
+    await tap('#lineOptions button:nth-child(2)');assert.equal(await evaluate('document.getElementById("line").value'),'<产线&测试>');
+    // 大量缓存中的搜索不依赖联网，不改已选产线、产品或已填资料。
+    await evaluate('window.__products=Array.from({length:1250},(_,i)=>({id:i+1,name:"测试产品"+(i+1),trademark:i%2?"金丝鸟":"甲商标",registration_no:"PD"+String(i+1).padStart(8,"0"),spec_name:i%2?"500毫升":"200毫升"}));window.__products[1249].name="<特殊&产品>";window.__pools=Array.from({length:350},(_,i)=>({line_name:"A区产线"+(i+1)}));window.__cacheId="many-products"');await delay(1100);
+    await tap('#linePicker');await command('Input.insertText',{text:'Ａ区 350'});
+    assert.deepEqual(await evaluate('[...document.querySelectorAll("#lineOptions button")].map(b=>b.textContent)'),['A区产线350']);
+    if(process.env.NZ315_UI_SHOTS){const shot=await command('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(process.env.NZ315_UI_SHOTS,'line-keyword.png'),Buffer.from(shot.result.data,'base64'));}
+    assert.equal(await evaluate('document.getElementById("line").value'),'<产线&测试>','搜产线不会把关键词当作产线名称');
+    await tap('#lineSearchClear');assert.equal(await evaluate('document.querySelectorAll("#lineOptions button").length'),350);
+    await evaluate('document.getElementById("lineSearch").value="不存在";document.getElementById("lineSearch").dispatchEvent(new Event("input"))');assert.equal(await evaluate('document.querySelectorAll("#lineOptions button").length'),0);
+    await evaluate('document.getElementById("lineSearch").value="350";document.getElementById("lineSearch").dispatchEvent(new Event("input"))');await tap('#lineOptions button');assert.equal(await evaluate('document.getElementById("line").value'),'A区产线350');
+    assert.equal(await evaluate('document.getElementById("product").options.length'),1251,'缓存后面的产品也可以搜索');
+    const searchProduct=async text=>evaluate('document.getElementById("productSearch").value='+JSON.stringify(text)+';document.getElementById("productSearch").dispatchEvent(new Event("input"))');
+    await searchProduct(' 金丝鸟　５００　ｐｄ００００１２５０ ');
+    assert.deepEqual(await evaluate('[...document.getElementById("product").options].map(o=>o.value)'),['','1250']);
+    assert.equal(await evaluate('document.querySelector("#product script")===null'),true);
+    if(process.env.NZ315_UI_SHOTS){await evaluate('document.getElementById("productSearch").scrollIntoView({block:"center"})');const shot=await command('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(process.env.NZ315_UI_SHOTS,'product-keyword.png'),Buffer.from(shot.result.data,'base64'));}
+    await evaluate('document.getElementById("product").value="1250";document.getElementById("product").dispatchEvent(new Event("change"));document.getElementById("batchNo").value="关键词测试批号";document.getElementById("produceDate").value="2026-09-30";document.getElementById("expireDate").value="2027-09-30"');
+    await searchProduct('不存在');
+    assert.equal(await evaluate('document.getElementById("product").value'),'1250');assert.equal(await evaluate('document.getElementById("productCount").textContent.includes("匹配 0 / 1250")&&document.getElementById("productCount").textContent.includes("已选产品保留")'),true);
+    await tap('#productSearchClear');assert.equal(await evaluate('document.getElementById("product").options.length'),1251);
+    assert.deepEqual(await evaluate('["product","line","batchNo","produceDate","expireDate"].map(id=>document.getElementById(id).value)'),['1250','A区产线350','关键词测试批号','2026-09-30','2027-09-30']);
+    for(const keyword of ['甲商标','测试产品1200','PD00001250','200毫升','<特殊&产品>']){await searchProduct(keyword);assert.equal(await evaluate('Number(document.getElementById("productCount").textContent.match(/匹配 ([0-9]+)/)[1])>0'),true,keyword);}
+    await searchProduct('金丝鸟 500');
+    await evaluate('document.getElementById("linePicker").click();document.getElementById("lineSearch").value="350";document.getElementById("lineSearch").dispatchEvent(new Event("input"));window.__products.push({id:1251,name:"金丝鸟新缓存产品",spec_name:"500毫升"});window.__pools.push({line_name:"B区产线350"});window.__cacheId="search-refresh"');await delay(1100);
+    assert.equal(await evaluate('document.getElementById("productSearch").value'),'金丝鸟 500');assert.equal(await evaluate('document.getElementById("product").value'),'1250');assert.equal(await evaluate('document.getElementById("batchNo").value'),'关键词测试批号');
+    assert.equal(await evaluate('document.getElementById("lineSearch").value'),'350');assert.equal(await evaluate('document.querySelectorAll("#lineOptions button").length'),2);
+    await tap('.page-heading h1');
+    await evaluate('window.__products=undefined;window.__cacheId="restored-products"');await delay(1100);
+    assert.equal(await evaluate('document.getElementById("product").value'),'','缓存移除已选产品时必须取消旧ID');
+    await searchProduct('不存在');assert.equal(await evaluate('document.getElementById("product").options.length'),1);await tap('#productSearchClear');
+    await evaluate('window.__products=[];window.__pools=[];window.__cacheId="empty-products"');await delay(1100);
+    assert.equal(await evaluate('document.getElementById("productCount").textContent.includes("匹配 0 / 0")'),true);
+    await tap('#linePicker');assert.equal(await evaluate('document.getElementById("lineCount").textContent.includes("匹配 0 / 0")'),true);
+    await tap('.page-heading h1');await evaluate('window.__products=undefined;window.__pools=undefined;window.__cacheId="restored-again"');await delay(1100);
+    await evaluate('window.__openRuns=[{mode:"production",context:{productId:1,lineName:"原批产线",batchNo:"原批号",produceDate:"2026-10-01",expireDate:"2028-10-01"}}]');await delay(1100);
+    await evaluate('document.getElementById("product").value="1";document.getElementById("product").dispatchEvent(new Event("change"))');
+    assert.equal(await evaluate('document.getElementById("line").disabled&&document.getElementById("linePicker").disabled&&document.getElementById("lineOptions").hidden'),true,'续批锁定原产线');
+    await searchProduct('产品乙');await tap('#productSearchClear');
+    assert.deepEqual(await evaluate('["line","batchNo","produceDate","expireDate"].map(id=>document.getElementById(id).value)'),['原批产线','原批号','2026-10-01','2028-10-01']);
+    assert.equal(await evaluate('document.getElementById("lineSearch").disabled&&document.getElementById("lineSearchClear").disabled'),true);
     await evaluate('document.getElementById("product").value="2";document.getElementById("product").dispatchEvent(new Event("change"));document.getElementById("line").value="二号线";document.getElementById("batchNo").value="B2";document.getElementById("produceDate").value="2026-10-13";document.getElementById("expireDate").value="2027-10-13";document.getElementById("start").click();document.querySelector("button[value=yes]").click()');
     await wait('!!document.getElementById("toggle")');assert.equal(await evaluate('window.__lastWorkerStart.productId'),2);assert.equal(await evaluate('window.__lastWorkerStart.stockWorkflow'),true);assert.equal(await evaluate('window.__lastWorkerStart.unifiedScan'),true);assert.equal(await evaluate('window.__lastWorkerStart.taskId'),0);assert.equal(await evaluate('window.__lastWorkerStart.autoLine'),true);assert.equal(await evaluate('window.__lastWorkerStart.lineName'),'二号线');
+    await evaluate('document.getElementById("toggle").click();for(let i=0;i<80;i++)window.PDAScanAdapter.onScan("重复码");document.getElementById("toggle").click();for(let i=0;i<30;i++)window.PDAScanAdapter.onScan("暂停后重扫")');
+    assert.equal(await evaluate('document.getElementById("errors").textContent'),'80');
+    assert.equal(await evaluate('document.getElementById("collected").textContent'),'0');
+    assert.equal(await evaluate('document.getElementById("last").textContent.includes("重复码")'),true);
+    assert.equal(await evaluate('document.querySelectorAll("#last").length===1&&document.querySelectorAll("#notice").length===1'),true,'连续扫码不堆叠提示节点');
+    for(const [width,height] of [[320,240],[320,480],[360,640],[480,800],[720,1280]]){
+      await command('Emulation.setDeviceMetricsOverride',{width,height,deviceScaleFactor:1,mobile:true});
+      for(const fontSize of ['20px','26px']){
+        await evaluate('(()=>{let style=document.getElementById("testTextScale");if(!style){style=document.createElement("style");style.id="testTextScale";document.head.appendChild(style);}style.textContent="button,input,select,.stats span,#last{font-size:'+fontSize+'}";})()');
+        for(const where of [0,99999]){
+          await evaluate('window.scrollTo(0,'+where+')');await delay(40);
+          assert.equal(await evaluate('(()=>{const b=document.getElementById("finish"),r=b.getBoundingClientRect(),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return r.top>=0&&r.bottom<=innerHeight&&b.contains(hit);})()'),true,'重复提示和滚动不遮挡结束按钮 '+width+'x'+height+' '+fontSize);
+          if(process.env.NZ315_UI_SHOTS&&width===320&&height===480&&fontSize==='26px'&&where===99999){const shot=await command('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(process.env.NZ315_UI_SHOTS,'repeat-controls.png'),Buffer.from(shot.result.data,'base64'));}
+        }
+      }
+    }
+    await tap('#finish');assert.equal(await evaluate('document.getElementById("confirm").open'),true,'连续提示后仍能触摸结束采集');
+    await tap('#confirm button[value=cancel]');assert.equal(await evaluate('document.getElementById("confirm").open'),false);await wait('document.querySelector("#confirm button[value=cancel]").textContent==="取消"');
     await evaluate('window.App.back();window.App.back()');
     await evaluate('document.getElementById("history").click()');assert.equal(await evaluate('!!document.getElementById("legacyEntry")'),true);await evaluate('document.getElementById("backup").click()');assert.equal(await evaluate('window.__workerBackup'),true);
     await evaluate('document.getElementById("historyBack").click();window.__registrationRequired=true;window.__unconfirmed=true');await wait('!!document.getElementById("activationInput")');
