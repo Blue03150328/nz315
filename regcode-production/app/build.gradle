@@ -7,8 +7,8 @@ android {
         applicationId 'cn.nz315.production.pda'
         minSdk 26
         targetSdk 35
-        versionCode 20
-        versionName '3.1.11'
+        versionCode 21
+        versionName '3.1.12'
         testInstrumentationRunner 'com.regcode.app.QueueStoreInstrumentation'
         buildConfigField 'String', 'DEFAULT_SERVER', '"https://www.nz315.cn"'
         buildConfigField 'boolean', 'ALLOW_LOCAL_HTTP', 'false'

@@ -14,3 +14,6 @@ body[data-page=prepare]>header{display:none}body[data-page=prepare] main{padding
 body[data-page=prepare] .prepare-dates input{font-size:16px}
 
 .history-search{display:flex;gap:8px;margin:12px 0 4px;align-items:center}.history-search input{flex:1;min-width:0;font-size:18px;padding:10px;min-height:52px}.history-search button{width:auto;flex-shrink:0;margin:0;padding:10px;min-height:52px;font-size:18px}#historyCount{font-size:16px;margin:8px 0}.history-empty{padding:12px;margin:0;color:#4c6857}
+
+/* 登录后的页面仅保留当前操作内容，身份仍随每条采集记录保存。 */
+body[data-page=home]>header,body[data-page=scan]>header,body[data-page=ended]>header,body[data-page=history]>header,body[data-page=products]>header{display:none}
