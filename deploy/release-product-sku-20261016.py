@@ -121,7 +121,9 @@ if MODE == 'prepare':
     run(['curl', '--fail', '--location', '--retry', '3', '--output', str(source), 'https://codeload.github.com/Blue03150328/nz315/tar.gz/' + COMMIT])
     run(['tar', '-xzf', str(source), '-C', str(DEST), '--strip-components=1'])
     for name in ['package.json', 'package-lock.json', 'scripts/start-production-container.mjs', 'compose.production.yml']:
-        assert (DEST / name).read_bytes() == (previous / name).read_bytes(), '基础运行依赖改变：' + name
+        new_text, old_text = (DEST / name).read_text(), (previous / name).read_text()
+        equal = json.loads(new_text) == json.loads(old_text) if name.endswith('.json') else new_text.strip() == old_text.strip()
+        assert equal, '基础运行依赖改变：' + name
     os.symlink(ROOT / 'node_modules', DEST / 'node_modules')
     state['status'] = 'prepared'
     save()
