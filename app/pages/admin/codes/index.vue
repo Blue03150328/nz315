@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { formatCodeQuantity } from '#shared/utils/code-quantity'
-import { productWithSpec } from '#shared/utils/product-name'
 // 码库管理（2026-10-12 去子批次改造）：一行 = 扫描仪一次「完成本次上传」。
 // 不再有总批次 / 已用子批次 / 剩余子批次 / 使用记录；只记录已完成上传的码。
 // 数量一律精确显示（12,352张），不折算「万」。
@@ -28,16 +27,9 @@ const filters = reactive({
   dateTo: '',
 })
 const page = ref(1)
+const productPickerKey = ref(0)
 const pageSize = 20
 const { applyListQuery, resetListQuery } = useAdminListRoute(filters, page, () => refresh(), ['productId'])
-
-// 产品下拉（关联产品筛选；pageSize 100 与生产采集/生成页同口径）
-const { data: productData } = await useFetch<any>('/api/admin/products', {
-  key: 'admin-codes-products',
-  query: { page: 1, pageSize: 100, bindable: 1 },
-})
-const PRODUCT_OPTIONS = computed(() =>
-  (productData.value?.rows || []).map((p: any) => ({ value: Number(p.id), label: productWithSpec(p) })))
 
 const listQuery = computed(() => ({
     productId: filters.productId || undefined,
@@ -55,7 +47,7 @@ const totalPages = computed(() => Math.max(1, Math.ceil((data.value?.total || 0)
 const batchRows = computed<any[]>(() => data.value?.rows || [])
 
 const doSearch = () => applyListQuery()
-const resetSearch = () => resetListQuery()
+const resetSearch = () => { productPickerKey.value++; return resetListQuery() }
 
 // 跨页保留手动选择；全选使用已查询的筛选条件，勾掉单行作为排除项。
 const selectionMode = ref(false)
@@ -488,7 +480,7 @@ const flagBadge = (f: number) => {
       <div class="b-form-grid md:grid-cols-2 xl:grid-cols-6">
         <div>
           <label class="b-label">关联产品</label>
-          <USelect v-model="filters.productId" :items="PRODUCT_OPTIONS" placeholder="全部产品" class="w-full" :content="{ class: 'min-w-72' }" :ui="{ value: 'whitespace-normal break-words text-left', itemLabel: 'whitespace-normal break-words' }" />
+          <ProductPicker :key="productPickerKey" :model-value="filters.productId ?? null" all-statuses allow-all aria-label="关联产品" @update:model-value="filters.productId = $event ?? undefined" />
         </div>
         <div>
           <label class="b-label">生产批号</label>

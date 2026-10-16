@@ -17,7 +17,7 @@ import urllib.request
 os.umask(0o077)
 MODE, COMMIT = sys.argv[1:3]
 KIND = sys.argv[3] if len(sys.argv) > 3 else 'sku'
-assert KIND in ['sku', 'generator-search', 'generator-export'], '未知发布范围'
+assert KIND in ['sku', 'generator-search', 'generator-export', 'codes-product-search'], '未知发布范围'
 assert re.fullmatch(r'[0-9a-f]{40}', COMMIT)
 ROOT = pathlib.Path('/var/www/nz315')
 NODE = '/usr/local/node22/bin/node'
@@ -143,10 +143,12 @@ elif MODE == 'build':
     compiled = '\n'.join(p.read_text(errors='replace') for p in (DEST / '.output/public/_nuxt').glob('*.js'))
     for label in ['输入关键词选择规格', '浏览器下载列表可查看进度'] + (['输入关键词选择产品'] if KIND != 'sku' else []):
         assert label in compiled, '生产产物缺少功能标识：' + label
-    if KIND == 'generator-export':
+    if KIND in ['generator-export', 'codes-product-search']:
         assert '入库留档' not in compiled, '生成页仍有已移除的入库入口或说明'
         for label in ['导出 TXT', '导出 urls.txt', '导出 CSV', '尚未导出']:
             assert label in compiled, '生成页缺少原导出或防丢失提醒：' + label
+    if KIND == 'codes-product-search':
+        assert '关联产品' in compiled and '全部产品' in compiled, '码库产品筛选标识缺失'
     (DEST / 'Dockerfile.release').write_text('FROM ' + state['previous']['image'] + '\nUSER root\nCOPY --chown=node:node .output /app/.output\nLABEL org.opencontainers.image.revision="' + COMMIT + '"\nUSER node\n')
     (DEST / '.dockerignore').write_text('*\n!.output\n!.output/**\n!Dockerfile.release\n')
     run(['docker', 'build', '-f', 'Dockerfile.release', '-t', IMAGE, '.'], cwd=DEST)
