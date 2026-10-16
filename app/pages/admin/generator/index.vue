@@ -36,14 +36,9 @@ const form = reactive({
 })
 const generating = ref(false)
 const result = ref<any>(null)
-// 入库留档（方案 A 2026-09-04）：生成码可先入库为「已生成/未绑定」——提前印码的企业入档管理，
-// 生产时在码库管理按该上传批次【修正】绑定生产批次；stocked 防止同一批结果重复入库
-const stocking = ref(false)
-const stocked = ref(false)
-// 防丢失（2026-10-10）：本批码不入库、只存在于本页内存，刷新或关闭页面即永久丢失（重新生成得到的是另一批新码）。
-// 故「既未导出也未入库留档」时拦截刷新/关闭；Keep-Alive 下切菜单属 SPA 内路由、不触发该事件，正好只拦真正会丢的动作。
+// 本批码仅保存在页面内存；尚未导出时，刷新或关闭页面前提示保存。
 const downloaded = ref(false)
-const hasUnsavedResult = computed(() => !!result.value?.allCodes?.length && !downloaded.value && !stocked.value)
+const hasUnsavedResult = computed(() => !!result.value?.allCodes?.length && !downloaded.value)
 const onBeforeUnload = (e: BeforeUnloadEvent) => {
   if (!hasUnsavedResult.value) return
   e.preventDefault()
@@ -76,7 +71,6 @@ const resetPage = () => {
   showBigConfirm.value = false
   result.value = null
   downloaded.value = false
-  stocked.value = false
   toast.add({ title: '已重置，页面恢复初始状态', color: 'primary' })
 }
 
@@ -116,7 +110,6 @@ const runGenerate = async () => {
   generating.value = true
   try {
     result.value = await $fetch('/api/admin/codes/generate', { method: 'POST', body: { ...form } })
-    stocked.value = false // 新一批码，重置入库留档状态
     downloaded.value = false // 同理重置「已导出」标记，避免新一批沿用上一批的已保存状态
     toast.add({ title: '生成成功：' + result.value.quantity + ' 条' + (result.value.duplicates ? '（跳过重码 ' + result.value.duplicates + ' 条）' : ''), color: 'success' })
   } catch (e: any) {
@@ -198,38 +191,12 @@ const exportCsv = () => {
   download(blob, defaultFilePrefix() + '.csv')
 }
 
-// ========== 入库留档（状态：已生成/未绑定；方案 A 2026-09-04） ==========
-// 生产采集导入是「绑定入库」；这里是「留档入库」：码进码库但未绑生产批次，
-// 之后在码库管理（该上传批次行【修正】→ 新建批次绑定）完成生产绑定
-const doStockIn = async () => {
-  if (!result.value?.allCodes?.length) { toast.add({ title: '请先生成追溯码', color: 'warning' }); return }
-  stocking.value = true
-  try {
-    const res = await $fetch('/api/admin/codes/stock-in', {
-      method: 'POST',
-      body: { codes: result.value.allCodes, productId: result.value.product.id, specSnapshotToken: result.value.specSnapshotToken },
-    })
-    const skip = Number(res.skippedInvalid || 0) + Number(res.skippedDup || 0)
-    toast.add({
-      title: res.imported > 0
-        ? '已入库 ' + res.imported + ' 条，文件内重复 ' + res.duplicateFile + ' 条、库内已有 ' + res.duplicateDatabase + ' 条、校验拒绝 ' + res.skippedInvalid + ' 条'
-        : res.message,
-      color: skip > 0 ? 'warning' : 'success',
-    })
-    stocked.value = res.imported > 0 || res.skippedInvalid === 0
-  } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage || '入库失败', color: 'error' })
-  } finally {
-    stocking.value = false
-  }
-}
-
 // ========== 二维码图片输出：官方离线工具（合规第一条：QR/DM 码制，供印刷厂赋码） ==========
 // 2026-09-15 改造：原「服务端渲染 PNG + zip 打包下载」整体下线，改为下载官方离线工具在本机生成——
 // 万张级批量不再受服务器与网络限制，印刷厂/生产车间可离线自行出图；码内容口径与平台一致（完整扫码 URL）。
 // 2026-09-19 升级 v1.2.0：工具改为「导入本平台生成的码文件 → 只出图」的纯生图定位——
 //   此前工具自己也能造码（内置数据快照 + 不同算法，无 MD5 校验位），导致与平台生成的码对不上、还要再录入一遍；
-//   现在码统一由平台产出（可入库留档、可被生产采集绑定），工具只负责渲染成图。
+//   现在码统一由平台产出（生产采集后入库绑定），工具只负责渲染成图。
 //   工具仍保留「离线应急生成」但不推荐；导入出图不依赖工具内置数据，故厂商无需再为数据更新重发工具包。
 // 工具发布件放 public/tools/；版本号/size/SHA256 在此维护并展示，便于客户核对拿到的是否为官方发布件
 const OFFLINE_TOOL = {
@@ -267,7 +234,7 @@ const OFFLINE_TOOL = {
             <label class="b-label">产品（码第 1-11 位来源）<span class="b-required">*</span></label>
             <ProductPicker
               v-model="form.productId"
-              :disabled="generating || stocking"
+              :disabled="generating"
               @selected="selectedProduct = $event"
             />
             <p v-if="selectedProduct" class="b-help">
@@ -364,7 +331,7 @@ const OFFLINE_TOOL = {
       <div v-if="hasUnsavedResult" class="b-note mx-4 mt-3">
         <UIcon name="i-lucide-triangle-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
         <p class="b-note-text">
-          本批码<strong>尚未导出、也未入库留档</strong>：码只存在于当前页面，刷新或关闭页面后<strong>无法恢复</strong>（重新生成得到的是另一批新码）。请先点下方【导出】任一格式或【入库留档】，再离开本页。
+          本批码<strong>尚未导出</strong>：码只存在于当前页面，刷新或关闭页面后<strong>无法恢复</strong>（重新生成得到的是另一批新码）。请先点下方【导出】任一格式，再离开本页。
         </p>
       </div>
 
@@ -414,22 +381,11 @@ const OFFLINE_TOOL = {
       </div>
 
       <div class="b-card-foot">
-        <span class="b-card-extra">TXT 命名遵循 PRD 5.5.1 强制规范（企业ID_产品名_规格_日期）；urls.txt 每行为完整扫码地址，是离线二维码工具的输入文件（见下方「二维码图片输出」）。码文件可先「入库留档」——入库为「已生成（未绑定）」，生产时到码库管理绑定批次</span>
+        <span class="b-card-extra">TXT 命名遵循 PRD 5.5.1 强制规范（企业ID_产品名_规格_日期）；urls.txt 每行为完整扫码地址，是离线二维码工具的输入文件（见下方「二维码图片输出」）。生成结果不入库，生产采集后入库绑定</span>
         <div class="flex flex-wrap items-center gap-2">
           <UButton variant="outline" color="neutral" icon="i-lucide-file-text" @click="exportTxt">导出 TXT</UButton>
           <UButton variant="outline" color="neutral" icon="i-lucide-link" @click="exportUrls">导出 urls.txt（离线工具输入）</UButton>
           <UButton color="neutral" variant="solid" icon="i-lucide-file-spreadsheet" @click="exportCsv">导出 CSV</UButton>
-          <span class="b-sep" />
-          <UButton v-if="canWrite"
-            color="neutral"
-            :variant="stocked ? 'soft' : 'solid'"
-            icon="i-lucide-archive"
-            :loading="stocking"
-            :disabled="stocked"
-            @click="doStockIn"
-          >
-            {{ stocked ? '已入库 ' + result.quantity + ' 条（未绑定）' : '入库留档（状态：已生成）' }}
-          </UButton>
         </div>
       </div>
     </div>
@@ -443,7 +399,7 @@ const OFFLINE_TOOL = {
       <div class="b-card-body space-y-3">
         <div class="b-note">
           <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
-          <p class="b-note-text">二维码图片改由官方<strong>离线工具</strong>在本机生成，不再经过服务器：万张级批量不受网络与服务器限制，印刷厂、生产车间均可离线自行出图。<strong>码值统一由本平台生成</strong>（可入库留档、可被生产采集绑定），工具只负责把码渲染成 PNG —— 两边不会再出现规格码或码结构对不上的情况。码内容为完整扫码地址（<span class="font-code">{{ traceBaseUrl }}32位码</span>）。</p>
+          <p class="b-note-text">二维码图片改由官方<strong>离线工具</strong>在本机生成，不再经过服务器：万张级批量不受网络与服务器限制，印刷厂、生产车间均可离线自行出图。<strong>码值统一由本平台生成</strong>（生产采集后入库绑定），工具只负责把码渲染成 PNG —— 两边不会再出现规格码或码结构对不上的情况。码内容为完整扫码地址（<span class="font-code">{{ traceBaseUrl }}32位码</span>）。</p>
         </div>
         <ol class="space-y-1.5 text-[13px] leading-6 text-[var(--b-text-muted)]">
           <li>① 在上方「生成结果」区点【导出 urls.txt】，得到每行一个完整扫码地址的码文件（也可用【导出 TXT】或 sn 清单 CSV，工具三种都能识别）。</li>
