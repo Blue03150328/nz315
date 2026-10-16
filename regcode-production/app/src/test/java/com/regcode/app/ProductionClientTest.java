@@ -131,7 +131,7 @@ public class ProductionClientTest {
     }
     @Test public void workerRoutesKeepDeviceIdentityAndBothQueueProtocols() throws Exception {
         String id="3beff054-1b7d-4c72-8c25-e8937024b523";
-        String[] routes={"/api/device/operator/login","/api/device/operator/check","/api/device/line-progress","/api/device/worker-sessions","/api/device/worker-sessions/"+id+"/events","/api/device/worker-sessions/"+id+"/complete","/api/device/worker-runs/"+id+"/complete"};
+        String[] routes={"/api/device/leader-records","/api/device/leader-records/detail","/api/device/leader-records/download","/api/device/worker-sessions/"+id+"/actions","/api/device/operator/login","/api/device/operator/check","/api/device/line-progress","/api/device/worker-sessions","/api/device/worker-sessions/"+id+"/events","/api/device/worker-sessions/"+id+"/complete","/api/device/worker-runs/"+id+"/complete"};
         for(String route:routes)assertEquals(0,client.request("POST",route,"{}").getInt("status"));
         assertEquals(0,client.request("GET","/api/device/worker-cache?workflow=line","{}").getInt("status"));
         client.deviceCredential("d".repeat(64));
@@ -139,6 +139,8 @@ public class ProductionClientTest {
         assertEquals(200,client.request("GET","/api/device/worker-cache?workflow=line","{}").getInt("status"));
         assertEquals(0,client.request("POST","/api/device/worker-sessions/"+id+"/delete","{}").getInt("status"));
         assertEquals(0,client.request("GET","/api/device/worker-runs/"+id+"/complete","{}").getInt("status"));
+        assertEquals(0,client.request("POST","/api/device/leader-records/delete","{}").getInt("status"));
+        assertEquals(0,client.request("GET","/api/device/leader-records","{}").getInt("status"));
     }
     @Test public void workerHeartbeatReachesServerWithDeviceIdentityAndCounters() throws Exception {
         String id="3beff054-1b7d-4c72-8c25-e8937024b523",path="/api/device/worker-sessions/"+id+"/heartbeat";

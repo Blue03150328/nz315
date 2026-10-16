@@ -1,6 +1,15 @@
 package com.regcode.collection;
 import org.json.*;import org.junit.Test;import static org.junit.Assert.*;import java.util.*;import java.io.*;
 public class WorkerStoreTest {
+ @Test public void fullLocalHistoryIncludesOldBatchesAndRemainsUserScoped()throws Exception{
+  try(QueueStoreTest.Jdbc db=new QueueStoreTest.Jdbc(":memory:")){
+   WorkerStore w=new WorkerStore(db);String first=null;
+   for(int i=0;i<55;i++){JSONObject run=w.start(new JSONObject().put("mode","external").put("productName","产品"+i),profile(1),1000+i*10);if(i==0)first=run.getString("id");w.capture("原始网址"+i,profile(1),1001+i*10);w.finish(1);}
+   w.start(new JSONObject().put("mode","external").put("productName","其他工人"),profile(2),2000);w.capture("另一个账号的原文",profile(2),2001);w.finish(2);
+   assertEquals(50,w.snapshot(1).getJSONArray("history").length());JSONArray all=w.history(1);assertEquals(55,all.length());assertEquals(first,all.getJSONObject(54).getString("id"));assertEquals(1,all.getJSONObject(54).getJSONObject("summary").getInt("collected"));
+   assertEquals(1,w.history(2).length());assertEquals(0,w.history(99).length());assertThrows(Exception.class,()->w.history(0));
+  }
+ }
  @Test public void externalResumeAfterReloginKeepsOriginalRawAndRotatesSession()throws Exception{
   try(QueueStoreTest.Jdbc db=new QueueStoreTest.Jdbc(":memory:")){
    WorkerStore w=ready(db);JSONObject first=profile(1);String run=w.start(new JSONObject().put("mode","external"),first,1).getString("id"),old=w.currentSession(1).getString("id");

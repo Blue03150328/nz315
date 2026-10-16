@@ -50,6 +50,7 @@ public class MainActivity extends Activity {
     private boolean choosingBackup;
     private WorkerEngine workerEngine;
     private long workerBackupUser;
+    private long pendingExportActor;
     private boolean workerBackup;
     private String pendingExport;
     private static final int WORKER_TEXT=316;
@@ -124,7 +125,7 @@ public class MainActivity extends Activity {
     @Override @SuppressWarnings("deprecation") public void onBackPressed() { evaluate("window.App&&window.App.back()"); }
     @Override @SuppressWarnings("deprecation") protected void onActivityResult(int requestCode,int resultCode,Intent data){
         super.onActivityResult(requestCode,resultCode,data);
-        if(requestCode==WORKER_TEXT){choosingBackup=false;if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null){android.net.Uri destination=data.getData();String text=pendingExport;executor.execute(()->{try(OutputStream out=getContentResolver().openOutputStream(destination,"wt")){if(out==null||text==null)throw new Exception("文件不可用");out.write(text.getBytes(StandardCharsets.UTF_8));out.flush();notifyText("TXT已保存");}catch(Exception error){notifyText("TXT保存失败，云端记录保留");}});}pendingExport=null;return;}
+        if(requestCode==WORKER_TEXT){choosingBackup=false;if(resultCode==RESULT_OK&&data!=null&&data.getData()!=null){android.net.Uri destination=data.getData();String text=pendingExport;long actor=pendingExportActor;executor.execute(()->{try(OutputStream out=getContentResolver().openOutputStream(destination,"wt")){if(out==null||text==null)throw new Exception("文件不可用");workerEngine.requireLeader();if(actor!=workerEngine.userId())throw new Exception("导出账号已变更");out.write(text.getBytes(StandardCharsets.UTF_8));out.flush();notifyText("TXT已保存");}catch(Exception error){notifyText("TXT保存失败，云端记录保留");}});}pendingExport=null;return;}
         if(requestCode!=BACKUP_DOCUMENT)return;
         choosingBackup=false;
         if(resultCode!=RESULT_OK || data==null || data.getData()==null){notifyText("已取消导出，本机记录仍保留");return;}
@@ -135,7 +136,7 @@ public class MainActivity extends Activity {
         executor.execute(()->{
             try(OutputStream output=getContentResolver().openOutputStream(destination,"wt")){
                 if(output==null)throw new IllegalStateException("无法打开备份文件");
-                if(exportWorker)workerEngine.backup(output,exportUser);else queue.writeBackup(output,externalQueue);output.flush();
+                if(exportWorker)workerEngine.backup(output,exportUser);else {workerEngine.requireLeader();queue.writeBackup(output,externalQueue);}output.flush();
                 notifyText("备份已导出，包含完整采集记录和上传收据；本机记录保留");
             }catch(Exception error){notifyText("备份导出失败，请重新选择保存位置；本机记录保留");}
         });
@@ -185,7 +186,7 @@ public class MainActivity extends Activity {
 
     public final class ProductionBridge {
         @JavascriptInterface public void openWorkerApp(){openPage("file:///android_asset/worker/index.html");}
-        @JavascriptInterface public void openLegacyApp(){openPage("file:///android_asset/www/index.html");}
+        @JavascriptInterface public void openLegacyApp(){try{workerEngine.requireLeader();openPage("file:///android_asset/worker/index.html");}catch(Exception e){notifyText(e.getMessage());}}
         @JavascriptInterface public String settings() {
             try { return new JSONObject().put("server", preferences.getString("server", BuildConfig.DEFAULT_SERVER)).put("mode", preferences.getString("mode", "auto"))
                     .put("action", preferences.getString("action", "")).put("extra", preferences.getString("extra", "scannerdata"))
@@ -266,17 +267,8 @@ public class MainActivity extends Activity {
             try{if(sync==null)throw new Exception("本机数据库不可用");return new JSONObject().put("ok",sync.uploadNow()).put("loginRequired",sync.loginRequired()).put("message",sync.message()).toString();}
             catch(Exception error){return failure(error);}
         }
-        @JavascriptInterface @SuppressWarnings("deprecation") public void exportBackup(){
-            runOnUiThread(()->{
-                if(queue==null){notifyText("本机数据库不可用，无法导出");return;}
-                if(choosingBackup)return;
-                workerBackup=false;
-                Intent intent=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/json")
-                    .putExtra(Intent.EXTRA_TITLE,"nz315-production-backup-"+System.currentTimeMillis()+".json");
-                try{choosingBackup=true;startActivityForResult(intent,BACKUP_DOCUMENT);}
-                catch(RuntimeException error){choosingBackup=false;notifyText("无法打开保存位置，请检查设备文件管理器");}
-            });
-        }
+        @JavascriptInterface public void exportBackup(){new WorkerBridge().backup();}
+
         @JavascriptInterface public void request(String id, String method, String path, String body) {
             executor.execute(() -> {
                 JSONObject result;
@@ -319,6 +311,9 @@ public class MainActivity extends Activity {
             JSONObject result;
             try{JSONObject body=new JSONObject(input);
                 switch(action){
+                    case "history": result=workerEngine.history();break;
+                    case "records": result=workerEngine.records(body);break;
+                    case "recordDetail": result=workerEngine.recordDetail(body);break;
                     case "login": result=workerEngine.login(body.getString("username"),body.getString("password"));break;
                     case "start": synchronized(collectionModeLock){requireLegacyFinished();result=new JSONObject().put("ok",true).put("run",workerEngine.start(body));}break;
                     case "resume": synchronized(collectionModeLock){requireLegacyFinished();workerEngine.resume(body.getString("runId"));result=workerEngine.snapshot();}break;
@@ -332,17 +327,23 @@ public class MainActivity extends Activity {
             }catch(Exception e){try{result=new JSONObject(new ProductionBridge().failure(e));}catch(Exception ignored){return;}}
             evaluate("window.WorkerApi&&window.WorkerApi.receive("+JSONObject.quote(id)+","+result+")");
         });}
-        @JavascriptInterface public void backup(){try{final long user=workerEngine.userId();runOnUiThread(()->{if(choosingBackup)return;workerBackupUser=user;workerBackup=true;openDocument(BACKUP_DOCUMENT,"application/json","nz315-worker-backup-"+System.currentTimeMillis()+".json");});}catch(Exception e){notifyText(e.getMessage());}}
+        @JavascriptInterface public void backup(){try{workerEngine.requireLeader();final long user=workerEngine.userId();runOnUiThread(()->{if(choosingBackup)return;workerBackupUser=user;workerBackup=true;openDocument(BACKUP_DOCUMENT,"application/json","nz315-worker-backup-"+System.currentTimeMillis()+".json");});}catch(Exception e){notifyText(e.getMessage());}}
+        @JavascriptInterface public void recordTxt(String sessionId,String scope){workerEngine.async(()->{
+            try{JSONObject data=workerEngine.exportRecord(sessionId,scope),record=data.getJSONObject("record"),identity=record.getJSONObject("identity");String text=data.getString("text");
+                String name="production".equals(record.getString("mode"))?ProductionExportName.create(record.getJSONObject("context"),identity,sessionId,System.currentTimeMillis()):ProductionExportName.external(identity,sessionId,data.optInt("count"),System.currentTimeMillis());
+                final long actor=workerEngine.userId();runOnUiThread(()->{if(choosingBackup)return;pendingExport=text;pendingExportActor=actor;openDocument(WORKER_TEXT,"text/plain",name);});
+            }catch(Exception error){notifyText(error.getMessage());}
+        });}
         @JavascriptInterface public void txt(String runId){workerEngine.async(()->{
             try{
-                JSONObject current=workerEngine.snapshot(),record=null;JSONArray history=current.getJSONArray("history");
+                JSONObject current=workerEngine.snapshot(),record=null;JSONArray history=workerEngine.history().getJSONArray("rows");
                 for(int i=0;i<history.length();i++){JSONObject row=history.getJSONObject(i);if(runId.equals(row.getString("id")))record=row;}
                 if(record==null)throw new Exception("未找到本人的采集记录");
                 boolean production="production".equals(record.getString("mode"));
                 JSONObject external=production?null:workerEngine.exportExternal(runId);
                 String text=production?workerEngine.exportProduction(runId):external.getString("text");
                 String name=production?ProductionExportName.create(record.getJSONObject("context"),current.getJSONObject("identity"),runId,System.currentTimeMillis()):ProductionExportName.external(current.getJSONObject("identity"),runId,external.getInt("count"),System.currentTimeMillis());
-                runOnUiThread(()->{if(choosingBackup)return;pendingExport=text;openDocument(WORKER_TEXT,"text/plain",name);});
+                final long actor=workerEngine.userId();runOnUiThread(()->{if(choosingBackup)return;pendingExport=text;pendingExportActor=actor;openDocument(WORKER_TEXT,"text/plain",name);});
             }catch(Exception e){notifyText(e.getMessage());}
         });}
     }

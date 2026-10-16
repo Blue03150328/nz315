@@ -3,6 +3,7 @@ import android.content.*;
 import android.net.*;
 import org.json.*;
 import com.regcode.collection.WorkerStore;
+import com.regcode.collection.CaptureAccess;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.security.SecureRandom;
@@ -47,13 +48,14 @@ public final class WorkerEngine {
  public void logout()throws Exception{capturing=false;JSONObject p=vault.current();if(p!=null&&store.currentSession(p.getJSONObject("identity").getLong("id"))!=null)throw new Exception("请先结束本机采集，再退出登录");vault.logout();requestSync();}
  public JSONObject start(JSONObject context)throws Exception{vault.check(now());if(blocked)throw new Exception("设备已停用或认证失效");JSONObject r=store.start(context,vault.current(),now());if(context.optBoolean("autoLine")){registerAutomatic();r=store.currentRun();}else if(context.optBoolean("stockWorkflow"))requestSync();startService();return r;}
  public void resume(String id)throws Exception{vault.check(now());if(blocked)throw new Exception("设备已停用");store.resume(id,vault.current(),now());if(store.currentRun().getJSONObject("context").optBoolean("autoLine"))registerAutomatic();startService();}
- public void captureEnabled(boolean value){try{JSONObject r=store.currentRun();if(value&&r!=null&&r.getJSONObject("context").optBoolean("autoLine")){JSONObject s=store.currentSession(userId());if(r.getJSONObject("context").optLong("taskId")<=0||s==null||s.optInt("server_open")==0){capturing=false;message="请联网登记生产线后开始采集";return;}}capturing=value;nextHeartbeat=0;}catch(Exception error){capturing=false;message=error.getMessage();}}
+ public void captureEnabled(boolean value){try{JSONObject r=store.currentRun();if(value&&r!=null&&r.getJSONObject("context").optBoolean("autoLine")){JSONObject s=store.currentSession(userId());if(r.getJSONObject("context").optLong("taskId")<=0||s==null||s.optInt("server_open")==0){capturing=false;message="请联网登记生产线后开始采集";return;}}store.action(userId(),value,now());capturing=value;nextHeartbeat=0;}catch(Exception error){capturing=false;message=error.getMessage();}}
  public JSONObject capture(String raw)throws Exception{if(!capturing||blocked)throw new Exception("扫码已暂停，请先开始采集");vault.check(now());return store.capture(raw,vault.current(),now());}
  public void finish()throws Exception{capturing=false;if(vault.current()==null)throw new Exception("请登录原工人账号结束本机采集");store.finish(vault.current().getJSONObject("identity").getLong("id"));nextHeartbeat=0;requestSync();}
  public JSONObject snapshot()throws Exception{JSONObject p=vault.current();JSONObject s=store.snapshot(p==null?0:p.getJSONObject("identity").getLong("id"));s.put("identity",p==null?JSONObject.NULL:p.getJSONObject("identity")).put("expiresAt",p==null?0:p.getLong("expiresAt")).put("device",new JSONObject(store.meta("deviceLabel","{}"))).put("blocked",blocked).put("registrationRequired",registrationRequired).put("unconfirmedWork",store.hasUnconfirmedWork()).put("message",message).put("nextUpload",Long.parseLong(store.meta("nextUpload","0"))).put("networkAvailable",networkAvailable()).put("ok",true);return s;}
+ public JSONObject history()throws Exception{requireLeader();return new JSONObject().put("ok",true).put("rows",store.history(userId()));}
  public boolean networkAvailable(){ConnectivityManager cm=(ConnectivityManager)context.getSystemService(Context.CONNECTIVITY_SERVICE);if(cm==null)return false;Network n=cm.getActiveNetwork();NetworkCapabilities caps=n==null?null:cm.getNetworkCapabilities(n);return caps!=null&&caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);}
  public JSONObject finishInfo()throws Exception{JSONObject value=snapshot(),r=store.currentRun();if(r!=null&&r.getJSONObject("context").optLong("taskId")>0&&vault.current()!=null){try{JSONObject data=new JSONObject().put("taskId",r.getJSONObject("context").getLong("taskId")).put("grant",vault.current().getString("grant"));JSONObject response=body(client.request("POST","/api/device/line-progress",data.toString()));value.put("cloudProgress",response).put("cloudReachable",true);}catch(Exception error){value.put("cloudReachable",false).put("cloudError",error.getMessage());}}return value;}
- public void backup(java.io.OutputStream stream,long userId)throws Exception{store.backup(stream,userId);}
+ public void backup(java.io.OutputStream stream,long userId)throws Exception{long enterprise=requireLeader();if(userId!=userId())throw new Exception("导出账号已变更，请重试");store.factoryBackup(stream,enterprise,userId);}
  public long userId()throws Exception{if(vault.current()==null)throw new Exception("请先登录工人账号");return vault.current().getJSONObject("identity").getLong("id");}
  public synchronized void requestSync(){try{JSONObject limits=new JSONObject();JSONArray sessions=store.sessions();for(int i=0;i<sessions.length();i++){JSONObject s=sessions.getJSONObject(i);limits.put(s.getString("id"),s.getInt("next_seq")-1);}forcedLimits=limits;}catch(Exception ignored){return;}forced.set(true);retryAt=0;}
  private void startService(){Intent intent=new Intent(context,WorkerSyncService.class);context.startForegroundService(intent);}
@@ -86,7 +88,8 @@ public final class WorkerEngine {
    if(r.getJSONObject("context").optBoolean("lineWorkflow")&&r.getJSONObject("context").optLong("taskId")==0&&"open".equals(r.getString("state")))continue;
    if(s.getInt("server_open")==0){JSONObject result=request("/api/device/worker-sessions",new JSONObject().put("runId",r.getString("id")).put("sessionId",id).put("context",r.getJSONObject("context")).put("grant",vault.grant(s.getString("grant_id"))).put("startedAt",s.getString("started_at")));if(!id.equals(result.getString("sessionId")))throw new Exception("会话创建收据不一致");store.opened(id);}
    JSONArray pending;int pages=0;while((pending=store.pending(id,20,maximum)).length()>0&&pages++<10000){JSONObject ack=request("/api/device/worker-sessions/"+id+"/events",new JSONObject().put("events",pending));store.acknowledge(id,ack);message="云端已保存，本机记录继续保留";}
-   if("closing".equals(s.getString("state"))&&store.pending(id,1).length()==0){try{heartbeat();}catch(Exception ignored){}JSONObject end=request("/api/device/worker-sessions/"+id+"/complete",new JSONObject().put("lastSequence",s.getInt("final_seq")).put("stoppedAt",s.isNull("stopped_at")?JSONObject.NULL:s.getString("stopped_at")));if(!id.equals(end.getString("sessionId")))throw new Exception("工人结束收据不一致");store.completed(id,end.getInt("lastSequence"));}
+   JSONArray actions;int actionPages=0;while((actions=store.pendingActions(id)).length()>0&&actionPages++<10000){JSONObject ack=request("/api/device/worker-sessions/"+id+"/actions",new JSONObject().put("actions",actions));store.acknowledgeActions(id,ack);}
+   if("closing".equals(s.getString("state"))&&store.pending(id,1).length()==0&&store.pendingActions(id).length()==0){try{heartbeat();}catch(Exception ignored){}JSONObject end=request("/api/device/worker-sessions/"+id+"/complete",store.completion(id));if(!id.equals(end.getString("sessionId")))throw new Exception("工人结束收据不一致");store.completed(id,end.getInt("lastSequence"));}
    }catch(Exception error){partial=true;message="部分批次尚未确认："+error.getMessage();store.putMeta("syncError:"+id,String.valueOf(error.getMessage()));}
   }
   JSONArray runs=store.closingRuns();for(int i=0;i<runs.length();i++){JSONObject r=runs.getJSONObject(i),ack=request("/api/device/worker-runs/"+r.getString("id")+"/complete",new JSONObject().put("sessions",r.getJSONArray("sessions")));if(!r.getString("id").equals(ack.getString("runId"))||!"sealed".equals(ack.getString("state")))throw new Exception("整批结束收据不一致");store.runDone(r.getString("id"));}
@@ -102,10 +105,27 @@ public final class WorkerEngine {
   store.commitCache(info);blocked=false;
  }
  public String exportProduction(String run)throws Exception{
+  requireLeader();
   JSONArray sessions=store.productionExport(run,userId());StringBuilder text=new StringBuilder("NZ315-PRODUCTION-RECORDS/1\n");
   for(int i=0;i<sessions.length();i++){JSONObject data=sessions.getJSONObject(i);String payload=data.toString();javax.crypto.Mac mac=javax.crypto.Mac.getInstance("HmacSHA256");mac.init(new javax.crypto.spec.SecretKeySpec(vault.exportKey(data.getString("grantId")).getBytes(java.nio.charset.StandardCharsets.UTF_8),"HmacSHA256"));byte[] digest=mac.doFinal(payload.getBytes(java.nio.charset.StandardCharsets.UTF_8));StringBuilder sig=new StringBuilder();for(byte b:digest)sig.append(String.format(java.util.Locale.ROOT,"%02x",b&255));text.append(new JSONObject().put("payload",payload).put("signature",sig.toString()).toString()).append('\n');}
   return text.toString();
  }
- public JSONObject exportExternal(String run)throws Exception{return store.externalExport(run,userId());}
+ public JSONObject exportExternal(String run)throws Exception{requireLeader();return store.externalExport(run,userId());}
  public void async(Runnable runnable){actions.execute(runnable);}
+
+ public long requireLeader()throws Exception{vault.check(now());return CaptureAccess.requireLeader(vault.current().getJSONObject("identity"));}
+ public JSONObject records(JSONObject body)throws Exception{
+  long enterprise=requireLeader();if("factory".equals(body.optString("scope"))){body.put("grant",vault.current().getString("grant"));return request("/api/device/leader-records",body);}
+  return new JSONObject().put("ok",true).put("rows",store.records(enterprise)).put("scope","device");
+ }
+ public JSONObject recordDetail(JSONObject body)throws Exception{
+  long enterprise=requireLeader();if("factory".equals(body.optString("scope"))){body.put("grant",vault.current().getString("grant"));return request("/api/device/leader-records/detail",body);}
+  return store.recordDetail(body.getString("sessionId"),enterprise,body.optInt("page",1),body.optString("result"));
+ }
+ public JSONObject exportRecord(String id,String scope)throws Exception{
+  long enterprise=requireLeader();if("factory".equals(scope))return request("/api/device/leader-records/download",new JSONObject().put("grant",vault.current().getString("grant")).put("sessionId",id));
+  JSONObject row=store.recordExport(id,enterprise);if(row.has("payloads")){StringBuilder text=new StringBuilder("NZ315-PRODUCTION-RECORDS/1\n");JSONArray list=row.getJSONArray("payloads");
+   for(int i=0;i<list.length();i++){JSONObject data=list.getJSONObject(i);String payload=data.toString();javax.crypto.Mac mac=javax.crypto.Mac.getInstance("HmacSHA256");mac.init(new javax.crypto.spec.SecretKeySpec(vault.exportKey(data.getString("grantId")).getBytes(java.nio.charset.StandardCharsets.UTF_8),"HmacSHA256"));StringBuilder signature=new StringBuilder();for(byte b:mac.doFinal(payload.getBytes(java.nio.charset.StandardCharsets.UTF_8)))signature.append(String.format(java.util.Locale.ROOT,"%02x",b&255));text.append(new JSONObject().put("payload",payload).put("signature",signature.toString())).append('\n');}row.put("text",text.toString());}
+  JSONObject out=new JSONObject(row.toString());out.remove("text");out.remove("payloads");return new JSONObject().put("ok",true).put("text",row.getString("text")).put("record",out).put("count",row.getJSONObject("summary").getInt("collected"));
+ }
 }
