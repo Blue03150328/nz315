@@ -4,6 +4,8 @@
 
 包名 `cn.nz315.production.pda`，versionCode 20，候选版 `3.1.11-online`，默认接口 `https://www.nz315.cn`。支持 Android12 UROVO i6310 Pro / CT58 广播与键盘扫码。
 
+新增独立 `searchTest` 变体：包名 `cn.nz315.production.pda.searchtest`，名称“农资315搜索测试”，可与正式版并存。已于2026-10-16通过USB安装到i6310 Pro，正式版3.1.13和原数据目录保留。测试版首次需单独激活登录；此安装不代表正式版已覆盖更新。构建任务为 `:app:assembleSearchTest`，输出 `app/build/outputs/apk/searchTest/app-searchTest.apk`。
+
 ## 日常流程
 
 1. 管理员登记设备所属厂家，生成5分钟有效的激活二维码；设备不固定绑定员工或生产线。

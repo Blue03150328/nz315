@@ -35,6 +35,12 @@ android {
             // 保留私网测试队列的同步能力；公网仍只允许HTTPS。
             buildConfigField 'boolean', 'ALLOW_LOCAL_HTTP', 'true'
         }
+        searchTest {
+            initWith online
+            applicationIdSuffix '.searchtest'
+            versionNameSuffix '-search-test'
+            matchingFallbacks = ['online', 'release']
+        }
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     lint { abortOnError true; checkReleaseBuilds true }

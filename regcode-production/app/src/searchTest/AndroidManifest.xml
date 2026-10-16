@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- 使用独立名称和包名，便于识别并保留现场正式应用的私有记录。 -->
+    <application android:label="农资315搜索测试" tools:replace="android:label" />
+</manifest>
