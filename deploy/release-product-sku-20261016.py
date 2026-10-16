@@ -86,7 +86,7 @@ def snapshot(baseline=None):
 
 
 def dump_database():
-    script = """import fs from 'node:fs';import {parseEnv} from 'node:util';import {spawnSync} from 'node:child_process';const e=parseEnv(fs.readFileSync('/var/lib/nz315-docker/runtime.env','utf8'));if(e.DB_NAME!=='nz315')throw Error('目标库错误');const r=spawnSync('/www/server/mysql/bin/mysqldump',['--no-defaults','--protocol=TCP','--host='+e.DB_HOST,'--port='+String(e.DB_PORT||3306),'--user='+e.DB_USER,'--single-transaction','--quick','--skip-lock-tables','--routines','--triggers','--hex-blob',e.DB_NAME],{env:{...process.env,MYSQL_PWD:e.DB_PASSWORD},stdio:['ignore','inherit','inherit']});process.exit(r.status??1);"""
+    script = """import fs from 'node:fs';import {parseEnv} from 'node:util';import {spawnSync} from 'node:child_process';const e=parseEnv(fs.readFileSync('/var/lib/nz315-docker/runtime.env','utf8'));if(e.DB_NAME!=='nz315')throw Error('目标库错误');const r=spawnSync('/www/server/mysql/bin/mysqldump',['--no-defaults','--no-tablespaces','--protocol=TCP','--host='+e.DB_HOST,'--port='+String(e.DB_PORT||3306),'--user='+e.DB_USER,'--single-transaction','--quick','--skip-lock-tables','--routines','--triggers','--hex-blob',e.DB_NAME],{env:{...process.env,MYSQL_PWD:e.DB_PASSWORD},stdio:['ignore','inherit','inherit']});process.exit(r.status??1);"""
     process = subprocess.Popen([NODE, '--input-type=module', '-e', script], stdout=subprocess.PIPE)
     with gzip.open(SAFE / 'database.sql.gz', 'wb') as stream:
         shutil.copyfileobj(process.stdout, stream)
