@@ -34,7 +34,11 @@ export function fillProductTemplate(template: Buffer, specs: any[], enterpriseNa
       const prefix = source.includes('<x:sheetData') ? 'x:' : ''
       const header = source.match(/<(?:x:)?row\b[^>]*\br="1"[^>]*>[\s\S]*?<\/(?:x:)?row>/)?.[0]
       if (!header) throw new Error('产品模板缺少规格表头')
-      const sheetData = '<' + prefix + 'sheetData>' + header + rows.slice(1).map((row, r) => '<' + prefix + 'row r="' + (r + 2) + '">' + row.map((value, c) => '<' + prefix + 'c r="' + String.fromCharCode(65 + c) + (r + 2) + '" t="inlineStr"><' + prefix + 'is><' + prefix + 't xml:space="preserve">' + xml(value) + '</' + prefix + 't></' + prefix + 'is></' + prefix + 'c>').join('') + '</' + prefix + 'row>').join('') + '</' + prefix + 'sheetData>'
+      // 动态规格行继承模板数据行的边框、居中和行高，避免下载后恢复默认左对齐。
+      const sampleRow = source.match(/<(?:x:)?row\b[^>]*\br="2"[^>]*>[\s\S]*?<\/(?:x:)?row>/)?.[0] || ''
+      const rowFormat = sampleRow.match(/^<[^>]*\br="2"([^>]*)>/)?.[1] || ''
+      const styles = ['A', 'B', 'C', 'D'].map(col => sampleRow.match(new RegExp('<(?:x:)?c\\b[^>]*\\br="' + col + '2"[^>]*\\bs="(\\d+)"'))?.[1])
+      const sheetData = '<' + prefix + 'sheetData>' + header + rows.slice(1).map((row, r) => '<' + prefix + 'row r="' + (r + 2) + '"' + rowFormat + '>' + row.map((value, c) => '<' + prefix + 'c r="' + String.fromCharCode(65 + c) + (r + 2) + '"' + (styles[c] ? ' s="' + styles[c] + '"' : '') + ' t="inlineStr"><' + prefix + 'is><' + prefix + 't xml:space="preserve">' + xml(value) + '</' + prefix + 't></' + prefix + 'is></' + prefix + 'c>').join('') + '</' + prefix + 'row>').join('') + '</' + prefix + 'sheetData>'
       const data = Buffer.from(source.replace(/<(?:x:)?sheetData(?:\s[^>]*)?>[\s\S]*?<\/(?:x:)?sheetData>|<(?:x:)?sheetData\s*\/>/, sheetData).replace(/<(?:x:)?dimension\b[^>]*\/>/, '<' + prefix + 'dimension ref="A1:D' + rows.length + '"/>'))
       packed = deflateRawSync(data); method = 8; size = data.length; crc = crc32(data); replaced = true
     }
