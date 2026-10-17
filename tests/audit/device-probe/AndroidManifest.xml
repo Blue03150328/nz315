@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="cn.nz315.production.pda.scanprobe">
+  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="32" />
+  <application android:label="农资315隔离扫码检测" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:allowBackup="false" android:debuggable="true">
+    <activity android:name="com.regcode.app.ScannerProbeActivity" android:exported="true" android:configChanges="orientation|screenSize|keyboardHidden">
+      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+    </activity>
+  </application>
+  <instrumentation android:name="com.regcode.app.QueueStoreInstrumentation" android:targetPackage="cn.nz315.production.pda.scanprobe" android:label="独立SQLite与Keystore验收" />
+</manifest>
