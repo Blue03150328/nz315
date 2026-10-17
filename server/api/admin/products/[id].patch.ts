@@ -5,6 +5,7 @@ import { requireWritableUser } from '../../../utils/auth'
 import { registrationExistsInRegistry } from '../../../utils/regdata'
 import { triggerAlert } from '../../../utils/risk-alert'
 import { parseProductSku, validateProductSku, productSkuWriteError } from '../../../utils/product-sku'
+import { parseProductOriginals } from '../../../utils/product-originals'
 
 export default defineEventHandler(async (event) => {
   const user = await requireWritableUser(event)
@@ -32,11 +33,7 @@ export default defineEventHandler(async (event) => {
   if (!String(body.category || '').trim()) throw createError({ statusCode: 400, statusMessage: '请选择产品类别' })
 
   // 原药行校验（同新增口径）
-  const originals = Array.isArray(body.originals) ? body.originals : []
-  if (!originals.length) throw createError({ statusCode: 400, statusMessage: '原药信息至少保留 1 行' })
-  const validOriginals = originals.filter((row: any) => String(row.regNo || '').trim() || String(row.company || '').trim() || String(row.ingredient || '').trim())
-  if (!validOriginals.length) throw createError({ statusCode: 400, statusMessage: '原药信息至少保留 1 行有效记录' })
-  for (const row of validOriginals) if (!String(row.regNo || '').trim() || !String(row.company || '').trim()) throw createError({ statusCode: 400, statusMessage: '原药登记证号与原药生产企业名称需同时填写' })
+  const validOriginals = parseProductOriginals(body.originals)
 
   // 🔴 N1 修复（2026-09-23）：登记证号**发生变更**时，新证号必须存在于国家农药登记资料库。
   //    ⚠️ `regChanged` 这个前提是必须的，不是保险起见 —— 无条件校验会**锁死存量孤儿产品**：

@@ -14,11 +14,14 @@ declare module 'xlsx' {
   const XLSX: {
     read(data: Buffer | ArrayBuffer | Uint8Array, opts?: Record<string, unknown>): WorkBook
     readFile(path: string, opts?: Record<string, unknown>): WorkBook
+    write(wb: WorkBook, opts: { type: 'buffer'; bookType: 'xlsx' }): Buffer
     utils: {
       sheet_to_json<T = unknown>(ws: WorkSheet, opts?: Record<string, unknown>): T[]
       book_new(): WorkBook
       book_append_sheet(wb: WorkBook, ws: WorkSheet, name?: string): void
       aoa_to_sheet(data: unknown[][]): WorkSheet
+      decode_range(range: string): { s: { r: number; c: number }; e: { r: number; c: number } }
+      encode_cell(cell: { r: number; c: number }): string
     }
   }
   export default XLSX
