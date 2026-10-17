@@ -4,7 +4,7 @@ import org.json.*;
 import org.junit.Test;
 import static org.junit.Assert.*;
 
-/** 风险特征测试：断言当前可复现行为，不代表期望的业务规则。 */
+/** 定向场景测试：包含风险特征与用户确认的每瓶一种码正常计数场景。 */
 public class FactoryScanRiskTest {
  static final String RAW="https://vendor.example/trace?id=0001";
  static WorkerStore ready(QueueStoreTest.Jdbc db)throws Exception{return UnifiedWorkerStoreTest.ready(db);}
@@ -26,7 +26,7 @@ public class FactoryScanRiskTest {
    assertEquals(1,w.currentRun().getJSONObject("context").getInt("productId"));assertEquals(3,w.snapshot(1).getJSONObject("counts").getInt("collected"));
   }
  }
- @Test public void onePackageWithInternalAndExternalLabelsCountsTwice()throws Exception{
+ @Test public void twoBottlesWithOneInternalAndOneExternalLabelCountAsTwo()throws Exception{
   try(QueueStoreTest.Jdbc db=new QueueStoreTest.Jdbc(":memory:")){
    WorkerStore w=ready(db);w.start(context(),profile(),1);w.capture(StockLineWorkerStoreTest.A,profile(),2);w.capture(RAW,profile(),3);
    JSONObject c=w.snapshot(1).getJSONObject("counts");assertEquals(2,c.getInt("collected"));assertEquals(1,c.getInt("internal"));assertEquals(1,c.getInt("external"));
