@@ -6,6 +6,7 @@ import { requireWritableUser } from '../../utils/auth'
 import { normalizeOrgName, registrationExistsInRegistry } from '../../utils/regdata'
 import { triggerAlert } from '../../utils/risk-alert'
 import { parseProductSku, validateProductSku, productSkuWriteError } from '../../utils/product-sku'
+import { parseProductOriginals } from '../../utils/product-originals'
 
 /** 厂家名（登记数据源 company）→ 系统企业 id：企业名称归一化相等匹配；未入驻返回 null */
 async function resolveEnterpriseByCompany(companyName: string): Promise<number | null> {
@@ -31,11 +32,7 @@ export default defineEventHandler(async (event) => {
   if (!String(body.category || '').trim()) throw createError({ statusCode: 400, statusMessage: '请选择产品类别' })
 
   // 原药行校验：至少 1 行，每行登记证号与企业名称必填（含手动输入的自定义内容，需非空）
-  const originals = Array.isArray(body.originals) ? body.originals : []
-  if (!originals.length) throw createError({ statusCode: 400, statusMessage: '原药信息至少保留 1 行' })
-  const validOriginals = originals.filter((row: any) => String(row.regNo || '').trim() || String(row.company || '').trim() || String(row.ingredient || '').trim())
-  if (!validOriginals.length) throw createError({ statusCode: 400, statusMessage: '原药信息至少保留 1 行有效记录' })
-  for (const row of validOriginals) if (!String(row.regNo || '').trim() || !String(row.company || '').trim()) throw createError({ statusCode: 400, statusMessage: '原药登记证号与原药生产企业名称需同时填写' })
+  const validOriginals = parseProductOriginals(body.originals)
 
   let fid: number | null = user.enterprise_id
   if (user.role === 'platform_admin') {

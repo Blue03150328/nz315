@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { formatProductName } from '#shared/utils/product-name'
 import { formatSpecification } from '#shared/utils/specification'
+import { PRODUCT_MAX_ORIGINALS } from '#shared/utils/product-import'
 // 产品管理（PRD 5.4：SKU 化，规格来自主数据下拉选择）
 // 迭代史：登记数据源自动回填（默认值可编辑）→ 原药双通道组合框 → 2026-09-04：
 //   ① 归属企业选择器：无论生产类型都展示完整厂家列表 + 可输入搜索（EnterprisePicker）
@@ -31,6 +32,33 @@ const { data, pending, refresh, error } = await useFetch<any>('/api/admin/produc
 })
 
 const totalPages = computed(() => Math.max(1, Math.ceil((data.value?.total || 0) / pageSize)))
+const exporting = ref(false)
+async function exportProducts() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const blob = await $fetch<Blob>('/api/admin/products/export', {
+      responseType: 'blob', query: {
+        keyword: filters.keyword || undefined, category: filters.category || undefined, status: filters.status || undefined,
+      },
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = '产品批量导出.xlsx'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    toast.add({ title: '已导出当前筛选的全部匹配产品', color: 'success' })
+  } catch (err: any) {
+    let message = err?.data?.statusMessage
+    if (err?.data instanceof Blob) {
+      try { message = JSON.parse(await err.data.text()).statusMessage } catch {}
+    }
+    toast.add({ title: message || '产品导出失败，请重试', color: 'error' })
+  } finally { exporting.value = false }
+}
 
 // ============ 归属厂家（2026-09-07 用户需求：候选 = 登记数据源全部厂家，EnterprisePicker 远程搜索） ============
 // 总部管理员新建时选择「归属厂家」（数据源 company 原文），决定持有人生产时登记产品候选范围；
@@ -73,6 +101,7 @@ function resetOrigRows() {
   origRows.value = [makeOrigRow()]
 }
 function addOrigRow() {
+  if (origRows.value.length >= PRODUCT_MAX_ORIGINALS) return
   origRows.value.push(makeOrigRow())
 }
 function removeOrigRow(idx: number) {
@@ -298,6 +327,7 @@ const save = async () => {
   if (origBusy.value) { toast.add({ title: '原药匹配中，请稍候再保存', color: 'warning' }); return }
   // 原药行校验：至少 1 行，每行两字段必填（需求2.5）
   if (!origRows.value.length) { toast.add({ title: '原药信息至少保留 1 行', color: 'warning' }); return }
+  if (origRows.value.length > PRODUCT_MAX_ORIGINALS) { toast.add({ title: '原药最多填写3种', color: 'warning' }); return }
   for (let i = 0; i < origRows.value.length; i++) {
     const r = origRows.value[i]
     if ((r.regNo.trim() || r.company.trim()) && (!r.regNo.trim() || !r.company.trim())) {
@@ -361,7 +391,11 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
         <h1 class="b-page-title">产品管理</h1>
         <p class="b-page-desc">产品 SKU 化 · 规格来自主数据下拉选择 · 登记信息可从登记数据源自动带出 · <b>登记证号须存在于国家农药登记资料库</b>（新证由总部管理员勾选豁免并留预警）· 原药信息支持多行（复配多原药）</p>
       </div>
-      <UButton v-if="canWrite" color="neutral" variant="solid" icon="i-lucide-plus" @click="openCreate">新增产品</UButton>
+      <div class="flex flex-wrap justify-end gap-2">
+        <UButton color="neutral" variant="outline" icon="i-lucide-download" :loading="exporting" title="导出当前筛选的全部产品" @click="exportProducts">批量导出</UButton>
+        <ProductImport v-if="canWrite" @imported="refresh()" />
+        <UButton v-if="canWrite" color="neutral" variant="solid" icon="i-lucide-plus" @click="openCreate">新增产品</UButton>
+      </div>
     </div>
 
     <!-- 筛选查询区 -->
@@ -643,9 +677,9 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
               </div>
               <div class="flex items-center justify-between">
                 <p class="text-xs text-[var(--b-text-muted)]">
-                  每行两字段支持下拉选择与手动输入并双向联动；复配多原药请点击「添加行」补充（至少保留 1 行）
+                  每行两字段支持下拉选择与手动输入并双向联动；原药至少 1 种、最多 3 种
                 </p>
-                <UButton variant="outline" color="neutral" size="xs" icon="i-lucide-plus" @click="addOrigRow">添加行</UButton>
+                <UButton variant="outline" color="neutral" size="xs" icon="i-lucide-plus" :disabled="origRows.length >= PRODUCT_MAX_ORIGINALS" @click="addOrigRow">添加行</UButton>
               </div>
             </div>
           </div>
