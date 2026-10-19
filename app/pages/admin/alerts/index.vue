@@ -83,10 +83,9 @@ const resetSearch = () => resetListQuery()
 <template>
   <div class="space-y-4">
     <!-- 页面标题区 -->
-    <div class="flex items-center justify-between">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="b-page-title">风险预警中心</h1>
-        <p class="b-page-desc">8 类异常的后台预警 · 处理全程记录日志（保留至少 3 年）</p>
       </div>
     </div>
 
@@ -126,7 +125,7 @@ const resetSearch = () => resetListQuery()
       <div class="b-form-grid md:grid-cols-2 xl:grid-cols-5">
         <div>
           <label class="b-label">追溯码 / 产品名</label>
-          <UInput v-model="filters.keyword" placeholder="输入追溯码或产品名称" icon="i-lucide-search" @keyup.enter="doSearch" />
+          <UInput v-model="filters.keyword" placeholder="输入追溯码或产品名称" icon="i-lucide-search" @keyup.enter="doSearch"  class="w-full" />
         </div>
         <div>
           <label class="b-label">预警类型</label>
@@ -138,11 +137,11 @@ const resetSearch = () => resetListQuery()
         </div>
         <div>
           <label class="b-label">触发日期起</label>
-          <UInput v-model="filters.dateFrom" type="date" placeholder="触发起" />
+          <UInput v-model="filters.dateFrom" type="date" placeholder="触发起"  class="w-full" />
         </div>
         <div>
           <label class="b-label">触发日期止</label>
-          <UInput v-model="filters.dateTo" type="date" placeholder="触发止" />
+          <UInput v-model="filters.dateTo" type="date" placeholder="触发止"  class="w-full" />
         </div>
       </div>
       <div class="b-card-foot">

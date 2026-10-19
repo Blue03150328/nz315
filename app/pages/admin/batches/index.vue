@@ -117,10 +117,9 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
 <template>
   <div class="space-y-4">
     <!-- 页面标题区 -->
-    <div class="flex items-center justify-between">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h1 class="b-page-title">生产批次管理</h1>
-        <p class="b-page-desc">批次由生产采集导入时自动建档（三要素齐全，码置"已绑定"）；本页用于查看批次档案、效期预警与信息更正</p>
+        <h1 class="b-page-title">效期预警</h1>
       </div>
     </div>
 
@@ -132,7 +131,7 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
       <div class="b-form-grid md:grid-cols-2 xl:grid-cols-4">
         <div>
           <label class="b-label">批号 / 产品名 / 合格证号</label>
-          <UInput v-model="filters.keyword" placeholder="批号 / 产品名 / 合格证号" icon="i-lucide-search" @keyup.enter="doSearch" />
+          <UInput v-model="filters.keyword" placeholder="批号 / 产品名 / 合格证号" icon="i-lucide-search" @keyup.enter="doSearch"  class="w-full" />
         </div>
         <div>
           <label class="b-label">关联产品</label>
@@ -261,23 +260,23 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
           </div>
           <div>
             <label class="b-label-lg">生产批次号 <span class="b-required">*</span></label>
-            <UInput v-model="form.batchNo" placeholder="与产品标签喷码一致" />
+            <UInput v-model="form.batchNo" placeholder="与产品标签喷码一致"  class="w-full" />
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="b-label-lg">生产日期 <span class="b-required">*</span></label>
-              <UInput v-model="form.produceDate" type="date" />
+              <UInput v-model="form.produceDate" type="date"  class="w-full" />
               <p class="b-help">请确认与产品标签喷码日期一致</p>
             </div>
             <div>
               <label class="b-label-lg">有效期至</label>
-              <UInput v-model="form.expireDate" type="date" />
+              <UInput v-model="form.expireDate" type="date"  class="w-full" />
               <p class="b-help">采集建档时可留空，此处补填（保存后扫码页同步展示）</p>
             </div>
           </div>
           <div>
             <label class="b-label-lg">质量合格证号 <span class="b-required">*</span></label>
-            <UInput v-model="form.qualityCertNo" placeholder="该批次产品质量合格证编号" />
+            <UInput v-model="form.qualityCertNo" placeholder="该批次产品质量合格证编号"  class="w-full" />
           </div>
           <div class="grid grid-cols-3 gap-3">
             <div>
@@ -286,11 +285,11 @@ const resetSearch = () => { filters.keyword = ''; filters.productId = undefined;
             </div>
             <div>
               <label class="b-label-lg">质检报告号</label>
-              <UInput v-model="form.qcReportNo" placeholder="合格时建议填写" />
+              <UInput v-model="form.qcReportNo" placeholder="合格时建议填写"  class="w-full" />
             </div>
             <div>
               <label class="b-label-lg">生产数量 <span class="b-required">*</span></label>
-              <UInput v-model.number="form.quantity" type="number" placeholder="0" />
+              <UInput v-model.number="form.quantity" type="number" placeholder="0"  class="w-full" />
             </div>
           </div>
         </div>

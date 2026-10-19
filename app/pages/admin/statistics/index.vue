@@ -33,10 +33,9 @@ const resetSearch = () => { filters.keyword = ''; filters.province = ''; filters
 <template>
   <div class="space-y-4">
     <!-- 页面标题区 -->
-    <div class="flex items-center justify-between">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="b-page-title">扫码统计</h1>
-        <p class="b-page-desc">消费者扫码查询数据分析（扫码不改变码状态，仅记录日志）</p>
       </div>
     </div>
 
@@ -173,19 +172,19 @@ const resetSearch = () => { filters.keyword = ''; filters.province = ''; filters
       <div class="b-form-grid md:grid-cols-2 xl:grid-cols-4">
         <div>
           <label class="b-label">追溯码 / 产品名</label>
-          <UInput v-model="filters.keyword" placeholder="输入追溯码或产品名" icon="i-lucide-search" @keyup.enter="doSearch" />
+          <UInput v-model="filters.keyword" placeholder="输入追溯码或产品名" icon="i-lucide-search" @keyup.enter="doSearch"  class="w-full" />
         </div>
         <div>
           <label class="b-label">省份</label>
-          <UInput v-model="filters.province" placeholder="输入省份名称" @keyup.enter="doSearch" />
+          <UInput v-model="filters.province" placeholder="输入省份名称" @keyup.enter="doSearch"  class="w-full" />
         </div>
         <div>
           <label class="b-label">开始日期</label>
-          <UInput v-model="filters.dateFrom" type="date" placeholder="起" />
+          <UInput v-model="filters.dateFrom" type="date" placeholder="起"  class="w-full" />
         </div>
         <div>
           <label class="b-label">结束日期</label>
-          <UInput v-model="filters.dateTo" type="date" placeholder="止" />
+          <UInput v-model="filters.dateTo" type="date" placeholder="止"  class="w-full" />
         </div>
       </div>
       <div class="b-card-foot">

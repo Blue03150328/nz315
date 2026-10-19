@@ -77,7 +77,7 @@ onBeforeUnmount(() => { clearInterval(timer); window.removeEventListener('focus'
 
 <template>
   <div class="space-y-4">
-    <div class="flex flex-wrap items-center justify-between gap-3"><div><h1 class="b-page-title">{{ title }}</h1><p class="b-page-desc">{{ isCodes ? '每次采集单独管理，查看生产资料、上传产线和设备，导出完整溯源码清单。' : '按生产线和操作工号查看每次采集的进度、数量和生产资料。' }}</p></div><UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :loading="pending" @click="refresh()">刷新</UButton></div>
+    <div class="flex flex-wrap items-center justify-between gap-3"><div><h1 class="b-page-title">{{ title }}</h1></div><UButton color="neutral" variant="outline" icon="i-lucide-refresh-cw" :loading="pending" @click="refresh()">刷新</UButton></div>
     <form class="b-card" @submit.prevent="applyListQuery()">
       <div class="b-card-head"><h2 class="b-card-title">筛选查询</h2></div>
       <div class="b-form-grid sm:grid-cols-2 xl:grid-cols-4">
@@ -114,7 +114,7 @@ onBeforeUnmount(() => { clearInterval(timer); window.removeEventListener('focus'
         <template #cell-completed_at="{row}">{{ row.completed_at?timeText(row.completed_at):'尚未完成上传' }}</template>
         <template #cell-actions="{row}"><div class="flex gap-2"><UButton size="xs" variant="link" @click="show(row.id)">详细</UButton><UButton v-if="canWrite" size="xs" variant="link" :disabled="row.state!=='completed'" @click="edit(row)">编辑</UButton><UButton v-if="canWrite" size="xs" color="error" variant="link" :disabled="row.state!=='completed'" @click="confirmDelete(row)">删除</UButton><UButton size="xs" variant="link" :disabled="row.state!=='completed'||downloading" @click="download(row.id,'csv')">CSV</UButton><UButton size="xs" variant="link" :disabled="row.state!=='completed'||downloading" @click="download(row.id,'txt')">TXT</UButton></div></template>
       </ProductionGrid></div>
-      <div class="b-pager"><span class="b-help">{{ isCodes ? '数量为实际去重入库码数；完成采集后可导出完整原文。' : '历史记录保留；新版内外码共用生产任务。' }}</span><ExternalPagination :page="page" :total="data?.total || 0" :items-per-page="pageSize" :disabled="pending" @update:page="applyListQuery($event)" /></div>
+      <div class="b-pager"><span class="b-help">{{ isCodes ? '去重入库数量' : '历史采集记录' }}</span><ExternalPagination :page="page" :total="data?.total || 0" :items-per-page="pageSize" :disabled="pending" @update:page="applyListQuery($event)" /></div>
     </div>
     <ExternalCollectionDetail v-model:open="detailOpen" :batch-id="selected" @updated="changed" />
     <ExternalProductionForm v-if="editing" v-model:open="editOpen" :batch="editing" @saved="changed" />

@@ -67,15 +67,15 @@ const statusClass: Record<string, string> = { match: 'b-tag-success', mismatch: 
   <div class="space-y-4">
     <div>
       <h1 class="b-page-title">外部二维码核验</h1>
-      <p class="b-page-desc">扫描系统外二维码，获取来源页面信息，并核验单元识别码前 8 位及登记资料。</p>
     </div>
 
-    <div class="b-card space-y-4">
+    <div class="b-card">
       <div class="b-card-head"><span class="b-card-title">输入外部二维码</span><UButton variant="link" color="neutral" size="xs" @click="useSample">填入示例链接</UButton></div>
+      <div class="b-card-body space-y-4">
       <div class="grid gap-4 lg:grid-cols-2">
         <div>
           <label class="b-label">外部扫码链接</label>
-          <UInput v-model="sourceUrl" placeholder="例如 http://www.wla1.cn/p?id=..." />
+          <UInput v-model="sourceUrl" placeholder="粘贴外部二维码链接" class="w-full" />
           <a
             v-if="sourceUrl.trim().startsWith('http')"
             :href="sourceUrl.trim()"
@@ -84,25 +84,28 @@ const statusClass: Record<string, string> = { match: 'b-tag-success', mismatch: 
             class="mt-1 inline-block text-xs text-primary underline"
           >在新窗口打开来源页面（便于复制内容）</a>
         </div>
-        <div><label class="b-label">或直接输入追溯码</label><UInput v-model="code" placeholder="至少32位数字" class="font-code" /></div>
+        <div><label class="b-label">或直接输入追溯码</label><UInput v-model="code" placeholder="至少32位数字" class="font-code w-full" /></div>
       </div>
-      <div>
-        <label class="b-label">粘贴来源页面内容（可选 · 供纯脚本渲染的外部平台使用）</label>
+      <AdminHelp title="补充来源页面（可选）">
+        <label class="b-label">来源页面文字</label>
         <UTextarea
           v-model="pageText"
           :rows="4"
           class="w-full"
-          placeholder="部分外部平台的页面由脚本异步渲染，服务端抓不到正文。请在浏览器打开该二维码链接，把页面上的「基本信息 / 产品信息」整段文字复制到这里 —— 解析走通用规则，不区分平台。"
+          placeholder="来源页面无法读取时，可粘贴其中的基本信息或产品信息。"
         />
-        <p class="mt-1 text-xs text-muted">填写后会优先使用你粘贴的内容（比服务端抓取结果更完整）。</p>
-      </div>
-      <p class="text-xs text-muted">仅核验第1—8位：登记类别、登记证号后六位、生产类型。第9位以后保留原码但不参与判定；规格、生产日期等只展示来源页面提供的内容。</p>
+        <p class="b-help">填写后优先使用粘贴内容。</p>
+      </AdminHelp>
+      <AdminHelp title="核验范围"><p>仅核验第1—8位：登记类别、登记证号后六位、生产类型。第9位以后保留原码但不参与判定；规格、生产日期等只展示来源页面提供的内容。</p></AdminHelp>
+      <div class="flex flex-wrap gap-2">
       <UButton v-if="canWrite" color="primary" :loading="busy" icon="i-lucide-search-check" @click="verify">开始核验</UButton>
       <UButton v-if="canWrite" variant="outline" color="neutral" icon="i-lucide-camera" @click="showScanner = true">扫描外部二维码</UButton>
+      </div>
+      </div>
     </div>
 
     <div v-if="showScanner" class="b-card">
-      <div class="flex items-center justify-between"><span class="b-card-title">扫描外部二维码</span><UButton size="xs" variant="ghost" color="neutral" @click="showScanner = false">关闭</UButton></div>
+      <div class="flex flex-wrap items-center justify-between gap-3"><span class="b-card-title">扫描外部二维码</span><UButton size="xs" variant="ghost" color="neutral" @click="showScanner = false">关闭</UButton></div>
       <video ref="videoRef" autoplay muted playsinline class="mt-3 aspect-video w-full rounded-lg bg-black object-cover" />
       <p v-if="errorMsg" class="mt-2 text-sm text-error">{{ errorMsg }}</p>
       <p v-else class="mt-2 text-xs text-muted">{{ phase === 'scanning' ? '请将二维码放入取景框' : '正在启动相机…' }}</p>

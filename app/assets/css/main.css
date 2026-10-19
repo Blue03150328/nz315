@@ -143,12 +143,14 @@ body {
   --b-fill: #f5f7fa;            /* 表头、提示框、行 hover */
   --b-fill-weak: #fafafa;       /* 分页条、吸底操作条 */
   --b-fill-badge: #f0f2f5;      /* 计数徽章 */
-  --b-sider-bg: #283850;        /* 侧栏底色 */
+  --b-sider-bg: #23352e;        /* 侧栏底色 */
   --b-sider-active-bg: #f8f8f8; /* 侧栏选中态底色 */
-  --b-sider-active-text: #283850; /* 侧栏选中态文字 */
+  --b-sider-active-text: #234d39; /* 侧栏选中态文字 */
 }
 
 @layer components {
+  .admin-main { --b-content-px: 1rem; }
+  @media (min-width: 1024px) { .admin-main { --b-content-px: 1.5rem; } }
   /* —— 页面标题区 —— */
   .b-page-title { font-size: 1.125rem; line-height: 1.75rem; font-weight: 600; color: var(--b-text-title); }
   .b-page-desc { margin-top: 0.125rem; font-size: 0.75rem; line-height: 1rem; color: var(--b-text-muted); }
@@ -160,7 +162,7 @@ body {
     display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
     border-bottom: 1px solid var(--b-divider); padding: 0.625rem 1rem;
   }
-  .b-card-title { font-size: 0.875rem; line-height: 1.25rem; font-weight: 500; color: var(--b-text-strong); }
+  .b-card-title { font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; color: var(--b-text-strong); }
   .b-card-extra { font-size: 0.75rem; line-height: 1rem; color: var(--b-text-muted); }
   .b-card-body { padding: 1rem; }
   .b-card-foot {
@@ -173,6 +175,12 @@ body {
   .b-label { display: block; margin-bottom: 0.375rem; font-size: 0.75rem; line-height: 1rem; color: var(--b-text-regular); }
   .b-label-lg { display: block; margin-bottom: 0.375rem; font-size: 0.875rem; line-height: 1.25rem; color: var(--b-text-strong); }
   .b-help { margin-top: 0.25rem; font-size: 0.75rem; line-height: 1rem; color: var(--b-text-muted); }
+  .b-help-panel { font-size: 0.75rem; line-height: 1.625; color: var(--b-text-regular); }
+  .b-help-panel > summary { width: fit-content; cursor: pointer; color: var(--b-text-muted); padding: 0.25rem 0; }
+  .b-help-panel > summary:hover { color: var(--ui-primary); }
+  .b-help-panel > summary:focus-visible { outline: 2px solid var(--ui-primary); outline-offset: 3px; border-radius: 2px; }
+  .b-help-content { margin-top: 0.5rem; display: grid; gap: 0.75rem; }
+  .b-help-content .b-note { background: var(--b-fill-weak); }
   .b-required { color: #dc2626; }
 
   /* —— 表格：浅灰表头 + 白底行 + 细分割线 —— */

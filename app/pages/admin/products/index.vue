@@ -386,10 +386,9 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
 <template>
   <div class="space-y-4">
     <!-- 页面标题区 -->
-    <div class="flex items-center justify-between">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="b-page-title">产品管理</h1>
-        <p class="b-page-desc">产品 SKU 化 · 规格来自主数据下拉选择 · 登记信息可从登记数据源自动带出 · <b>登记证号须存在于国家农药登记资料库</b>（新证由总部管理员勾选豁免并留预警）· 原药信息支持多行（复配多原药）</p>
       </div>
       <div class="flex flex-wrap justify-end gap-2">
         <UButton color="neutral" variant="outline" icon="i-lucide-download" :loading="exporting" title="导出当前筛选的全部产品" @click="exportProducts">批量导出</UButton>
@@ -406,7 +405,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
       <div class="b-form-grid md:grid-cols-2 xl:grid-cols-3">
         <div>
           <label class="b-label">产品名称 / 商标 / 登记证号</label>
-          <UInput v-model="filters.keyword" placeholder="输入产品名称、商标或登记证号" icon="i-lucide-search" @keyup.enter="doSearch" />
+          <UInput v-model="filters.keyword" placeholder="输入产品名称、商标或登记证号" icon="i-lucide-search" @keyup.enter="doSearch"  class="w-full" />
         </div>
         <div>
           <label class="b-label">产品类别</label>
@@ -564,7 +563,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                 </div>
                 <div>
                   <label class="b-label">登记证有效期至</label>
-                  <UInput v-model="form.registrationExpire" type="date" />
+                  <UInput v-model="form.registrationExpire" type="date"  class="w-full" />
                 </div>
                 <div>
                   <label class="b-label">登记类别</label>
@@ -572,7 +571,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                 </div>
                 <div>
                   <label class="b-label">登记证持有人名称</label>
-                  <UInput v-model="form.holderName" placeholder="扫码必显字段" />
+                  <UInput v-model="form.holderName" placeholder="扫码必显字段"  class="w-full" />
                 </div>
                 <div>
                   <label class="b-label">产品类别 <span class="b-required">*</span></label>
@@ -580,7 +579,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                 </div>
                 <div>
                   <label class="b-label">剂型</label>
-                  <UInput v-model="form.dosage" placeholder="如：可湿性粉剂" />
+                  <UInput v-model="form.dosage" placeholder="如：可湿性粉剂"  class="w-full" />
                 </div>
                 <div>
                   <label class="b-label">毒性</label>
@@ -588,7 +587,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                 </div>
                 <div>
                   <label class="b-label">总含量</label>
-                  <UInput v-model="form.content" placeholder="如：25%" />
+                  <UInput v-model="form.content" placeholder="如：25%"  class="w-full" />
                 </div>
               </div>
             </div>
@@ -597,7 +596,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="b-label-lg">产品商标</label>
-                <UInput v-model="form.trademark" placeholder="如：绿丰（选填）" />
+                <UInput v-model="form.trademark" placeholder="如：绿丰（选填）"  class="w-full" />
               </div>
               <div>
                 <label class="b-label-lg">规格（来自主数据，不可手填）<span class="b-required">*</span></label>
@@ -675,7 +674,7 @@ const resetSearch = () => { filters.keyword = ''; filters.category = undefined; 
                   </div>
                 </div>
               </div>
-              <div class="flex items-center justify-between">
+              <div class="flex flex-wrap items-center justify-between gap-3">
                 <p class="text-xs text-[var(--b-text-muted)]">
                   每行两字段支持下拉选择与手动输入并双向联动；原药至少 1 种、最多 3 种
                 </p>

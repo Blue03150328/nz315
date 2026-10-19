@@ -6,6 +6,7 @@ declare module 'xlsx' {
   interface WorkBook {
     SheetNames: string[]
     Sheets: Record<string, WorkSheet>
+    Workbook?: { WBProps?: { date1904?: boolean } }
   }
   // 单元格地址键 + 控制键均允许（'!ref' 等），只读使用不深究结构
   interface WorkSheet {
@@ -15,6 +16,7 @@ declare module 'xlsx' {
     read(data: Buffer | ArrayBuffer | Uint8Array, opts?: Record<string, unknown>): WorkBook
     readFile(path: string, opts?: Record<string, unknown>): WorkBook
     write(wb: WorkBook, opts: { type: 'buffer'; bookType: 'xlsx' }): Buffer
+    SSF: { parse_date_code(value: number, opts?: { date1904?: boolean }): { y: number; m: number; d: number } | null }
     utils: {
       sheet_to_json<T = unknown>(ws: WorkSheet, opts?: Record<string, unknown>): T[]
       book_new(): WorkBook

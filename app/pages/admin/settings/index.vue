@@ -489,10 +489,9 @@ const deleteBackup = async (b: any) => {
 <template>
   <div class="space-y-4">
     <!-- 页面标题区 -->
-    <div class="flex items-center justify-between">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="b-page-title">系统设置</h1>
-        <p class="b-page-desc">企业信息 · 用户权限 · 操作日志 · 数据备份（日志保留至少 3 年，不可删除）</p>
       </div>
       <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" title="重置当前面板的表单/筛选为初始状态" @click="resetPanel">重置</UButton>
     </div>
@@ -595,35 +594,35 @@ const deleteBackup = async (b: any) => {
                 <div class="b-form-grid md:grid-cols-2">
                   <div>
                     <label class="b-label">企业名称 <span class="b-required">*</span></label>
-                    <UInput v-model="entForm.name" placeholder="企业全称" />
+                    <UInput v-model="entForm.name" placeholder="企业全称"  class="w-full" />
                   </div>
                   <div>
                     <label class="b-label">统一社会信用代码 <span class="b-required">*</span></label>
-                    <UInput v-model="entForm.creditCode" placeholder="18 位信用代码" />
+                    <UInput v-model="entForm.creditCode" placeholder="18 位信用代码"  class="w-full" />
                   </div>
                   <div>
                     <label class="b-label">单元识别码</label>
-                    <UInput v-model="entForm.unitCode" placeholder="1049号公告口径（登记类别+登记证后6位+生产类型）" />
+                    <UInput v-model="entForm.unitCode" placeholder="1049号公告口径（登记类别+登记证后6位+生产类型）"  class="w-full" />
                   </div>
                   <div>
                     <label class="b-label">联系人 <span class="b-required">*</span></label>
-                    <UInput v-model="entForm.contact" placeholder="联系人姓名" />
+                    <UInput v-model="entForm.contact" placeholder="联系人姓名"  class="w-full" />
                   </div>
                   <div>
                     <label class="b-label">联系电话 <span class="b-required">*</span></label>
-                    <UInput v-model="entForm.phone" placeholder="联系电话" />
+                    <UInput v-model="entForm.phone" placeholder="联系电话"  class="w-full" />
                   </div>
                   <div>
                     <label class="b-label">法定代表人 <span class="b-required">*</span></label>
-                    <UInput v-model="entForm.legalPerson" placeholder="法人姓名" />
+                    <UInput v-model="entForm.legalPerson" placeholder="法人姓名"  class="w-full" />
                   </div>
                   <div>
                     <label class="b-label">农药生产许可证号 <span class="b-required">*</span></label>
-                    <UInput v-model="entForm.licenseNo" placeholder="生产许可证号" />
+                    <UInput v-model="entForm.licenseNo" placeholder="生产许可证号"  class="w-full" />
                   </div>
                   <div>
                     <label class="b-label">资质到期日 <span class="b-required">*</span></label>
-                    <UInput v-model="entForm.qualificationExpire" type="date" />
+                    <UInput v-model="entForm.qualificationExpire" type="date"  class="w-full" />
                     <p class="b-help">到期前 30/60/90 天提醒</p>
                   </div>
                   <div>
@@ -632,7 +631,7 @@ const deleteBackup = async (b: any) => {
                   </div>
                   <div v-if="!entEditId">
                     <label class="b-label">服务到期日 <span class="b-required">*</span></label>
-                    <UInput v-model="entRenewExpire" type="date" />
+                    <UInput v-model="entRenewExpire" type="date"  class="w-full" />
                     <p class="b-help">与资质到期日分别填写；服务到期日当天可使用，次日起禁止登录。后续可在用户权限中设置续费。</p>
                   </div>
                 </div>
@@ -662,35 +661,35 @@ const deleteBackup = async (b: any) => {
         <div class="b-form-grid md:grid-cols-2">
           <div>
             <label class="b-label">企业名称 <span class="b-required">*</span></label>
-            <UInput v-model="entForm.name" placeholder="企业全称" />
+            <UInput v-model="entForm.name" placeholder="企业全称"  class="w-full" />
           </div>
           <div>
             <label class="b-label">统一社会信用代码 <span class="b-required">*</span></label>
-            <UInput v-model="entForm.creditCode" placeholder="18 位信用代码" />
+            <UInput v-model="entForm.creditCode" placeholder="18 位信用代码"  class="w-full" />
           </div>
           <div>
             <label class="b-label">单元识别码</label>
-            <UInput v-model="entForm.unitCode" placeholder="1049号公告口径（登记类别+登记证后6位+生产类型）" />
+            <UInput v-model="entForm.unitCode" placeholder="1049号公告口径（登记类别+登记证后6位+生产类型）"  class="w-full" />
           </div>
           <div>
             <label class="b-label">联系人 <span class="b-required">*</span></label>
-            <UInput v-model="entForm.contact" placeholder="联系人姓名" />
+            <UInput v-model="entForm.contact" placeholder="联系人姓名"  class="w-full" />
           </div>
           <div>
             <label class="b-label">联系电话 <span class="b-required">*</span></label>
-            <UInput v-model="entForm.phone" placeholder="联系电话" />
+            <UInput v-model="entForm.phone" placeholder="联系电话"  class="w-full" />
           </div>
           <div>
             <label class="b-label">法定代表人 <span class="b-required">*</span></label>
-            <UInput v-model="entForm.legalPerson" placeholder="法人姓名" />
+            <UInput v-model="entForm.legalPerson" placeholder="法人姓名"  class="w-full" />
           </div>
           <div>
             <label class="b-label">农药生产许可证号 <span class="b-required">*</span></label>
-            <UInput v-model="entForm.licenseNo" placeholder="生产许可证号" />
+            <UInput v-model="entForm.licenseNo" placeholder="生产许可证号"  class="w-full" />
           </div>
           <div>
             <label class="b-label">资质到期日 <span class="b-required">*</span></label>
-            <UInput v-model="entForm.qualificationExpire" type="date" />
+            <UInput v-model="entForm.qualificationExpire" type="date"  class="w-full" />
             <p class="b-help">到期前 30/60/90 天提醒</p>
           </div>
         </div>
@@ -711,7 +710,7 @@ const deleteBackup = async (b: any) => {
         <div class="b-form-grid md:grid-cols-2 xl:grid-cols-3">
           <div>
             <label class="b-label">登录名 / 姓名 / 手机号</label>
-            <UInput v-model="ufilters.keyword" placeholder="输入登录名、姓名或手机号" icon="i-lucide-search" @keyup.enter="upage = 1; refreshUsers()" />
+            <UInput v-model="ufilters.keyword" placeholder="输入登录名、姓名或手机号" icon="i-lucide-search" @keyup.enter="upage = 1; refreshUsers()"  class="w-full" />
           </div>
           <div>
             <label class="b-label">角色</label>
@@ -883,7 +882,7 @@ const deleteBackup = async (b: any) => {
             <div class="b-modal-body">
               <div>
                 <label class="b-label">续费到期日</label>
-                <UInput v-model="renewForm.expire" type="date" placeholder="清空即视为到期未续费" />
+                <UInput v-model="renewForm.expire" type="date" placeholder="清空即视为到期未续费"  class="w-full" />
                 <p class="b-help">清空日期 = 到期未续费（立即停用该厂家全部账号）；续费请按实际缴费周期填写到期日</p>
               </div>
             </div>
@@ -948,21 +947,21 @@ const deleteBackup = async (b: any) => {
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="b-label-lg">登录名 <span class="b-required">*</span></label>
-                <UInput v-model="uform.username" autocomplete="off" placeholder="3-30 位字母/数字/下划线" />
+                <UInput v-model="uform.username" autocomplete="off" placeholder="3-30 位字母/数字/下划线"  class="w-full" />
               </div>
               <div>
                 <label class="b-label-lg">初始密码 <span class="b-required">*</span></label>
-                <UInput v-model="uform.password" type="password" autocomplete="new-password" placeholder="至少 6 位" />
+                <UInput v-model="uform.password" type="password" autocomplete="new-password" placeholder="至少 6 位"  class="w-full" />
               </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
               <div>
                 <label class="b-label-lg">姓名</label>
-                <UInput v-model="uform.name" placeholder="姓名" />
+                <UInput v-model="uform.name" placeholder="姓名"  class="w-full" />
               </div>
               <div>
                 <label class="b-label-lg">手机号</label>
-                <UInput v-model="uform.phone" placeholder="手机号" />
+                <UInput v-model="uform.phone" placeholder="手机号"  class="w-full" />
               </div>
             </div>
             <div class="grid grid-cols-2 gap-3">
@@ -1005,7 +1004,7 @@ const deleteBackup = async (b: any) => {
         <div class="b-form-grid md:grid-cols-2 xl:grid-cols-3">
           <div>
             <label class="b-label">操作人 / 模块 / 内容</label>
-            <UInput v-model="lfilters.keyword" placeholder="输入操作人、模块或内容关键词" icon="i-lucide-search" @keyup.enter="lpage = 1; refreshLogs()" />
+            <UInput v-model="lfilters.keyword" placeholder="输入操作人、模块或内容关键词" icon="i-lucide-search" @keyup.enter="lpage = 1; refreshLogs()"  class="w-full" />
           </div>
           <div>
             <label class="b-label">模块</label>
@@ -1013,7 +1012,7 @@ const deleteBackup = async (b: any) => {
           </div>
           <div>
             <label class="b-label">操作类型</label>
-            <UInput v-model="lfilters.action" placeholder="如：新增、修改、删除" />
+            <UInput v-model="lfilters.action" placeholder="如：新增、修改、删除"  class="w-full" />
           </div>
           <div>
             <label class="b-label">操作结果</label>
@@ -1021,11 +1020,11 @@ const deleteBackup = async (b: any) => {
           </div>
           <div>
             <label class="b-label">操作日期起</label>
-            <UInput v-model="lfilters.dateFrom" type="date" placeholder="起" />
+            <UInput v-model="lfilters.dateFrom" type="date" placeholder="起"  class="w-full" />
           </div>
           <div>
             <label class="b-label">操作日期止</label>
-            <UInput v-model="lfilters.dateTo" type="date" placeholder="止" />
+            <UInput v-model="lfilters.dateTo" type="date" placeholder="止"  class="w-full" />
           </div>
         </div>
         <div class="b-card-foot">

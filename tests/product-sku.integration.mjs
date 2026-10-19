@@ -113,6 +113,25 @@ try {
     const company = ok(await request('/api/admin/specs?company=' + encodeURIComponent('规格验收甲'), platform)); assert.equal(company.total, 125)
     const hidden = ok(await request('/api/admin/specs?id=' + s2.insertId, admin)); assert.equal(hidden.total, 0)
   })
+  await check('产品搜索支持名称、商标、证号、规格和规格码，数量统计与列表同口径', async () => {
+    for (const keyword of ['测试产品', '乙牌', 'PD20991234', '1毫升×10瓶', '001']) {
+      const found = ok(await request('/api/admin/products?status=1&keyword=' + encodeURIComponent(keyword), admin))
+      assert.ok(found.total > 0, keyword)
+      assert.equal(found.rows.length, found.total)
+      if (keyword === '乙牌') assert.equal(found.rows[0].id, c)
+      if (keyword === '1毫升×10瓶') assert.ok(found.rows.every(row => row.spec_id === specs[0]))
+      if (keyword === '001') assert.ok(found.rows.every(row => row.spec_code === '001'))
+    }
+  })
+  await check('超过100个产品时关键词与ID仍可找回较早产品，企业和启用范围保持', async () => {
+    for (let i = 0; i < 110; i++) await db.query('INSERT INTO product(enterprise_id,name,registration_no,spec_id,trademark,status) VALUES(?,?,?,?,?,?)', [e.insertId, '分页产品' + i, 'PD20991234', specs[0], '分页商标' + i, i === 109 ? 0 : 1])
+    const first = ok(await request('/api/admin/products?status=1&pageSize=50', admin)); assert.equal(first.rows.length, 50); assert.ok(!first.rows.some(row => row.id === c))
+    const found = ok(await request('/api/admin/products?status=1&keyword=' + encodeURIComponent('乙牌'), admin)); assert.equal(found.rows[0].id, c)
+    assert.equal(ok(await request('/api/admin/products?status=1&productId=' + c, admin)).rows[0].id, c)
+    assert.equal(ok(await request('/api/admin/products?status=1&keyword=' + encodeURIComponent('分页商标109'), admin)).total, 0)
+    assert.equal(ok(await request('/api/admin/products?status=1&keyword=' + encodeURIComponent('乙牌'), other)).total, 0)
+    assert.equal(ok(await request('/api/admin/products?status=1&keyword=' + encodeURIComponent('无匹配产品'), admin)).total, 0)
+  })
   fs.writeFileSync('logs/product-sku-api-results-20261015.json', JSON.stringify({ database, results }, null, 2))
   console.log('全部通过：' + results.length + '组，临时库随即清理')
 } finally {

@@ -1,15 +1,11 @@
 // POST /api/admin/specs/import —— 规格批量导入（Excel，2026-09-07）
-// 模板（public/templates/spec-import-template.xlsx，与用户标准模板同构）：仅一列「规格」，
-// 支持单件「200毫升/瓶」和成组「500ml/瓶✖10」；单位及乘号规范化后查重。
-import XLSX from 'xlsx'
+// 新模板分列含数量，继续兼容旧单列规格；单位及乘号规范化后查重。
 import { getPool, query } from '../../../utils/db'
 import { requireWritableUser } from '../../../utils/auth'
 import { lockSpecEnterprise, readAvailableSpecCodes } from '../../../utils/spec-code'
 import { parseSpecification } from '#shared/utils/specification'
 import { logOperation } from '../../../utils/audit'
-
-const HEADER_RE = /^(规格|规格名称|名称)$/
-const MAX_ROWS = 5000 // 单次导入上限（PRD 5.3：单次上限 5000 条）
+import { readSpecImport } from '../../../utils/spec-import'
 
 export default defineEventHandler(async (event) => {
   const user = await requireWritableUser(event)
@@ -41,42 +37,7 @@ export default defineEventHandler(async (event) => {
   if (!/\.(xlsx|xls)$/i.test(name)) throw createError({ statusCode: 400, statusMessage: '仅支持 .xlsx / .xls 格式的 Excel 文件' })
   if (file.data.length > 10 * 1024 * 1024) throw createError({ statusCode: 400, statusMessage: '文件过大（上限 10MB）' })
 
-  // 解析 Excel（取第一个工作表）
-  let rows: string[][]
-  try {
-    const wb = XLSX.read(file.data, { type: 'buffer', cellDates: false })
-    const ws = wb.Sheets[wb.SheetNames[0] ?? '']
-    if (!ws) throw createError({ statusCode: 400, statusMessage: 'Excel 中没有工作表' })
-    rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, defval: '' })
-  } catch {
-    throw createError({ statusCode: 400, statusMessage: 'Excel 文件解析失败，请确认文件未损坏且为有效的工作簿' })
-  }
-  if (!rows.length) throw createError({ statusCode: 400, statusMessage: 'Excel 中没有数据' })
-
-  const errors: { row: number; value: string; reason: string }[] = []
-  const okRows: { name: string; net: number; unit: string; pack: string; quantity: number; row: number; raw: string }[] = []
-  const seen = new Set<string>() // 文件内名称去重
-
-  for (let i = 0; i < rows.length; i++) {
-    const excelRow = i + 1 // Excel 行号（1 基，含表头行）
-    const raw = String(rows[i]?.[0] ?? '').trim()
-    if (!raw) continue // 空行跳过
-    if (excelRow === 1 && HEADER_RE.test(raw)) continue // 表头行（首行「规格」等）
-    const parsed = parseSpecification(raw)
-    if (!parsed) {
-      errors.push({ row: excelRow, value: raw, reason: '格式无法识别：如500毫升×10瓶，兼容500ml/瓶✖10；数量须为1～999999整数' })
-      continue
-    }
-    if (seen.has(parsed.name)) {
-      errors.push({ row: excelRow, value: raw, reason: '与文件中第 ' + (i + 1) + ' 行之前的同名规格重复（文件内名称须唯一）' })
-      continue
-    }
-    seen.add(parsed.name)
-    okRows.push({ ...parsed, row: excelRow, raw })
-  }
-  if (okRows.length > MAX_ROWS) {
-    throw createError({ statusCode: 400, statusMessage: '有效数据超过单次上限（' + MAX_ROWS + ' 条），请拆分后分批导入' })
-  }
+  const { errors, okRows } = readSpecImport(file.data)
   if (!okRows.length) {
     return { ok: true, success: 0, failed: errors.length, errors } // 全失败：无写入，直接返回明细
   }
@@ -118,8 +79,8 @@ export default defineEventHandler(async (event) => {
       const r = finalOk[i]!
       const specCode = available[i]!
       await conn.execute(
-        'INSERT INTO product_spec (enterprise_id, spec_name, net_content, content_unit, pack_unit, pack_quantity, spec_code, status) VALUES (?,?,?,?,?,?,?,1)',
-        [fid, r.name, r.net, r.unit, r.pack, r.quantity, specCode])
+        'INSERT INTO product_spec (enterprise_id, spec_name, net_content, content_unit, pack_unit, pack_quantity, spec_code, status) VALUES (?,?,?,?,?,?,?,?)',
+        [fid, r.name, r.net, r.unit, r.pack, r.quantity, specCode, r.status])
     }
     await conn.commit()
   } catch (e: any) {

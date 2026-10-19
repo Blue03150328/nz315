@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { productWithSpec } from '#shared/utils/product-name'
 // 追溯码生成（PRD 5.5.1：离线生成工具 Web 版——生成不入库，导出文件后经生产采集导入）
 // 自定义段配置对齐 PRD 3.2：时间戳段 + 随机数字段 + 校验位段；导出命名对齐 PRD 5.5.1 强制命名规范
 // 二维码图片输出对齐合规第一条（QR/DM 码制，供印刷厂赋码）：2026-09-15 起改为「下载官方离线工具、本机生成」，服务端不再渲染 PNG
@@ -23,11 +22,6 @@ const toast = useToast()
 const runtime = useRuntimeConfig()
 const traceBaseUrl = runtime.public?.traceBaseUrl || 'https://www.nz315.cn/trace?code='
 
-const { data: productData } = await useFetch<any>('/api/admin/products', {
-  key: 'admin-products-gen',
-  query: { page: 1, pageSize: 100, status: 1 },
-})
-
 // 自定义段配置（码第 12 位后 21 位）已按平台标准固定（PRD 3.2）：时间戳=毫秒级 / 随机=6位随机+2位校验 / 校验=MD5取后2位
 // 用户不可选择修改、仅展示——防止客户乱配置导致追溯码结构错乱；服务端生成接口亦不接受配置参数（generate.post.ts 固定）
 const FIXED_SEGMENTS = [
@@ -42,14 +36,9 @@ const form = reactive({
 })
 const generating = ref(false)
 const result = ref<any>(null)
-// 入库留档（方案 A 2026-09-04）：生成码可先入库为「已生成/未绑定」——提前印码的企业入档管理，
-// 生产时在码库管理按该上传批次【修正】绑定生产批次；stocked 防止同一批结果重复入库
-const stocking = ref(false)
-const stocked = ref(false)
-// 防丢失（2026-10-10）：本批码不入库、只存在于本页内存，刷新或关闭页面即永久丢失（重新生成得到的是另一批新码）。
-// 故「既未导出也未入库留档」时拦截刷新/关闭；Keep-Alive 下切菜单属 SPA 内路由、不触发该事件，正好只拦真正会丢的动作。
+// 本批码仅保存在页面内存；尚未导出时，刷新或关闭页面前提示保存。
 const downloaded = ref(false)
-const hasUnsavedResult = computed(() => !!result.value?.allCodes?.length && !downloaded.value && !stocked.value)
+const hasUnsavedResult = computed(() => !!result.value?.allCodes?.length && !downloaded.value)
 const onBeforeUnload = (e: BeforeUnloadEvent) => {
   if (!hasUnsavedResult.value) return
   e.preventDefault()
@@ -58,11 +47,7 @@ const onBeforeUnload = (e: BeforeUnloadEvent) => {
 onMounted(() => window.addEventListener('beforeunload', onBeforeUnload))
 onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload))
 
-const selectedProduct = computed(() => (productData.value?.rows || []).find((p: any) => Number(p.id) === Number(form.productId)))
-const productOptions = computed(() => (productData.value?.rows || []).map((p: any) => ({
-  value: Number(p.id),
-  label: productWithSpec(p) + '（' + p.registration_no + '）',
-})))
+const selectedProduct = ref<any>(null)
 
 // 码第 1-11 位实时预览（1049 强制结构）
 const headPreview = computed(() => {
@@ -82,10 +67,10 @@ const SEGMENT_COLORS = ['b-tag-danger', 'b-tag-info', 'b-tag-warning', 'b-tag-su
 // 页内【重置】：清空生成表单与全部结果/预览，恢复页面初始状态（Keep-Alive 缓存页互不影响）
 const resetPage = () => {
   Object.assign(form, { productId: null, quantity: 100 })
+  selectedProduct.value = null
   showBigConfirm.value = false
   result.value = null
   downloaded.value = false
-  stocked.value = false
   toast.add({ title: '已重置，页面恢复初始状态', color: 'primary' })
 }
 
@@ -125,7 +110,6 @@ const runGenerate = async () => {
   generating.value = true
   try {
     result.value = await $fetch('/api/admin/codes/generate', { method: 'POST', body: { ...form } })
-    stocked.value = false // 新一批码，重置入库留档状态
     downloaded.value = false // 同理重置「已导出」标记，避免新一批沿用上一批的已保存状态
     toast.add({ title: '生成成功：' + result.value.quantity + ' 条' + (result.value.duplicates ? '（跳过重码 ' + result.value.duplicates + ' 条）' : ''), color: 'success' })
   } catch (e: any) {
@@ -207,80 +191,50 @@ const exportCsv = () => {
   download(blob, defaultFilePrefix() + '.csv')
 }
 
-// ========== 入库留档（状态：已生成/未绑定；方案 A 2026-09-04） ==========
-// 生产采集导入是「绑定入库」；这里是「留档入库」：码进码库但未绑生产批次，
-// 之后在码库管理（该上传批次行【修正】→ 新建批次绑定）完成生产绑定
-const doStockIn = async () => {
-  if (!result.value?.allCodes?.length) { toast.add({ title: '请先生成追溯码', color: 'warning' }); return }
-  stocking.value = true
-  try {
-    const res = await $fetch('/api/admin/codes/stock-in', {
-      method: 'POST',
-      body: { codes: result.value.allCodes, productId: result.value.product.id, specSnapshotToken: result.value.specSnapshotToken },
-    })
-    const skip = Number(res.skippedInvalid || 0) + Number(res.skippedDup || 0)
-    toast.add({
-      title: res.imported > 0
-        ? '已入库 ' + res.imported + ' 条，文件内重复 ' + res.duplicateFile + ' 条、库内已有 ' + res.duplicateDatabase + ' 条、校验拒绝 ' + res.skippedInvalid + ' 条'
-        : res.message,
-      color: skip > 0 ? 'warning' : 'success',
-    })
-    stocked.value = res.imported > 0 || res.skippedInvalid === 0
-  } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage || '入库失败', color: 'error' })
-  } finally {
-    stocking.value = false
-  }
-}
-
 // ========== 二维码图片输出：官方离线工具（合规第一条：QR/DM 码制，供印刷厂赋码） ==========
 // 2026-09-15 改造：原「服务端渲染 PNG + zip 打包下载」整体下线，改为下载官方离线工具在本机生成——
 // 万张级批量不再受服务器与网络限制，印刷厂/生产车间可离线自行出图；码内容口径与平台一致（完整扫码 URL）。
 // 2026-09-19 升级 v1.2.0：工具改为「导入本平台生成的码文件 → 只出图」的纯生图定位——
 //   此前工具自己也能造码（内置数据快照 + 不同算法，无 MD5 校验位），导致与平台生成的码对不上、还要再录入一遍；
-//   现在码统一由平台产出（可入库留档、可被生产采集绑定），工具只负责渲染成图。
+//   现在码统一由平台产出（生产采集后入库绑定），工具只负责渲染成图。
 //   工具仍保留「离线应急生成」但不推荐；导入出图不依赖工具内置数据，故厂商无需再为数据更新重发工具包。
 // 工具发布件放 public/tools/；版本号/size/SHA256 在此维护并展示，便于客户核对拿到的是否为官方发布件
 const OFFLINE_TOOL = {
   name: '农药追溯码生图工具',
-  version: 'v1.2.0（便携版）',
+  version: 'v1.2.1（便携版）',
   platform: 'Windows 10/11',
   size: '90.63 MB',
-  fileName: '农药追溯码生成工具-v1.2.0-便携版.exe',
-  url: '/tools/nz315-qr-tool-v1.2.0.exe',
+  fileName: '农药追溯码生成工具-v1.2.1-便携版.exe',
+  url: '/tools/nz315-qr-tool-v1.2.1.exe',
   // 发布件校验值：客户下载后可用 `certutil -hashfile 文件名 SHA256` 核对，确认拿到的是官方发布件、未被替换
-  sha256: '04373ae1dc21752636f1b68945edb2dca8cff19c8b005b2ace1070cbc0a72fe8',
+  sha256: 'e5a4181bcbc5ea24c391516ba92526b27c3fd9349873e938d33123d1dd6f4d61',
 }
 // external 显式绕过 SPA 路由，浏览器直接接收附件并显示进度，避免完整90MB Blob等待。
 </script>
 <template>
   <div class="space-y-4">
     <!-- 页面标题区 -->
-    <div class="flex items-center justify-between">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="b-page-title">追溯码生成</h1>
-        <p class="b-page-desc">按 1049 号公告结构批量生成 32 位追溯码（生成不入库，导出后经生产采集导入；二维码图片由官方离线工具导入 urls.txt 在本机生成）</p>
       </div>
       <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetPage">重置</UButton>
     </div>
 
     <div class="grid gap-4 xl:grid-cols-2">
-      <!-- 生成配置 -->
+      <!-- 生成设置 -->
       <div class="b-card">
         <div class="b-card-head">
-          <span class="b-card-title">生成配置</span>
-          <span class="b-card-extra">码第 1-11 位由所选产品自动带出</span>
+          <span class="b-card-title">生成设置</span>
+          <span class="b-card-extra">32 位追溯码</span>
         </div>
         <div class="b-form-grid">
           <div>
-            <label class="b-label">产品（码第 1-11 位来源）<span class="b-required">*</span></label>
-            <USelect
+            <label class="b-label">产品<span class="b-required">*</span></label>
+            <ProductPicker
               v-model="form.productId"
-              :items="productOptions"
-              placeholder="选择产品"
-              class="w-full"
-              :content="{ class: 'min-w-72' }"
-              :ui="{ value: 'whitespace-normal break-words text-left', itemLabel: 'whitespace-normal break-words' }"
+              :disabled="generating"
+              @selected="selectedProduct = $event"
             />
             <p v-if="selectedProduct" class="b-help">
               规格：{{ selectedProduct.spec_name || '规格未填写' }} · 规格码：{{ selectedProduct.spec_code || '未配置' }}
@@ -295,21 +249,21 @@ const OFFLINE_TOOL = {
               <span class="b-tag b-tag-success">{{ headPreview.specCode }}</span>
               <span class="ml-2 text-[var(--b-text-muted)]">= 11 位强制结构</span>
             </div>
-            <p v-else class="b-help">选择产品后自动带出码结构（登记类别 | 登记证后6位 | 生产类型 | 规格码）</p>
+            <p v-else class="b-help">选择产品后显示码头</p>
           </div>
 
           <div>
             <label class="b-label">生成数量 <span class="b-required">*</span></label>
-            <UInput v-model.number="form.quantity" type="number" min="1" :max="MAX_CODES_PER_BATCH" />
-            <p class="b-help">{{ GENERATE_QUANTITY_RANGE_TEXT }}；超过 20 万条会先弹确认框（提示文件体积与耗时）</p>
+            <UInput v-model.number="form.quantity" type="number" min="1" :max="MAX_CODES_PER_BATCH"  class="w-full" />
+            <p class="b-help">{{ GENERATE_QUANTITY_RANGE_TEXT }}</p>
           </div>
         </div>
 
         <!-- 自定义段配置（PRD 3.2）——参数按平台标准固定，仅展示不可修改（防客户乱配置导致追溯码出错） -->
         <div class="border-t border-[var(--b-divider)]">
           <div class="b-card-head">
-            <span class="b-card-title">自定义段配置（码第 12 位后，共 21 位）</span>
-            <span class="b-card-extra">第 1-11 位为 1049 公告强制结构；以下参数平台已固定，仅展示不可修改</span>
+            <span class="b-card-title">编码参数</span>
+            <span class="b-card-extra">平台标准 · 固定</span>
           </div>
           <div class="grid gap-3 px-4 pb-3.5 sm:grid-cols-3">
             <div v-for="seg in FIXED_SEGMENTS" :key="seg.name">
@@ -320,16 +274,10 @@ const OFFLINE_TOOL = {
               </div>
             </div>
           </div>
-          <div class="px-4 pb-4">
-            <div class="b-note">
-              <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
-              <p class="b-note-text">标准结构固定：毫秒时间戳 13 位 + 随机 6 位，共 19 位内容 + 末 2 位 MD5 校验位；32 位码保持纯数字，校验位按同规则可重算比对</p>
-            </div>
-          </div>
         </div>
 
         <div class="b-card-foot">
-          <span class="b-card-extra">生成结果不入库，导出文件后经「生产采集」导入</span>
+          <span class="b-card-extra">生成后请导出，生产采集后入库</span>
           <UButton v-if="canWrite" color="neutral" variant="solid" icon="i-lucide-wand-2" :loading="generating" @click="doGenerate">
             生成追溯码
           </UButton>
@@ -340,7 +288,7 @@ const OFFLINE_TOOL = {
       <div class="b-card">
         <div class="b-card-head">
           <span class="b-card-title">码结构预览</span>
-          <span class="b-card-extra">第 12 位后为自定义段（时间戳/随机/校验）</span>
+          <span class="b-card-extra">码头 / 时间 / 随机 / 校验</span>
         </div>
         <div v-if="result?.preview?.length" class="b-card-body space-y-2.5">
           <div v-for="(p, i) in result.preview" :key="i" class="rounded border border-[var(--b-divider)] p-3">
@@ -359,7 +307,7 @@ const OFFLINE_TOOL = {
         <div v-else class="b-empty">
           <div class="b-empty-inner">
             <UIcon name="i-lucide-inbox" class="b-empty-icon h-8 w-8" />
-            <span class="text-sm">配置产品后点击「生成追溯码」预览码结构</span>
+            <span class="text-sm">生成后显示预览</span>
           </div>
         </div>
       </div>
@@ -376,7 +324,7 @@ const OFFLINE_TOOL = {
       <div v-if="hasUnsavedResult" class="b-note mx-4 mt-3">
         <UIcon name="i-lucide-triangle-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
         <p class="b-note-text">
-          本批码<strong>尚未导出、也未入库留档</strong>：码只存在于当前页面，刷新或关闭页面后<strong>无法恢复</strong>（重新生成得到的是另一批新码）。请先点下方【导出】任一格式或【入库留档】，再离开本页。
+          本批码<strong>尚未导出</strong>：码只存在于当前页面，刷新或关闭页面后<strong>无法恢复</strong>（重新生成得到的是另一批新码）。请先点下方【导出】任一格式，再离开本页。
         </p>
       </div>
 
@@ -385,22 +333,18 @@ const OFFLINE_TOOL = {
         <div class="b-stat">
           <div class="b-stat-label">生成总数</div>
           <div class="b-stat-value">{{ result.quantity.toLocaleString() }}</div>
-          <div class="b-stat-foot">本次配置生成的追溯码总量</div>
         </div>
         <div class="b-stat">
           <div class="b-stat-label">唯一数</div>
           <div class="b-stat-value">{{ (result.quantity - result.duplicates).toLocaleString() }}</div>
-          <div class="b-stat-foot">去重后可用于印刷赋码的码量</div>
         </div>
         <div class="b-stat">
           <div class="b-stat-label">跳过重码</div>
           <div class="b-stat-value" :class="result.duplicates ? 'text-amber-600' : ''">{{ result.duplicates.toLocaleString() }}</div>
-          <div class="b-stat-foot">与库内已有码冲突而跳过</div>
         </div>
         <div class="b-stat">
           <div class="b-stat-label">生成耗时</div>
           <div class="b-stat-value">{{ (result.elapsedMs / 1000).toFixed(2) }}s</div>
-          <div class="b-stat-foot">服务端生成与查重总耗时</div>
         </div>
       </div>
 
@@ -426,22 +370,11 @@ const OFFLINE_TOOL = {
       </div>
 
       <div class="b-card-foot">
-        <span class="b-card-extra">TXT 命名遵循 PRD 5.5.1 强制规范（企业ID_产品名_规格_日期）；urls.txt 每行为完整扫码地址，是离线二维码工具的输入文件（见下方「二维码图片输出」）。码文件可先「入库留档」——入库为「已生成（未绑定）」，生产时到码库管理绑定批次</span>
+        <span class="b-card-extra">导出格式：纯码 / 扫码网址 / CSV</span>
         <div class="flex flex-wrap items-center gap-2">
           <UButton variant="outline" color="neutral" icon="i-lucide-file-text" @click="exportTxt">导出 TXT</UButton>
-          <UButton variant="outline" color="neutral" icon="i-lucide-link" @click="exportUrls">导出 urls.txt（离线工具输入）</UButton>
+          <UButton variant="outline" color="neutral" icon="i-lucide-link" @click="exportUrls">导出 urls.txt</UButton>
           <UButton color="neutral" variant="solid" icon="i-lucide-file-spreadsheet" @click="exportCsv">导出 CSV</UButton>
-          <span class="b-sep" />
-          <UButton v-if="canWrite"
-            color="neutral"
-            :variant="stocked ? 'soft' : 'solid'"
-            icon="i-lucide-archive"
-            :loading="stocking"
-            :disabled="stocked"
-            @click="doStockIn"
-          >
-            {{ stocked ? '已入库 ' + result.quantity + ' 条（未绑定）' : '入库留档（状态：已生成）' }}
-          </UButton>
         </div>
       </div>
     </div>
@@ -449,13 +382,15 @@ const OFFLINE_TOOL = {
     <!-- 二维码图片输出：官方离线工具（合规第一条：QR/DM 码制） -->
     <div class="b-card">
       <div class="b-card-head">
-        <span class="b-card-title">二维码图片输出（离线工具）</span>
-        <span class="b-card-extra">按 1049 号公告第一条生成 QR / DataMatrix 码 PNG，供印刷厂赋码</span>
+        <span class="b-card-title">二维码图片输出</span>
+        <span class="b-card-extra">QR / DataMatrix · PNG</span>
       </div>
       <div class="b-card-body space-y-3">
+        <div class="flex flex-wrap items-center gap-2 text-sm text-[var(--b-text-regular)]"><span>导出码文件</span><UIcon name="i-lucide-chevron-right" class="h-4 w-4 text-muted" /><span>导入离线工具</span><UIcon name="i-lucide-chevron-right" class="h-4 w-4 text-muted" /><span>导出图片</span></div>
+        <AdminHelp title="使用说明与文件校验">
         <div class="b-note">
           <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
-          <p class="b-note-text">二维码图片改由官方<strong>离线工具</strong>在本机生成，不再经过服务器：万张级批量不受网络与服务器限制，印刷厂、生产车间均可离线自行出图。<strong>码值统一由本平台生成</strong>（可入库留档、可被生产采集绑定），工具只负责把码渲染成 PNG —— 两边不会再出现规格码或码结构对不上的情况。码内容为完整扫码地址（<span class="font-code">{{ traceBaseUrl }}32位码</span>）。</p>
+          <p class="b-note-text">二维码图片改由官方<strong>离线工具</strong>在本机生成，不再经过服务器：万张级批量不受网络与服务器限制，印刷厂、生产车间均可离线自行出图。<strong>码值统一由本平台生成</strong>（生产采集后入库绑定），工具只负责把码渲染成 PNG —— 两边不会再出现规格码或码结构对不上的情况。码内容为完整扫码地址（<span class="font-code">{{ traceBaseUrl }}32位码</span>）。</p>
         </div>
         <ol class="space-y-1.5 text-[13px] leading-6 text-[var(--b-text-muted)]">
           <li>① 在上方「生成结果」区点【导出 urls.txt】，得到每行一个完整扫码地址的码文件（也可用【导出 TXT】或 sn 清单 CSV，工具三种都能识别）。</li>
@@ -472,6 +407,7 @@ const OFFLINE_TOOL = {
             下载后可用 <span class="font-code">certutil -hashfile 文件名 SHA256</span> 核对，确认拿到的是官方发布件。
           </p>
         </div>
+        </AdminHelp>
       </div>
       <div class="b-card-foot">
         <span class="b-card-extra">
@@ -488,14 +424,12 @@ const OFFLINE_TOOL = {
         >
           下载离线工具
         </UButton>
-        <span class="text-xs text-muted">浏览器下载列表可查看进度；文件较大，下载一次即可离线使用。</span>
+
       </div>
     </div>
 
     <div v-if="canWrite" class="b-card">
-      <div class="b-card-head"><h2 class="b-card-title">追溯码离线上传</h2></div>
-      <div class="b-card-body"><p class="b-help">需要上传离线码文件或扫描仪导出的生产记录时，进入离线上传页面。</p></div>
-      <div class="b-card-foot justify-end"><UButton to="/admin/collection" color="neutral" variant="outline" icon="i-lucide-file-up">进入追溯码离线上传</UButton></div>
+      <div class="b-card-head"><h2 class="b-card-title">追溯码离线上传</h2><UButton to="/admin/collection" color="neutral" variant="outline" icon="i-lucide-file-up">进入上传</UButton></div>
     </div>
 
     <!-- 大数量生成二次确认（阈值 20 万条，见 shared/utils/code-limits.ts）：

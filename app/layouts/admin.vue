@@ -121,7 +121,7 @@ const onLogout = async () => {
 </script>
 
 <template>
-  <div class="flex min-h-screen bg-[var(--b-fill)]">
+  <div class="admin-shell flex min-h-screen bg-[var(--b-fill)]">
     <!-- 左侧深色导航栏：<lg 时为抽屉（默认收起），lg 起常驻 -->
     <aside
       class="fixed inset-y-0 left-0 z-40 flex w-60 flex-col bg-[var(--b-sider-bg)] text-white transition-transform duration-200 lg:translate-x-0"
@@ -143,7 +143,7 @@ const onLogout = async () => {
               v-for="item in group.items"
               :key="item.path"
               :to="item.path"
-              class="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm transition-colors"
+              class="flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors"
               :class="isActive(item.path) ? 'bg-[var(--b-sider-active-bg)] font-medium text-[var(--b-sider-active-text)]' : 'text-white/75 hover:bg-white/10 hover:text-white'"
             >
               <UIcon :name="item.icon" class="h-4.5 w-4.5 shrink-0" />
@@ -201,10 +201,10 @@ const onLogout = async () => {
       </div>
       <!-- 内容区：放宽容器适配 PC 大屏（企业后台信息密度）；
            左右内边距与 --b-content-px（main.css）保持一致，批量操作条吸底靠该变量全宽出血，改一处即可 -->
-      <main :class="productionPage ? 'production-main w-full max-w-none p-3 lg:p-4' : 'mx-auto max-w-[1600px] px-4 py-6 lg:px-8 lg:py-8'">
+      <main :class="productionPage ? 'production-main w-full max-w-none p-3 lg:p-4' : 'admin-main mx-auto w-full max-w-[1600px] px-4 py-5 lg:px-6 lg:py-6'">
         <!-- 只读账号提示条（2026-09-19）：写入口已按角色全部隐藏，此处统一说明，避免用户以为"功能丢了" -->
         <div v-if="!canWrite" class="mb-4 rounded-lg border border-border bg-warning-soft px-4 py-2.5 text-sm text-default">
-          当前为<strong>只读账号</strong>，仅可查看数据，新增/修改/删除等操作入口已隐藏。如需写权限，请联系厂家主账号或平台管理员开通。
+          <strong>只读账号</strong> · 如需编辑，请联系管理员。
         </div>
         <slot />
       </main>

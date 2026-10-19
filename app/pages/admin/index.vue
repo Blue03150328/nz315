@@ -96,11 +96,11 @@ const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.
     </div>
 
     <!-- 页面标题区 -->
-    <div class="flex items-center justify-between">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="b-page-title">数据概览</h1>
         <p class="b-page-desc">
-          {{ isPlatformAdmin ? '平台全局数据' : '本企业数据' }} · {{ user?.name || user?.username }}
+          {{ isPlatformAdmin ? '平台数据' : '企业数据' }} · {{ user?.name || user?.username }}
         </p>
       </div>
     </div>
@@ -109,12 +109,11 @@ const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.
     <AdminFlowStrip />
 
     <!-- 核心指标卡（PRD 5.2） -->
-    <div class="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+    <div class="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-7">
       <component :is="c.to ? NuxtLink : 'div'" v-for="c in cards" :key="c.label" :to="c.to" class="b-stat" :class="c.to ? 'hover:ring-1 hover:ring-primary focus-visible:ring-2 focus-visible:ring-primary' : ''">
         <div class="b-stat-label">
           <UIcon :name="c.icon" class="h-4 w-4 shrink-0 text-[var(--b-text-muted)]" />
           <span>{{ c.label }}</span>
-          <span v-if="c.tag" class="b-tag b-tag-warning ml-auto">{{ c.tag }}</span>
         </div>
         <div class="b-stat-value">{{ c.value }}</div>
       </component>
@@ -124,7 +123,6 @@ const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.
     <div class="b-card">
       <div class="b-card-head">
         <span class="b-card-title">近 30 天扫码趋势</span>
-        <span class="b-card-extra">按日统计 · 折线图</span>
       </div>
       <div class="b-card-body">
         <div v-if="!trend.length" class="b-empty">
@@ -164,7 +162,6 @@ const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.
       <div class="b-card">
         <div class="b-card-head">
           <span class="b-card-title">码状态分布</span>
-          <span class="b-card-extra">已生成 → 已绑定</span>
         </div>
         <div class="b-card-body">
           <div class="flex h-2 overflow-hidden rounded bg-[var(--b-fill)]">
@@ -194,10 +191,6 @@ const trendYTicks = computed(() => [{ v: 0, y: CHART_H - PAD.b }, { v: trendMax.
               <div class="text-xl font-semibold text-[var(--b-text-title)]">{{ f.count }}</div>
               <div class="mt-1.5"><span class="b-tag" :class="f.cls">{{ f.label }}</span></div>
             </div>
-          </div>
-          <div class="b-note mt-3">
-            <UIcon name="i-lucide-info" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
-            <p class="b-note-text">已冻结/已作废的码不可绑定与修改；作废为终态，扫码页提示"该追溯码已作废，请勿购买"</p>
           </div>
         </div>
       </div>

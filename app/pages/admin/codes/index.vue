@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { formatCodeQuantity } from '#shared/utils/code-quantity'
-import { productWithSpec } from '#shared/utils/product-name'
 // 码库管理（2026-10-12 去子批次改造）：一行 = 扫描仪一次「完成本次上传」。
 // 不再有总批次 / 已用子批次 / 剩余子批次 / 使用记录；只记录已完成上传的码。
 // 数量一律精确显示（12,352张），不折算「万」。
@@ -28,16 +27,9 @@ const filters = reactive({
   dateTo: '',
 })
 const page = ref(1)
+const productPickerKey = ref(0)
 const pageSize = 20
 const { applyListQuery, resetListQuery } = useAdminListRoute(filters, page, () => refresh(), ['productId'])
-
-// 产品下拉（关联产品筛选；pageSize 100 与生产采集/生成页同口径）
-const { data: productData } = await useFetch<any>('/api/admin/products', {
-  key: 'admin-codes-products',
-  query: { page: 1, pageSize: 100, bindable: 1 },
-})
-const PRODUCT_OPTIONS = computed(() =>
-  (productData.value?.rows || []).map((p: any) => ({ value: Number(p.id), label: productWithSpec(p) })))
 
 const listQuery = computed(() => ({
     productId: filters.productId || undefined,
@@ -55,7 +47,7 @@ const totalPages = computed(() => Math.max(1, Math.ceil((data.value?.total || 0)
 const batchRows = computed<any[]>(() => data.value?.rows || [])
 
 const doSearch = () => applyListQuery()
-const resetSearch = () => resetListQuery()
+const resetSearch = () => { productPickerKey.value++; return resetListQuery() }
 
 // 跨页保留手动选择；全选使用已查询的筛选条件，勾掉单行作为排除项。
 const selectionMode = ref(false)
@@ -472,10 +464,9 @@ const flagBadge = (f: number) => {
     <ExternalCollectionList v-if="externalSource" mode="codes" />
     <template v-else>
     <!-- 页面标题区 -->
-    <div class="flex items-center justify-between">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="b-page-title">码库管理</h1>
-        <p class="b-page-desc">一行 = 扫描仪一次「完成本次上传」，只记录已完成上传的追溯码</p>
       </div>
       <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetSearch">重置</UButton>
     </div>
@@ -488,27 +479,27 @@ const flagBadge = (f: number) => {
       <div class="b-form-grid md:grid-cols-2 xl:grid-cols-6">
         <div>
           <label class="b-label">关联产品</label>
-          <USelect v-model="filters.productId" :items="PRODUCT_OPTIONS" placeholder="全部产品" class="w-full" :content="{ class: 'min-w-72' }" :ui="{ value: 'whitespace-normal break-words text-left', itemLabel: 'whitespace-normal break-words' }" />
+          <ProductPicker :key="productPickerKey" :model-value="filters.productId ?? null" all-statuses allow-all aria-label="关联产品" @update:model-value="filters.productId = $event ?? undefined" />
         </div>
         <div>
           <label class="b-label">生产批号</label>
-          <UInput v-model="filters.batchNo" placeholder="输入生产批号" @keyup.enter="doSearch" />
+          <UInput v-model="filters.batchNo" placeholder="输入生产批号" @keyup.enter="doSearch"  class="w-full" />
         </div>
         <div>
           <label class="b-label">上传产线</label>
-          <UInput v-model="filters.lineName" placeholder="输入生产线" @keyup.enter="doSearch" />
+          <UInput v-model="filters.lineName" placeholder="输入生产线" @keyup.enter="doSearch"  class="w-full" />
         </div>
         <div>
           <label class="b-label">上传设备</label>
-          <UInput v-model="filters.deviceName" placeholder="输入设备名称" @keyup.enter="doSearch" />
+          <UInput v-model="filters.deviceName" placeholder="输入设备名称" @keyup.enter="doSearch"  class="w-full" />
         </div>
         <div>
           <label class="b-label">上传时间起</label>
-          <UInput v-model="filters.dateFrom" type="date" />
+          <UInput v-model="filters.dateFrom" type="date"  class="w-full" />
         </div>
         <div>
           <label class="b-label">上传时间止</label>
-          <UInput v-model="filters.dateTo" type="date" />
+          <UInput v-model="filters.dateTo" type="date"  class="w-full" />
         </div>
       </div>
       <div class="b-card-foot">
@@ -632,7 +623,7 @@ const flagBadge = (f: number) => {
             </div>
             <div>
               <label class="b-label-lg">生产批号</label>
-              <UInput v-model="correctForm.batchNo" :maxlength="64" :placeholder="'不修改留空；当前：' + (correctPreview?.production.batch_no || correctTarget?.batchNo || '未记录或存在多种值')" />
+              <UInput v-model="correctForm.batchNo" :maxlength="64" :placeholder="'不修改留空；当前：' + (correctPreview?.production.batch_no || correctTarget?.batchNo || '未记录或存在多种值')"  class="w-full" />
             </div>
             <ProductionChangePreview :form="correctForm" :count="correctImpactCount" :current="correctPreview?.production" scope-only />
             <div class="grid grid-cols-2 gap-3">
@@ -653,14 +644,14 @@ const flagBadge = (f: number) => {
               </div>
               <div>
                 <label class="b-label-lg">质量合格证号</label>
-                <UInput v-model="correctForm.qualityCertNo" :maxlength="64" placeholder="不修改留空" />
+                <UInput v-model="correctForm.qualityCertNo" :maxlength="64" placeholder="不修改留空"  class="w-full" />
               </div>
             </div>
             <div class="b-note">
               <UIcon name="i-lucide-shield-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
               <p class="b-note-text">修改会同步这次上传中各码的扫码展示，并记录操作人、时间、修改前后内容和具体码清单。</p>
             </div>
-            <div><label class="b-label-lg">修改备注（选填）</label><UInput v-model="correctForm.reason" :maxlength="500" placeholder="例如：核对喷码后修正生产日期" /></div>
+            <div><label class="b-label-lg">修改备注（选填）</label><UInput v-model="correctForm.reason" :maxlength="500" placeholder="例如：核对喷码后修正生产日期"  class="w-full" /></div>
             <UCheckbox v-model="correctConfirmed" :disabled="correctPreviewLoading || !correctPreview?.canCorrect || !!correctPreviewError" label="我已确认修改这次上传的码" />
           </div>
           <div class="b-modal-foot">
@@ -725,7 +716,7 @@ const flagBadge = (f: number) => {
             <div class="mb-3 flex flex-wrap items-end gap-2">
               <div class="w-64">
                 <label class="b-label">追溯码 / 批号</label>
-                <UInput v-model="dFilters.keyword" placeholder="输入追溯码或生产批号" icon="i-lucide-search" @keyup.enter="onDetailSearch" />
+                <UInput v-model="dFilters.keyword" placeholder="输入追溯码或生产批号" icon="i-lucide-search" @keyup.enter="onDetailSearch"  class="w-full" />
               </div>
               <div class="w-36">
                 <label class="b-label">码状态</label>

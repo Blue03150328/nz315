@@ -41,9 +41,6 @@ const visible = computed(() => !!data.value?.enterpriseId && !allDone.value)
       <span class="b-card-extra">{{ data?.enterpriseName }} · 已完成 {{ doneCount }}/{{ steps.length }} 步</span>
     </div>
     <div class="b-card-body">
-      <p class="b-help mb-3 -mt-0">
-        {{ canWrite ? '按顺序完成以下步骤，追溯码即可投入查询；已有外部码文件可直接上传，无需先生成。' : '当前为只读账号，可查看各步骤资料；建档请联系企业管理员。' }}
-      </p>
       <div class="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <NuxtLink
           v-for="(step, i) in steps"

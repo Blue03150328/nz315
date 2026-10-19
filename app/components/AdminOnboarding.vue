@@ -33,11 +33,11 @@ const steps = computed(() => [
       <div v-if="error" class="text-sm text-error">建档进度加载失败，请点击刷新进度重试。</div>
       <p v-else-if="!data?.enterpriseId" class="b-help">选择企业后，依据该企业已有资料显示建档进度。</p>
       <template v-else>
-        <p class="b-help">{{ data.enterpriseName }} · {{ canWrite ? '按顺序准备资料；已有外部码文件可直接上传，无需先生成。' : '当前为只读账号，可查看资料；建档请联系企业管理员。' }}</p>
+        <p class="b-help">{{ data.enterpriseName }}</p>
         <div class="grid gap-2 md:grid-cols-4">
           <NuxtLink v-for="(step, i) in steps" :key="step.to + i" :to="step.to" class="rounded border border-[var(--b-border)] p-3 text-sm hover:border-primary">
             <span class="mr-2">{{ step.done ? '✓' : i + 1 }}</span>{{ step.label }}
-            <span class="mt-1 block text-xs text-muted">{{ step.done ? '已有可用资料' : '尚未完成' }} · {{ canWrite ? '进入查看或维护' : '进入查看' }}</span>
+            <span class="mt-1 block text-xs text-muted">{{ step.done ? '已完成' : '待完成' }}</span>
           </NuxtLink>
         </div>
         <p v-if="isPlatformAdmin" class="b-help">以上进度仅属于所选企业；进入管理页后请核对资料的归属企业。</p>

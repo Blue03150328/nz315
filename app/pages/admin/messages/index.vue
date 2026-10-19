@@ -58,10 +58,9 @@ const resetSearch = () => { typeFilter.value = undefined; unreadOnly.value = fal
 <template>
   <div class="space-y-4">
     <!-- 页面标题区 -->
-    <div class="flex items-center justify-between">
+    <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="b-page-title">消息中心</h1>
-        <p class="b-page-desc">风险预警 · 上传完成 · 库存预警等站内通知</p>
       </div>
       <span class="b-tag" :class="(data?.unread ?? 0) > 0 ? 'b-tag-danger' : 'b-tag-default'">{{ data?.unread ?? 0 }} 条未读</span>
     </div>
