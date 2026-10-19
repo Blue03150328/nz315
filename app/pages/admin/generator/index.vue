@@ -201,13 +201,13 @@ const exportCsv = () => {
 // 工具发布件放 public/tools/；版本号/size/SHA256 在此维护并展示，便于客户核对拿到的是否为官方发布件
 const OFFLINE_TOOL = {
   name: '农药追溯码生图工具',
-  version: 'v1.2.0（便携版）',
+  version: 'v1.2.1（便携版）',
   platform: 'Windows 10/11',
   size: '90.63 MB',
-  fileName: '农药追溯码生成工具-v1.2.0-便携版.exe',
-  url: '/tools/nz315-qr-tool-v1.2.0.exe',
+  fileName: '农药追溯码生成工具-v1.2.1-便携版.exe',
+  url: '/tools/nz315-qr-tool-v1.2.1.exe',
   // 发布件校验值：客户下载后可用 `certutil -hashfile 文件名 SHA256` 核对，确认拿到的是官方发布件、未被替换
-  sha256: '04373ae1dc21752636f1b68945edb2dca8cff19c8b005b2ace1070cbc0a72fe8',
+  sha256: 'e5a4181bcbc5ea24c391516ba92526b27c3fd9349873e938d33123d1dd6f4d61',
 }
 // external 显式绕过 SPA 路由，浏览器直接接收附件并显示进度，避免完整90MB Blob等待。
 </script>
