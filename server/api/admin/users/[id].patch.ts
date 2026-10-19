@@ -27,6 +27,10 @@ export default defineEventHandler(async (event) => {
   }
 
   const body = await readBody(event) || {}
+  const nextRole = String(body.role || target.role)
+  if (nextRole !== target.role && !(['production_operator','line_leader'].includes(target.role) && ['production_operator','line_leader'].includes(nextRole))) {
+    throw createError({ statusCode: 403, statusMessage: '编辑只允许切换普工与线长，不可更改其他权限' })
+  }
   const name = String(body.name || '').trim()
   const phone = String(body.phone || '').trim()
   // status 未传时保留原值（body.status === 0 ? 0 : 1 会把未传值误判为启用——
@@ -57,12 +61,12 @@ export default defineEventHandler(async (event) => {
       conn.release()
     }
   } else {
-    await execute('UPDATE \`user\` SET name = ?, phone = ?, status = ? WHERE id = ?', [name || null, phone || null, nextStatus, id])
+    await execute('UPDATE \`user\` SET name = ?, phone = ?, status = ?, role = ? WHERE id = ?', [name || null, phone || null, nextStatus, nextRole, id])
   }
   await logOperation(event, {
     module: '用户管理',
     action,
-    content: JSON.stringify({ id, username: target.username, name, phone, status: nextStatus }),
+    content: JSON.stringify({ id, username: target.username, name, phone, status: nextStatus, previousRole: target.role, role: nextRole }),
   })
   return { ok: true }
 })

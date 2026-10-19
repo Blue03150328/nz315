@@ -1,3 +1,4 @@
+import { isCaptureRole } from './capture-role'
 import {taskMonitorRows,monitorSummary} from './production-monitor'
 import { createHash, createHmac, randomUUID } from 'node:crypto'
 import type { AuthUser } from './auth'
@@ -118,7 +119,7 @@ export async function lineEvent(conn:any,device:AuthUser,run:any,s:any,event:any
  const c=json(run.context_json),[[batch]]=task.batch_id?await conn.query('SELECT * FROM batch WHERE id=?',[task.batch_id]):[[]]
  if(!within)reason='采集时间超出工人授权范围'
  else if(!batch||batch.batch_no!==c.batchNo||String(batch.produce_date).slice(0,10)!==c.produceDate||String(batch.expire_date).slice(0,10)!==c.expireDate)reason='同任务生产资料不一致，待管理员核对'
- else if(Number(g.us)!==1||Number(g.uv)!==Number(g.user_version)||g.ur!=='production_operator'||Number(g.ue)!==Number(run.enterprise_id))reason='员工权限已变更，待管理员核对'
+ else if(Number(g.us)!==1||Number(g.uv)!==Number(g.user_version)||!isCaptureRole(g.ur)||Number(g.ue)!==Number(run.enterprise_id))reason='员工权限已变更，待管理员核对'
  else if(task.status!=='active')reason='任务已结束，记录保留，禁止覆盖原生产资料'
  else if(!event.code)reason='缺位或多个完整码，无法确定追溯码'
  else {

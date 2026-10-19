@@ -218,7 +218,7 @@ const userRoleOptions = computed(() => {
   const items: { value: string; label: string }[] = [
     { value: 'enterprise_admin', label: '厂家主账号' },
     { value: 'code_admin', label: '码管理员' },
-  { value: 'production_operator', label: '生产操作员' },
+  { value: 'production_operator', label: '普工' }, { value: 'line_leader', label: '线长' },
     { value: 'viewer', label: '只读账号' },
   ]
   if (isPlatformAdmin.value) items.unshift({ value: 'platform_admin', label: '总部管理员' })
@@ -331,6 +331,14 @@ const toggleUserStatus = async (row: any) => {
   }
 }
 
+const changeCaptureRole = async (row: any) => {
+  const role = row.role === 'line_leader' ? 'production_operator' : 'line_leader'
+  if (!window.confirm('将 ' + row.name + '（' + row.username + '）改为' + (role === 'line_leader' ? '线长' : '普工') + '？重新登录APP后生效，历史记录归属不变。')) return
+  try {
+    await $fetch('/api/admin/users/' + row.id, { method: 'PATCH', body: { name: row.name || '', phone: row.phone || '', role } })
+    toast.add({ title: '角色已更新，请重新登录APP', color: 'success' }); refreshUsers()
+  } catch (e: any) { toast.add({ title: e?.data?.statusMessage || '更新失败', color: 'error' }) }
+}
 const resetPw = async (row: any) => {
   const pw = window.prompt('请输入 ' + row.username + ' 的新密码（至少 6 位）：')
   if (!pw) return
@@ -714,7 +722,7 @@ const deleteBackup = async (b: any) => {
           </div>
           <div>
             <label class="b-label">角色</label>
-            <USelect v-model="ufilters.role" :items="[{ value: 'enterprise_admin', label: '厂家主账号' }, { value: 'code_admin', label: '码管理员' }, { value: 'production_operator', label: '生产操作员' }, { value: 'viewer', label: '只读账号' }]" placeholder="全部角色" class="w-full" />
+            <USelect v-model="ufilters.role" :items="[{ value: 'enterprise_admin', label: '厂家主账号' }, { value: 'code_admin', label: '码管理员' }, { value: 'production_operator', label: '普工' }, { value: 'line_leader', label: '线长' }, { value: 'viewer', label: '只读账号' }]" placeholder="全部角色" class="w-full" />
           </div>
           <div>
             <label class="b-label">状态</label>
@@ -824,6 +832,7 @@ const deleteBackup = async (b: any) => {
                           <td>
                             <!-- 2026-10-10：总部管理员账号同样可重置密码/禁用；当前登录的自己仅保留重置密码，避免触发「不能修改自己的账号」 -->
                             <div class="b-actions">
+                              <UButton v-if="['production_operator','line_leader'].includes(r.role)" variant="link" color="neutral" size="xs" @click="changeCaptureRole(r)">{{ r.role === 'line_leader' ? '改为普工' : '设为线长' }}</UButton>
                               <UButton variant="link" color="neutral" size="xs" @click="resetPw(r)">重置密码</UButton>
                               <span class="b-sep" />
                               <span v-if="Number(r.id) === Number(user?.id)" class="text-xs text-[var(--b-text-muted)]">当前登录账号</span>

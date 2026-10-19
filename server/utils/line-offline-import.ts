@@ -1,3 +1,5 @@
+import { appendWorkerActions } from './worker-records'
+import { isCaptureRole } from './capture-role'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { AuthUser } from './auth'
 import { query } from './db'
@@ -23,7 +25,7 @@ export async function importLineRecords(user:AuthUser,body:any){
   const [d]=await query<any[]>('SELECT d.*,e.name AS enterprise_name FROM production_device d JOIN enterprise e ON e.id=d.enterprise_id WHERE d.id=?',[g.device_id])
   if(!d||Number(d.enterprise_id)!==Number(g.enterprise_id))fail('设备归属发生变化，文件须管理员核对',409)
   const device:AuthUser={id:0,enterprise_id:Number(g.enterprise_id),username:'device:'+d.id,name:d.name,phone:null,role:'code_admin',status:1,device_id:Number(d.id),device_line:d.line_name,device_hash:d.credential_hash,enterprise_name:d.enterprise_name}
-  g.changed=Number(g.user_status)!==1||g.user_role!=='production_operator'||Number(g.current_version)!==Number(g.user_version)||Number(g.current_enterprise)!==Number(g.enterprise_id)
+  g.changed=Number(g.user_status)!==1||!isCaptureRole(g.user_role)||Number(g.current_version)!==Number(g.user_version)||Number(g.current_enterprise)!==Number(g.enterprise_id)
   verified.push({data,g,device})
  }
  const preview={ok:true,sessions:verified.length,records:count,workers:[...new Set(verified.map(v=>JSON.parse(typeof v.g.identity_json==='string'?v.g.identity_json:JSON.stringify(v.g.identity_json)).name))]}
@@ -32,7 +34,8 @@ export async function importLineRecords(user:AuthUser,body:any){
  for(const {data,g,device} of verified){
   await openWorkerSession(device,{runId:data.run.id,sessionId:data.sessionId,context:data.run.context,startedAt:data.startedAt},g)
   for(let i=0;i<data.events.length;i+=20){const result=await syncWorkerEvents(device,data.sessionId,{events:data.events.slice(i,i+20)});for(const receipt of result.receipts){if(receipt.state==='saved')saved++;else if(receipt.state==='duplicate')duplicates++;else exceptions++}}
-  if(data.finalSequence!=null)await finishWorkerSession(device,data.sessionId,{lastSequence:data.finalSequence,...(data.stoppedAt?{stoppedAt:data.stoppedAt}:{})})
+  if(data.actions!==undefined){if(!Array.isArray(data.actions)||data.actions.length>50000)fail('操作记录格式无效');for(let i=0;i<data.actions.length;i+=20)await appendWorkerActions(device,data.sessionId,{actions:data.actions.slice(i,i+20)})}
+  if(data.finalSequence!=null)await finishWorkerSession(device,data.sessionId,{lastSequence:data.finalSequence,...(data.actions?.length?{lastActionSequence:data.actions.length}:{}),...(data.stoppedAt?{stoppedAt:data.stoppedAt}:{})})
   if(data.run.sealed&&Array.isArray(data.run.sessions)){
    // 交班文件可以分次导入，完整本机结束清单持久保存；尚缺其他工人文件时不结算。
    await query('UPDATE worker_run SET file_end_sessions=? WHERE id=?',[JSON.stringify(data.run.sessions),data.run.id])

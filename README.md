@@ -1,5 +1,7 @@
 # 农资315 · 追溯码与生产扫码管理平台
 
+> 已上线：普工／线长 APP 权限与员工采集详情，操作与增量迁移见 [说明](docs/普工线长与采集记录说明-20261016.md)。[下载 APK 3.1.13](https://www.nz315.cn/downloads/nz315-production-3.1.13.apk)。
+
 面向农药生产企业的产品、追溯码、生产采集和扫码查询平台。网站使用 Nuxt 4、Vue 3、Nuxt UI 和 MySQL；安卓扫描仪应用源码在 `regcode-production/`。
 
 主仓：[Blue03150328/nz315](https://github.com/Blue03150328/nz315)，默认分支 `master`。

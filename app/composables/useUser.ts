@@ -31,7 +31,7 @@ export function useUser() {
       platform_admin: '总部管理员',
       enterprise_admin: '厂家主账号',
       code_admin: '码管理员',
-      production_operator: '生产操作员', viewer: '只读账号',
+      production_operator: '普工', line_leader: '线长', viewer: '只读账号',
     }
     return map[user.value?.role || ''] || ''
   })

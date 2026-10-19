@@ -19,7 +19,7 @@ export default defineEventHandler(async (event) => {
   const phone = String(body.phone || '').trim()
   const role = String(body.role || 'code_admin')
   // 总部管理员已纳入可创建角色（2026-10-10）；能否真正创建由下方提权闸判定
-  const allowedRoles = ['platform_admin', 'enterprise_admin', 'code_admin', 'viewer', 'production_operator']
+  const allowedRoles = ['platform_admin', 'enterprise_admin', 'code_admin', 'viewer', 'production_operator', 'line_leader']
 
   if (!username) throw createError({ statusCode: 400, statusMessage: '请输入登录名' })
   if (!/^[a-zA-Z0-9_]{3,30}$/.test(username)) throw createError({ statusCode: 400, statusMessage: '登录名需为 3-30 位字母/数字/下划线' })

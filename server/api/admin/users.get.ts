@@ -7,7 +7,7 @@ import { query } from '../../utils/db'
 import { requireBackendUser } from '../../utils/auth'
 import { enterpriseBusinessReferenceTables } from '../../utils/enterprise-business-references'
 
-const ROLE_LABEL: Record<string, string> = { platform_admin: '总部管理员', enterprise_admin: '厂家主账号', code_admin: '码管理员', production_operator: '生产操作员', viewer: '只读账号' }
+const ROLE_LABEL: Record<string, string> = { platform_admin: '总部管理员', enterprise_admin: '厂家主账号', code_admin: '码管理员', production_operator: '普工', line_leader: '线长', viewer: '只读账号' }
 
 export default defineEventHandler(async (event) => {
   const user = await requireBackendUser(event)

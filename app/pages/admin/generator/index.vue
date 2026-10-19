@@ -230,7 +230,7 @@ const OFFLINE_TOOL = {
         </div>
         <div class="b-form-grid">
           <div>
-            <label class="b-label">产品<span class="b-required">*</span></label>
+            <label class="b-label">产品（码第 1-11 位来源）<span class="b-required">*</span></label>
             <ProductPicker
               v-model="form.productId"
               :disabled="generating"
@@ -370,7 +370,7 @@ const OFFLINE_TOOL = {
       </div>
 
       <div class="b-card-foot">
-        <span class="b-card-extra">导出格式：纯码 / 扫码网址 / CSV</span>
+        <span class="b-card-extra">TXT 命名遵循 PRD 5.5.1 强制规范（企业ID_产品名_规格_日期）；urls.txt 每行为完整扫码地址，是离线二维码工具的输入文件（见下方「二维码图片输出」）。生成结果不入库，生产采集后入库绑定</span>
         <div class="flex flex-wrap items-center gap-2">
           <UButton variant="outline" color="neutral" icon="i-lucide-file-text" @click="exportTxt">导出 TXT</UButton>
           <UButton variant="outline" color="neutral" icon="i-lucide-link" @click="exportUrls">导出 urls.txt</UButton>

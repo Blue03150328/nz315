@@ -1,3 +1,4 @@
+import { migrateWorkerRecordSchema } from './worker-record-schema.mjs'
 import { migrateLineSchema } from './line-schema.mjs'
 export const workerDDL = [
  `CREATE TABLE IF NOT EXISTS production_code_reservation(code_id BIGINT PRIMARY KEY,owner_kind VARCHAR(12) NOT NULL,owner_id VARCHAR(64) NOT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
@@ -13,6 +14,7 @@ export const workerDDL = [
 export async function migrateWorkerSchema(db) {
  for(const sql of workerDDL)await db.query(sql)
  await migrateLineSchema(db)
+ await migrateWorkerRecordSchema(db)
  const [collectionRoot]=await db.query("SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='worker_run' AND COLUMN_NAME='upload_batch_id'");if(!collectionRoot.length)await db.query('ALTER TABLE worker_run ADD COLUMN upload_batch_id BIGINT NULL')
  const [effective]=await db.query("SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='worker_run' AND COLUMN_NAME='effective_context'");if(!effective.length)await db.query('ALTER TABLE worker_run ADD COLUMN effective_context JSON NULL')
  for(const column of ['device_snapshot','product_snapshot']){const [found]=await db.query('SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?',['worker_run',column]);if(!found.length)await db.query(`ALTER TABLE worker_run ADD COLUMN ${column} JSON NULL`)}
