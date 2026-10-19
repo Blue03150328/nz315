@@ -146,7 +146,8 @@ if MODE == 'prepare':
     overlay = base.get('sourceOverlay', {})
     assert overlay.get('kind') == 'product-and-spec-exports-20261017' and overlay.get('payloadSha256') == '819fe47f63392416aed74c2646c19ccf619292a39e5e4c99c58f9b3913fe84f5', '现役导出覆盖层变化，停止发布'
     for name in ['server/api/admin/specs/export.get.ts', 'server/utils/spec-filter.ts', 'shared/utils/spec-transfer.ts', 'server/api/admin/specs.get.ts', 'public/templates/spec-import-template.xlsx']:
-        assert sha(DEST / name) == overlay['files'][name]['afterSha256'], '现役规格导出未原样保留：' + name
+        assert sha(previous / name) == overlay['files'][name]['afterSha256'], '现役规格导出指纹变化：' + name
+        assert (DEST / name).read_bytes().replace(b'\r\n', b'\n') == (previous / name).read_bytes().replace(b'\r\n', b'\n'), '现役规格导出未原样保留：' + name
     assert sha(DEST / 'server/assets/product-import-template.xlsx') == state['templateSha256'], '模板资产不一致'
     assert state['previous'].get('offlineTool', {}).get('version') == '1.2.1', '现役工具状态变化，需核对'
     generator = (DEST / 'app/pages/admin/generator/index.vue').read_text()
