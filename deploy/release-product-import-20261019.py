@@ -107,11 +107,13 @@ def dump_database():
 
 def verify_build(base):
     probe(base + '/login')
-    for route in ['/api/admin/products', '/api/admin/products/export', '/api/admin/products/import-template', '/api/admin/specs', '/api/admin/production-lines', '/api/admin/production-tasks', '/api/admin/codes/usage-batches']:
+    for route in ['/api/admin/products', '/api/admin/products/export', '/api/admin/products/import-template', '/api/admin/specs', '/api/admin/specs/export', '/api/admin/production-lines', '/api/admin/production-tasks', '/api/admin/codes/usage-batches']:
         probe(base + route, 401)
     assert get(base + '/_nuxt/builds/latest.json') == state['candidateBuild'], '构建指纹不一致'
     with urllib.request.urlopen(base + '/templates/product-import-template.xlsx?v=20261019-grid', timeout=30) as response:
         assert hashlib.sha256(response.read()).hexdigest() == state['templateSha256'], '产品模板哈希不一致'
+    with urllib.request.urlopen(base + '/templates/spec-import-template.xlsx?v=20261017-standard-times3', timeout=30) as response:
+        assert hashlib.sha256(response.read()).hexdigest() == state['specTemplateSha256'], '现役规格模板哈希不一致'
     status = out(['curl', '--max-time', '30', '-sS', '-X', 'POST', '-o', '/dev/null', '-w', '%{http_code}', base + '/api/admin/products/import'])
     assert status == '401', '产品导入接口未登录鉴权异常'
 
@@ -140,6 +142,11 @@ if MODE == 'prepare':
         assert equal, '基础运行依赖改变：' + name
     os.symlink(ROOT / 'node_modules', DEST / 'node_modules')
     state['templateSha256'] = sha(DEST / 'public/templates/product-import-template.xlsx')
+    state['specTemplateSha256'] = sha(DEST / 'public/templates/spec-import-template.xlsx')
+    overlay = base.get('sourceOverlay', {})
+    assert overlay.get('kind') == 'product-and-spec-exports-20261017' and overlay.get('payloadSha256') == '819fe47f63392416aed74c2646c19ccf619292a39e5e4c99c58f9b3913fe84f5', '现役导出覆盖层变化，停止发布'
+    for name in ['server/api/admin/specs/export.get.ts', 'server/utils/spec-filter.ts', 'shared/utils/spec-transfer.ts', 'server/api/admin/specs.get.ts', 'public/templates/spec-import-template.xlsx']:
+        assert sha(DEST / name) == overlay['files'][name]['afterSha256'], '现役规格导出未原样保留：' + name
     assert sha(DEST / 'server/assets/product-import-template.xlsx') == state['templateSha256'], '模板资产不一致'
     assert state['previous'].get('offlineTool', {}).get('version') == '1.2.1', '现役工具状态变化，需核对'
     generator = (DEST / 'app/pages/admin/generator/index.vue').read_text()
@@ -167,7 +174,7 @@ elif MODE == 'build':
             assert label in compiled, '生成页缺少原导出或防丢失提醒：' + label
     if KIND == 'codes-product-search':
         assert '关联产品' in compiled and '全部产品' in compiled, '码库产品筛选标识缺失'
-    for label in ['产标名', '下载失败行', '规格代码']:
+    for label in ['产标名', '下载失败行', '规格代码', '导出规格', '批量导出']:
         assert label in compiled, '七列导入产物缺少功能标识：' + label
     (DEST / 'Dockerfile.release').write_text('FROM ' + state['previous']['image'] + '\nUSER root\nCOPY --chown=node:node .output /app/.output\nLABEL org.opencontainers.image.revision="' + COMMIT + '"\nUSER node\n')
     (DEST / '.dockerignore').write_text('*\n!.output\n!.output/**\n!Dockerfile.release\n')
@@ -236,6 +243,8 @@ elif MODE == 'publish':
         record['offlineToolMetadataInSource'] = True
         record['previousSourceOverlay'] = state['previous'].get('sourceOverlay')
         record['templateSha256'] = state['templateSha256']
+        record['specTemplateSha256'] = state['specTemplateSha256']
+        record['exportsOverlayIntegratedInSource'] = True
         record['validation']['fullDatabaseBackupComplete'] = state['databaseBackupComplete']
         record['validation']['databaseBackupTables'] = state['databaseBackupTables']
         (DEST / '.docker-release.json').write_text(json.dumps(record, indent=2))

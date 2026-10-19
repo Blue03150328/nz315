@@ -643,3 +643,5 @@ gives you structural context (callers, dependents, test coverage) that file sear
 3. Use `get_affected_flows_tool` to understand impact.
 4. Use `query_graph_tool` pattern="tests_for" to check coverage.
 <!-- /code-review-graph MCP tools -->
+
+> **2026-10-19 产品导入发布接续**：构建后发现现役刚切至exports-20261017-819fe47f，受控稳定性检查阻止覆盖；将已上线规格导出、标准规格模板及共用筛选精确纳入主仓，保留现役产品导出及离线工具1.2.1，重新构建发布。旧候选未切换，实际发布以接续回执为准。

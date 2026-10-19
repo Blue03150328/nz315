@@ -83,7 +83,7 @@ const doImport = async () => {
  *  不用 <a href download> 直链——实测点击会被 SPA 客户端路由拦截导航到无路由路径显示 404（无网络请求） */
 const downloadTemplate = async () => {
   try {
-    const blob: any = await $fetch('/templates/spec-import-template.xlsx', { responseType: 'blob' })
+    const blob: any = await $fetch('/templates/spec-import-template.xlsx?v=20261017-standard-times3', { responseType: 'blob' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -99,6 +99,35 @@ const downloadTemplate = async () => {
 }
 
 const totalPages = computed(() => Math.max(1, Math.ceil((data.value?.total || 0) / pageSize)))
+const exporting = ref(false)
+async function exportSpecs() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const blob = await $fetch<Blob>('/api/admin/specs/export', {
+      responseType: 'blob', query: {
+        keyword: filters.keyword || undefined, contentUnit: filters.contentUnit || undefined,
+        packUnit: filters.packUnit || undefined, status: filters.status || undefined,
+      },
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = '规格导出.xlsx'
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    toast.add({ title: '已按标准格式导出全部匹配规格，如500克×20瓶', color: 'success' })
+  } catch (err: any) {
+    let message = err?.data?.statusMessage
+    if (err?.data instanceof Blob) {
+      try { message = JSON.parse(await err.data.text()).statusMessage } catch {}
+    }
+    toast.add({ title: message || '规格导出失败，请重试', color: 'error' })
+  } finally { exporting.value = false }
+}
+
 
 // 新增/编辑对话框
 const showModal = ref(false)
@@ -244,6 +273,7 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
       </div>
       <div class="flex items-center gap-2">
         <UButton v-if="canWrite" color="neutral" variant="solid" icon="i-lucide-plus" @click="openCreate">新增规格</UButton>
+        <UButton color="neutral" variant="outline" icon="i-lucide-download" :loading="exporting" title="导出当前筛选的全部规格" @click="exportSpecs">导出规格</UButton>
         <UButton v-if="canWrite" color="neutral" variant="outline" icon="i-lucide-file-up" @click="openImport">批量导入</UButton>
       </div>
     </div>
@@ -462,12 +492,12 @@ const resetSearch = () => { filters.keyword = ''; filters.contentUnit = undefine
             <div class="b-note">
               <UIcon name="i-lucide-circle-help" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--b-text-muted)]" />
               <p class="b-note-text">
-                模板仅一列「规格」，支持「500毫升×10瓶」，兼容「500ml/瓶✖10」和「200毫升/瓶」。数量须为正整数，英文单位会转为中文；规格码从本企业001～999空闲码中依次分配。无法识别或重复的行会列出失败原因。
+                模板仅一列「规格」，标准格式如「500克×20瓶」「20毫升×20瓶」，数量须为1～999999整数。外部「500克/瓶x20」等写法会自动转换为标准格式；规格码按本企业空闲码分配，重复或错误行显示失败原因。
               </p>
             </div>
             <!-- ① 模板下载 -->
             <div class="flex items-center justify-between rounded border border-[var(--b-border)] bg-[var(--b-fill)] px-3 py-2">
-              <span class="text-sm text-[var(--b-text-regular)]">规格导入模板.xlsx（表头「规格」+ 示例数据）</span>
+              <span class="text-sm text-[var(--b-text-regular)]">规格导入模板.xlsx（单列标准规格，如500克×20瓶）</span>
               <UButton variant="outline" color="neutral" size="sm" icon="i-lucide-download" @click="downloadTemplate">下载模板</UButton>
             </div>
             <!-- ② 归属企业（仅平台管理员；企业账号导入本企业） -->
