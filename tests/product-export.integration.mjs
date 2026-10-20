@@ -63,18 +63,19 @@ try {
   assert.ok(ready)
   const login = async username => { const r = await request('/api/auth/login', '', { username, password }); ok(r); return r.cookie }
   const admin = await login('export_admin'), other = await login('export_other'), viewer = await login('export_viewer'), platform = await login('export_platform')
-  await check('未登录导出拒绝；七列跨页导出全部125个产品，规格码001保留且商标不取产品名', async () => {
+  await check('未登录导出拒绝；八列跨页导出全部125个产品，备注含名称规格且规格码001保留', async () => {
     assert.equal((await fetch(base + '/api/admin/products/export')).status, 401)
     const rows = readExcel(await download(admin, '?page=3&pageSize=1'))
     assert.deepEqual(rows[0], PRODUCT_EXPORT_HEADERS); assert.equal(rows.length, 126)
-    assert.ok(rows.slice(1).every(row => row.length === 7 && row[3] === '001'))
+    assert.ok(rows.slice(1).every(row => row.length === 8 && row[3] === '001'))
+    assert.ok(rows.slice(1).every(row => row[7] === row[2].replace('验收商标', '验收农药') + ' · 500克×20瓶'))
     assert.equal(rows[1][2], '验收商标124'); assert.equal(rows[1][0], '委托加工')
   })
   await check('原药0至3条固定三列，按原药id稳定排列，缺失位置为空', async () => {
     for (let i = 0; i < 4; i++) {
       const rows = readExcel(await download(admin, '?productId=' + ids[i]))
       assert.equal(rows.length, 2)
-      assert.deepEqual(rows[1].slice(4), [0, 1, 2].map(j => j < i ? `PD原药${i}-${j}` : ''))
+      assert.deepEqual(rows[1].slice(4, 7), [0, 1, 2].map(j => j < i ? `PD原药${i}-${j}` : ''))
     }
     assert.deepEqual(readExcel(await download(admin, '?productId=' + ids[3]))[1], readExcel(await download(admin, '?productId=' + ids[3]))[1])
   })
@@ -106,7 +107,7 @@ try {
       await page.goto(base + '/admin/products'); await page.waitForLoadState('networkidle'); return page
     }
     const page = await pageFor(admin)
-    await check('浏览器点击批量导出下载真实Excel，七列125条且不会跳转404', async () => {
+    await check('浏览器点击批量导出下载真实Excel，八列125条且不会跳转404', async () => {
       const event = page.waitForEvent('download'); await page.getByRole('button', { name: '批量导出', exact: true }).click()
       const file = await event; assert.equal(file.suggestedFilename(), '产品批量导出.xlsx')
       const rows = readExcel(fs.readFileSync(await file.path())); assert.equal(rows.length, 126); assert.deepEqual(rows[0], PRODUCT_EXPORT_HEADERS)

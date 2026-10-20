@@ -15,7 +15,7 @@ export function readProductImport(data: Buffer): ProductImportRow[] {
   } catch { return bad('Excel 文件解析失败，请确认文件未损坏') }
   const range = XLSX.utils.decode_range(String(sheet['!fullref'] || sheet['!ref'] || 'A1'))
   if (range.e.r > PRODUCT_IMPORT_MAX_ROWS) return bad(`单次最多导入${PRODUCT_IMPORT_MAX_ROWS}行，请删除多余行或拆分文件`)
-  if (range.e.c >= PRODUCT_IMPORT_HEADERS.length) return bad('Excel 超出七列模板范围，原药最多填写3种，请下载新版模板')
+  if (range.e.c > PRODUCT_IMPORT_HEADERS.length) return bad('Excel 超出七列及可选备注列范围，原药最多填写3种，请下载新版模板')
   const rows = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: '', raw: false, blankrows: true, range: 0 })
   const headers = (rows[0] || []).map(value => {
     const name = String(value).trim().replace(/^\uFEFF/, '')
@@ -25,7 +25,7 @@ export function readProductImport(data: Buffer): ProductImportRow[] {
   if (missing.length) return bad('表头缺少「' + missing.join('、') + '」，请使用七列产品导入模板')
   const used = headers.filter(Boolean)
   if (new Set(used).size !== used.length) return bad('Excel 表头存在重复列名（产标名、产品商标和商标为同一字段）')
-  const unknown = used.filter(name => !PRODUCT_IMPORT_HEADERS.includes(name))
+  const unknown = used.filter(name => !PRODUCT_IMPORT_HEADERS.includes(name) && name !== '备注')
   if (unknown.length) return bad('无法识别列：' + unknown.join('、') + '；请使用七列模板，原药最多3种')
   for (let c = 0; c <= range.e.c; c++) if ((sheet[XLSX.utils.encode_cell({ r: 0, c })] as { f?: string } | undefined)?.f) return bad('表头包含公式，请粘贴为值后导入')
   const result: ProductImportRow[] = []
@@ -38,7 +38,8 @@ export function readProductImport(data: Buffer): ProductImportRow[] {
       // 代码读取真实数值，防止显示格式把1.5取整为2后误关联规格。
       const value = String(cell?.t === 'n' ? cell.v : cells[c] ?? '').trim()
       if (!headers[c] && value) return bad(`第${i + 1}行有数据列缺少表头`)
-      if (headers[c]) values[headers[c]!] = value
+      // 导出备注仅供阅读，重导入时不参与产品资料或空行判断。
+      if (headers[c] && headers[c] !== '备注') values[headers[c]!] = value
     }
     if (!Object.values(values).some(Boolean)) continue
     result.push({ row: i + 1, values })

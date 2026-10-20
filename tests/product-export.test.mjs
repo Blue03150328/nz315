@@ -6,17 +6,20 @@ register('./_ts-loader.mjs', import.meta.url)
 globalThis.createError = input => Object.assign(new Error(input.statusMessage), input)
 const { productExportValues, PRODUCT_EXPORT_HEADERS } = await import('../shared/utils/product-export.ts')
 const { productFilters } = await import('../server/utils/product-filter.ts')
-const product = { produce_type: 1, registration_no: 'PD20991234', trademark: '甲牌', spec_code: '001' }
+const product = { produce_type: 1, registration_no: 'PD20991234', trademark: '甲牌', spec_code: '001', name: '25%吡虫啉悬浮剂', spec_name: '500克/瓶x20', net_content: 500, content_unit: '克', pack_unit: '瓶', pack_quantity: 20 }
 
-test('产品导出七列与已确认的产品商标字段对应，原药固定三列且不合并', () => {
-  assert.deepEqual(PRODUCT_EXPORT_HEADERS, ['生产类型', '登记证号', '产标名', '规格代码', '原药登记证号1', '原药登记证号2', '原药登记证号3'])
-  assert.deepEqual(productExportValues(product, ['原药甲', '原药乙', '原药丙']), ['持有人生产', 'PD20991234', '甲牌', '001', '原药甲', '原药乙', '原药丙'])
-  assert.deepEqual(productExportValues(product, ['原药甲']).slice(4), ['原药甲', '', ''])
-  assert.deepEqual(productExportValues(product, []).slice(4), ['', '', ''])
+test('产品导出保留原七列，最右侧备注填写农药名称和标准规格', () => {
+  assert.deepEqual(PRODUCT_EXPORT_HEADERS, ['生产类型', '登记证号', '产标名', '规格代码', '原药登记证号1', '原药登记证号2', '原药登记证号3', '备注'])
+  assert.deepEqual(productExportValues(product, ['原药甲', '原药乙', '原药丙']), ['持有人生产', 'PD20991234', '甲牌', '001', '原药甲', '原药乙', '原药丙', '25%吡虫啉悬浮剂 · 500克×20瓶'])
+  assert.deepEqual(productExportValues(product, ['原药甲']).slice(4, 7), ['原药甲', '', ''])
+  assert.deepEqual(productExportValues(product, []).slice(4, 7), ['', '', ''])
+  assert.equal(productExportValues({ ...product, name: '25%吡虫啉悬浮剂 500克×20瓶' }, [])[7], '25%吡虫啉悬浮剂 500克×20瓶')
+  assert.equal(productExportValues({ name: '历史农药', spec_name: '历史规格' }, [])[7], '历史农药 · 历史规格')
+  assert.equal(productExportValues({ name: '历史农药' }, [])[7], '历史农药')
 })
 test('生产类型三种明确映射，历史空字段与未知值不伪造', () => {
   for (const [type, name] of [[1, '持有人生产'], [2, '委托加工'], [3, '委托分装'], [null, ''], [9, '9']]) assert.equal(productExportValues({ ...product, produce_type: type }, [])[0], name)
-  assert.deepEqual(productExportValues({}, []), ['', '', '', '', '', '', ''])
+  assert.deepEqual(productExportValues({}, []), ['', '', '', '', '', '', '', ''])
 })
 test('Excel代码前导零与重复原药顺序保留，文本不被写成公式', () => {
   const values = productExportValues({ ...product, trademark: '=1+1' }, ['PD甲', 'PD甲', 'PD乙'])
@@ -25,7 +28,9 @@ test('Excel代码前导零与重复原药顺序保留，文本不被写成公式
   const saved = XLSX.read(XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }), { type: 'buffer' }).Sheets['产品导出']
   assert.equal(saved.D2.v, '001'); assert.equal(saved.D2.t, 's')
   assert.equal(saved.C2.v, '=1+1'); assert.equal(saved.C2.f, undefined)
-  assert.deepEqual(XLSX.utils.sheet_to_json(saved, { header: 1 })[1].slice(4), ['PD甲', 'PD甲', 'PD乙'])
+  assert.deepEqual(XLSX.utils.sheet_to_json(saved, { header: 1 })[1].slice(4, 7), ['PD甲', 'PD甲', 'PD乙'])
+  assert.equal(saved.H1.v, '备注')
+  assert.equal(saved.H2.v, '25%吡虫啉悬浮剂 · 500克×20瓶')
 })
 test('普通企业伪造enterpriseId仍按自己范围筛选，总部企业参数严格校验', () => {
   const own = productFilters({ role: 'enterprise_admin', enterprise_id: 7 }, { enterpriseId: 9 })

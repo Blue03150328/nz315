@@ -10,7 +10,8 @@ export default defineEventHandler(async (event) => {
   const q = getQuery(event)
   const { whereSql, params } = productFilters(user, q)
   const products = await query<any[]>(
-    `SELECT p.id, p.produce_type, p.registration_no, p.name, p.trademark, s.spec_code
+    `SELECT p.id, p.produce_type, p.registration_no, p.name, p.trademark, s.spec_code,
+            s.spec_name, s.net_content, s.content_unit, s.pack_unit, s.pack_quantity
      FROM product p LEFT JOIN product_spec s ON s.id = p.spec_id ` + whereSql + ' ORDER BY p.id DESC LIMIT 50001', params)
   if (products.length > 50000) throw createError({ statusCode: 400, statusMessage: '导出超过50000条，请缩小产品筛选范围后重试' })
   // 显式按原药行id排序，确保同一产品的1～3列位置稳定，不依赖JSON聚合的隐式顺序。
@@ -29,8 +30,8 @@ export default defineEventHandler(async (event) => {
   const wb = XLSX.utils.book_new()
   const ws = XLSX.utils.aoa_to_sheet([PRODUCT_EXPORT_HEADERS,
     ...products.map(row => productExportValues(row, byProduct.get(Number(row.id)) || []))])
-  ws['!cols'] = [{ wch: 18 }, { wch: 22 }, { wch: 36 }, { wch: 14 }, { wch: 24 }, { wch: 24 }, { wch: 24 }]
-  ws['!autofilter'] = { ref: 'A1:G' + (products.length + 1) }
+  ws['!cols'] = [{ wch: 18 }, { wch: 22 }, { wch: 36 }, { wch: 14 }, { wch: 24 }, { wch: 24 }, { wch: 24 }, { wch: 60 }]
+  ws['!autofilter'] = { ref: 'A1:H' + (products.length + 1) }
   XLSX.utils.book_append_sheet(wb, ws, '产品导出')
   const buffer = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' })
   setHeader(event, 'Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

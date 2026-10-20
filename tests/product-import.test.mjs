@@ -25,9 +25,12 @@ const encode = (rows, mutate, bookType = 'xlsx') => {
 }
 const row = values => headers.map(h => values[h] ?? '')
 
-test('七列与导出一致，旧产品商标别名可导入，任意列序且保留空行原行号', () => {
+test('导出保留七列并附备注，重导入忽略备注，旧商标别名和任意列序兼容', () => {
   assert.deepEqual(headers, ['生产类型', '登记证号', '产标名', '规格代码', '原药登记证号1', '原药登记证号2', '原药登记证号3'])
-  assert.deepEqual(headers, PRODUCT_EXPORT_HEADERS)
+  assert.deepEqual(headers, PRODUCT_EXPORT_HEADERS.slice(0, 7))
+  const exported = readProductImport(encode([PRODUCT_EXPORT_HEADERS, [...row(valid), '农药名称 · 500克×20瓶'], ['', '', '', '', '', '', '', '仅备注']]))
+  assert.equal(exported.length, 1)
+  assert.deepEqual(exported[0].values, Object.fromEntries(headers.map(h => [h, valid[h] ?? ''])))
   for (const alias of ['产标名', '产品商标', '商标']) {
     const columns = ['规格代码', alias, '登记证号', '原药登记证号1', '生产类型']
     const rows = readProductImport(encode([columns, [], ['001', '甲牌', 'PD1', 'PD2', '委托加工']]))
