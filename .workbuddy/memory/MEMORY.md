@@ -22,6 +22,7 @@
 - **「已修」≠「已上线」**；失败命令的 fallback 输出绝不当证据；判等价必须**全表穷举集合比较**。
 - 🔴 **`UInput type="number"` 的 `v-model` 是 number 不是 string**（Nuxt UI v4 `Input.vue` 对 `type==='number'` 走 `looseToNumber`）⇒ 对它调 `.trim()` 会在按钮事件里静默抛 TypeError：请求不发出、无任何提示，**表现为「点了没反应」**。实例：记账保存自 `20caee5`(09-29) 起坏了 7 天，「新建记账」全量不可用。凡此类字段一律先 `String(v ?? '')` 归一。
 - 🔴 **两个口径别混**：①「两文件测试合计数」≠「单文件数」；②「git blob 字节(LF)」≠「包内字节(CRLF)」（本机 `core.autocrlf=true`，`git archive` 产物是 CRLF）⇒ 核执行单字节判据**必须用包内口径**。
+- 🔴 **按行号拼装/切片文件的脚本，必须断言输出行数并用集合穷举比对**：只 grep「冲突标记清零」完全不能证明合并成功。实例（2026-10-19 同步 origin/master）：块2 脚本漏了 `lines.slice(0,97)` 前缀，一次删掉 PROJECT_LOG.md 前 97 行（含全部 10-19/10-17 记录）；块1 只取 `> **` 开头的行，漏掉远程 6 个 `## 2026-10-16 xxx` 小节连标题带正文。**恢复手段**：`git checkout -m -- <file>` 可把已解决的文件退回冲突态重做（比 reflog/备份快）。判据：`ours 条目集合 ∪ theirs 条目集合` 逐条在结果里 `includes`，缺失必须为 0。
 
 ## 外码解析
 - `source-parser.ts`（`SOURCE_PARSER_VERSION`=`2026-09-27.4`）+ `source-adapters/`（白名单宿主）；落库策略收口在 `source-raw-cap.ts`：成功原文截 **64KB** 按字符边界、失败**不落原文**且**也进缓存**（2min < 成功 10min）。
