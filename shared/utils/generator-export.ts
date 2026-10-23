@@ -31,7 +31,7 @@ export function generatorExportText(codes: string[], format: GeneratorExportForm
   for (const code of codes) {
     lines.push([
       code, quote(product.name), quote(product.registrationNo), quote(context.companyName),
-      quote(produceTypes[code[7]] || code[7]), quote(product.specCode), quote(context.generatedAt),
+      quote(produceTypes[code.charAt(7)] || code.charAt(7)), quote(product.specCode), quote(context.generatedAt),
       '未绑定', code.slice(0, 1), code.slice(1, 7), code.slice(11, 32),
     ].join(','))
   }
