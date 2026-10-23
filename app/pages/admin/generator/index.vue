@@ -12,6 +12,8 @@ import {
   estimateCodesSizeMb,
   estimateGenerateMs,
 } from '#shared/utils/code-limits'
+import { MAX_EXPORT_FILES, planGeneratorExport, generatorExportText, type GeneratorExportFormat } from '#shared/utils/generator-export'
+import { TextZip } from '#shared/utils/text-zip'
 
 const { canWrite } = useUser()
 
@@ -37,8 +39,23 @@ const form = reactive({
 const generating = ref(false)
 const result = ref<any>(null)
 // 本批码仅保存在页面内存；尚未导出时，刷新或关闭页面前提示保存。
-const downloaded = ref(false)
-const hasUnsavedResult = computed(() => !!result.value?.allCodes?.length && !downloaded.value)
+const exportedCodeCount = ref(0)
+const hasUnsavedResult = computed(() => !!result.value?.allCodes?.length && exportedCodeCount.value < result.value.allCodes.length)
+const showExport = ref(false)
+const exporting = ref(false)
+const exportProgress = ref(0)
+const exportFormat = ref<GeneratorExportFormat>('txt')
+const exportSettings = reactive({ fileCount: 1, codesPerFile: 100 })
+const exportStart = computed(() => exportedCodeCount.value < (result.value?.allCodes?.length || 0) ? exportedCodeCount.value : 0)
+const exportAvailable = computed(() => (result.value?.allCodes?.length || 0) - exportStart.value)
+const exportPlan = computed(() => {
+  try {
+    return { ...planGeneratorExport(exportAvailable.value, Number(exportSettings.fileCount), Number(exportSettings.codesPerFile)), error: '' }
+  } catch (e) {
+    return { total: 0, remaining: exportAvailable.value, error: (e as Error).message }
+  }
+})
+const exportFormatLabel = computed(() => ({ txt: 'TXT', urls: 'urls.txt', csv: 'CSV' })[exportFormat.value])
 const onBeforeUnload = (e: BeforeUnloadEvent) => {
   if (!hasUnsavedResult.value) return
   e.preventDefault()
@@ -66,11 +83,13 @@ const SEGMENT_COLORS = ['b-tag-danger', 'b-tag-info', 'b-tag-warning', 'b-tag-su
 
 // 页内【重置】：清空生成表单与全部结果/预览，恢复页面初始状态（Keep-Alive 缓存页互不影响）
 const resetPage = () => {
+  if (generating.value || exporting.value) return
   Object.assign(form, { productId: null, quantity: 100 })
   selectedProduct.value = null
   showBigConfirm.value = false
   result.value = null
-  downloaded.value = false
+  exportedCodeCount.value = 0
+  showExport.value = false
   toast.add({ title: '已重置，页面恢复初始状态', color: 'primary' })
 }
 
@@ -91,6 +110,7 @@ const bigConfirmText = computed(() => {
 })
 
 const doGenerate = () => {
+  if (generating.value || exporting.value) return
   if (!form.productId) { toast.add({ title: '请选择产品', color: 'warning' }); return }
   // 区间校验文案与接口 400 文案同源（GENERATE_QUANTITY_ERROR），避免前后端提示不一致
   if (!Number.isInteger(Number(form.quantity)) || form.quantity < 1 || form.quantity > MAX_CODES_PER_BATCH) {
@@ -110,7 +130,8 @@ const runGenerate = async () => {
   generating.value = true
   try {
     result.value = await $fetch('/api/admin/codes/generate', { method: 'POST', body: { ...form } })
-    downloaded.value = false // 同理重置「已导出」标记，避免新一批沿用上一批的已保存状态
+    exportedCodeCount.value = 0
+    showExport.value = false
     toast.add({ title: '生成成功：' + result.value.quantity + ' 条' + (result.value.duplicates ? '（跳过重码 ' + result.value.duplicates + ' 条）' : ''), color: 'success' })
   } catch (e: any) {
     toast.add({ title: e?.data?.statusMessage || '生成失败', color: 'error' })
@@ -131,13 +152,13 @@ const defaultFilePrefix = () => {
   return p.enterpriseId + '_' + safeName + '_' + safeSpec + '_' + d
 }
 // urls.txt 前缀（与离线工具一致：登记证号_产品名_数量_日期）
-const urlFilePrefix = () => {
+const urlFilePrefix = (quantity: number) => {
   const p = result.value?.product
   if (!p) return 'trace'
   const date = new Date()
   const d = String(date.getFullYear()) + String(date.getMonth() + 1).padStart(2, '0') + String(date.getDate()).padStart(2, '0')
   const safeName = String(p.name || '').replace(/[\\/:*?"<>|]/g, '_')
-  return p.registrationNo + '_' + safeName + '_' + (result.value.quantity || 0) + '_' + d
+  return p.registrationNo + '_' + safeName + '_' + quantity + '_' + d
 }
 
 const download = (blob: Blob, name: string) => {
@@ -145,50 +166,56 @@ const download = (blob: Blob, name: string) => {
   const a = document.createElement('a')
   a.href = url
   a.download = name
-  a.click()
-  URL.revokeObjectURL(url)
-  downloaded.value = true // 导出即视为已保存，解除防丢失拦截（导出 TXT / urls / CSV 三处共用本函数）
-}
-
-// 导出 TXT：每行一个 32 位码（PRD 5.5.1 文件命名规范）
-const exportTxt = () => {
-  if (!result.value?.allCodes?.length) return
-  const text = result.value.allCodes.join('\n')
-  const blob = new Blob(['\uFEFF' + text], { type: 'text/plain;charset=utf-8' })
-  download(blob, defaultFilePrefix() + '.txt')
-}
-
-// 导出 urls.txt：每行完整扫码 URL（二维码内容，PRD 3.3：https://{域名}/trace?code={码}）
-const exportUrls = () => {
-  if (!result.value?.allCodes?.length) return
-  const text = result.value.allCodes.map((c: string) => traceBaseUrl + c).join('\n')
-  const blob = new Blob(['\uFEFF' + text], { type: 'text/plain;charset=utf-8' })
-  download(blob, urlFilePrefix() + '_urls.txt')
-}
-
-// 导出 CSV：sn 清单（对齐离线工具：sn,农药名称,登记证号,生产企业,生产类型,规格码,生成时间,绑定状态）+ 分段列
-const exportCsv = () => {
-  if (!result.value?.allCodes?.length) return
-  const p = result.value.product
-  const genTime = new Date().toLocaleString('zh-CN', { hour12: false })
-  const produceTypeMap: Record<string, string> = { '1': '持有人生产', '2': '委托加工', '3': '委托分装' }
-  const lines = ['sn,农药名称,登记证号,生产企业,生产类型,规格码,生成时间,绑定状态,登记类别,登记证后6位,自定义段']
-  for (const code of result.value.allCodes) {
-    const seg = [code.slice(0, 1), code.slice(1, 7), code.slice(7, 8), code.slice(8, 11), code.slice(11, 32)]
-    lines.push([
-      code,
-      '"' + String(p.name || '') + '"',
-      '"' + String(p.registrationNo || '') + '"',
-      '"' + (result.value.companyName || '') + '"',
-      '"' + (produceTypeMap[seg[2]] || seg[2]) + '"',
-      '"' + String(p.specCode || '') + '"',
-      '"' + genTime + '"',
-      '未绑定',
-      seg[0], seg[1], seg[4],
-    ].join(','))
+  document.body.appendChild(a)
+  try { a.click() } finally {
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 60000)
   }
-  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })
-  download(blob, defaultFilePrefix() + '.csv')
+}
+
+const openExport = (format: GeneratorExportFormat) => {
+  if (!result.value?.allCodes?.length || generating.value || exporting.value) return
+  exportFormat.value = format
+  Object.assign(exportSettings, { fileCount: 1, codesPerFile: exportAvailable.value })
+  showExport.value = true
+}
+
+// 所有格式共用连续切分；只有下载触发成功后才推进已导出范围。
+const confirmExport = async () => {
+  if (exporting.value || generating.value || !result.value?.allCodes?.length) return
+  if (exportPlan.value.error) { toast.add({ title: exportPlan.value.error, color: 'warning' }); return }
+  const { fileCount, codesPerFile } = exportSettings
+  const count = Number(fileCount), perFile = Number(codesPerFile)
+  const start = exportStart.value
+  const batch = result.value
+  const prefix = defaultFilePrefix()
+  const format = exportFormat.value
+  const context = { traceBaseUrl, product: batch.product, companyName: batch.companyName, generatedAt: new Date().toLocaleString('zh-CN', { hour12: false }) }
+  exporting.value = true
+  exportProgress.value = 0
+  try {
+    // 先让界面显示加载状态；大批次每完成十份让出主线程。
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const zip = count > 1 ? new TextZip() : null
+    for (let index = 0; index < count; index++) {
+      const from = start + index * perFile, to = from + perFile
+      const text = generatorExportText(batch.allCodes.slice(from, to), format, context)
+      const part = count > 1 || start > 0 || perFile < batch.allCodes.length ? `_第${String(index + 1).padStart(3, '0')}份_${from + 1}-${to}_${perFile}条` : ''
+      const name = format === 'urls' ? urlFilePrefix(perFile) + part + '_urls.txt' : prefix + part + '.' + format
+      if (zip) zip.add(name, text)
+      else download(new Blob([text], { type: format === 'csv' ? 'text/csv;charset=utf-8' : 'text/plain;charset=utf-8' }), name)
+      exportProgress.value = index + 1
+      if (zip && (index + 1) % 10 === 0) await new Promise(resolve => setTimeout(resolve, 0))
+    }
+    if (zip) download(zip.toBlob(), `${prefix}_${count}份_每份${perFile}条_${start + 1}-${start + count * perFile}.zip`)
+    exportedCodeCount.value = Math.max(exportedCodeCount.value, start + count * perFile)
+    showExport.value = false
+    toast.add({ title: `已发起下载：${count} 个文件，每文件 ${perFile} 条，共 ${count * perFile} 条`, color: 'success' })
+  } catch (e) {
+    toast.add({ title: (e as Error).message || '导出失败，请重试', color: 'error' })
+  } finally {
+    exporting.value = false
+  }
 }
 
 // ========== 二维码图片输出：官方离线工具（合规第一条：QR/DM 码制，供印刷厂赋码） ==========
@@ -218,7 +245,7 @@ const OFFLINE_TOOL = {
       <div>
         <h1 class="b-page-title">追溯码生成</h1>
       </div>
-      <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" @click="resetPage">重置</UButton>
+      <UButton variant="outline" color="neutral" icon="i-lucide-rotate-ccw" :disabled="generating || exporting" @click="resetPage">重置</UButton>
     </div>
 
     <div class="grid gap-4 xl:grid-cols-2">
@@ -278,7 +305,7 @@ const OFFLINE_TOOL = {
 
         <div class="b-card-foot">
           <span class="b-card-extra">生成后请导出，生产采集后入库</span>
-          <UButton v-if="canWrite" color="neutral" variant="solid" icon="i-lucide-wand-2" :loading="generating" @click="doGenerate">
+          <UButton v-if="canWrite" color="neutral" variant="solid" icon="i-lucide-wand-2" :loading="generating" :disabled="exporting" @click="doGenerate">
             生成追溯码
           </UButton>
         </div>
@@ -324,7 +351,7 @@ const OFFLINE_TOOL = {
       <div v-if="hasUnsavedResult" class="b-note mx-4 mt-3">
         <UIcon name="i-lucide-triangle-alert" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500" />
         <p class="b-note-text">
-          本批码<strong>尚未导出</strong>：码只存在于当前页面，刷新或关闭页面后<strong>无法恢复</strong>（重新生成得到的是另一批新码）。请先点下方【导出】任一格式，再离开本页。
+          本批码<strong>{{ exportedCodeCount ? '尚未全部导出' : '尚未导出' }}</strong>：已导出 {{ exportedCodeCount.toLocaleString() }} 条，剩余 {{ (result.allCodes.length - exportedCodeCount).toLocaleString() }} 条。码只存在于当前页面，刷新或关闭页面后<strong>无法恢复</strong>。请先导出剩余码并确认下载文件已保存，再离开本页。
         </p>
       </div>
 
@@ -372,12 +399,36 @@ const OFFLINE_TOOL = {
       <div class="b-card-foot">
         <span class="b-card-extra">TXT 命名遵循 PRD 5.5.1 强制规范（企业ID_产品名_规格_日期）；urls.txt 每行为完整扫码地址，是离线二维码工具的输入文件（见下方「二维码图片输出」）。生成结果不入库，生产采集后入库绑定</span>
         <div class="flex flex-wrap items-center gap-2">
-          <UButton variant="outline" color="neutral" icon="i-lucide-file-text" @click="exportTxt">导出 TXT</UButton>
-          <UButton variant="outline" color="neutral" icon="i-lucide-link" @click="exportUrls">导出 urls.txt</UButton>
-          <UButton color="neutral" variant="solid" icon="i-lucide-file-spreadsheet" @click="exportCsv">导出 CSV</UButton>
+          <UButton variant="outline" color="neutral" icon="i-lucide-file-text" :disabled="generating || exporting" @click="openExport('txt')">导出 TXT</UButton>
+          <UButton variant="outline" color="neutral" icon="i-lucide-link" :disabled="generating || exporting" @click="openExport('urls')">导出 urls.txt</UButton>
+          <UButton color="neutral" variant="solid" icon="i-lucide-file-spreadsheet" :disabled="generating || exporting" @click="openExport('csv')">导出 CSV</UButton>
         </div>
       </div>
     </div>
+
+    <UModal v-model:open="showExport" :dismissible="!exporting" :title="'导出 ' + exportFormatLabel" description="设置文件数量和每个文件的追溯码数量">
+      <template #content>
+        <div class="b-modal">
+          <div class="b-modal-head"><h3 class="b-modal-title">导出 {{ exportFormatLabel }}</h3></div>
+          <div class="b-modal-body space-y-4">
+            <p class="text-sm">当前可导出 {{ exportAvailable.toLocaleString() }} 条，从本批第 {{ (exportStart + 1).toLocaleString() }} 条开始。</p>
+            <p v-if="exportedCodeCount && !hasUnsavedResult" class="b-help">本批已全部导出，再次导出将从第 1 条开始。</p>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <div><label for="export-file-count" class="b-label">文件数量</label><UInput id="export-file-count" v-model.number="exportSettings.fileCount" type="number" min="1" :max="MAX_EXPORT_FILES" step="1" :disabled="exporting" class="w-full" /><p class="b-help">最多 {{ MAX_EXPORT_FILES }} 个文件</p></div>
+              <div><label for="export-codes-per-file" class="b-label">每个文件的追溯码数量</label><UInput id="export-codes-per-file" v-model.number="exportSettings.codesPerFile" type="number" min="1" :max="exportAvailable" step="1" :disabled="exporting" class="w-full" /></div>
+            </div>
+            <p v-if="exportPlan.error" role="alert" class="text-sm text-red-600">{{ exportPlan.error }}</p>
+            <div v-else class="b-note"><p class="b-note-text">本次导出 <strong>{{ exportSettings.fileCount }} 个文件 × {{ exportSettings.codesPerFile }} 条 = {{ exportPlan.total.toLocaleString() }} 条</strong>。<template v-if="exportPlan.remaining">导出后剩余 {{ exportPlan.remaining.toLocaleString() }} 条，下次从剩余码继续导出。</template><template v-else>本次导出全部可用码。</template></p></div>
+            <p class="b-help">多个文件会打包为一个 ZIP，解压后每个文件包含指定数量的追溯码，各文件按顺序编号、互不重复。仅导出码文本；二维码图片可通过下方离线工具生成。</p>
+            <p v-if="exporting" role="status" class="b-help">正在准备文件：{{ exportProgress }} / {{ exportSettings.fileCount }}</p>
+          </div>
+          <div class="b-modal-foot">
+            <UButton variant="outline" color="neutral" :disabled="exporting" @click="showExport = false">取消</UButton>
+            <UButton color="neutral" :loading="exporting" :disabled="!!exportPlan.error || generating" @click="confirmExport">{{ exportSettings.fileCount > 1 ? '打包下载 ZIP' : '下载文件' }}</UButton>
+          </div>
+        </div>
+      </template>
+    </UModal>
 
     <!-- 二维码图片输出：官方离线工具（合规第一条：QR/DM 码制） -->
     <div class="b-card">
@@ -393,7 +444,7 @@ const OFFLINE_TOOL = {
           <p class="b-note-text">二维码图片改由官方<strong>离线工具</strong>在本机生成，不再经过服务器：万张级批量不受网络与服务器限制，印刷厂、生产车间均可离线自行出图。<strong>码值统一由本平台生成</strong>（生产采集后入库绑定），工具只负责把码渲染成 PNG —— 两边不会再出现规格码或码结构对不上的情况。码内容为完整扫码地址（<span class="font-code">{{ traceBaseUrl }}32位码</span>）。</p>
         </div>
         <ol class="space-y-1.5 text-[13px] leading-6 text-[var(--b-text-muted)]">
-          <li>① 在上方「生成结果」区点【导出 urls.txt】，得到每行一个完整扫码地址的码文件（也可用【导出 TXT】或 sn 清单 CSV，工具三种都能识别）。</li>
+          <li>① 在上方「生成结果」区点【导出 urls.txt】，可设置文件数量和每个文件的码数（如 20 个文件，每文件 400 条，需先生成至少 8000 条）。多文件 ZIP 请先解压，再导入码文件；TXT 和 CSV 同样支持。</li>
           <li>② 下载并双击运行离线工具（便携版，免安装、无需联网）。</li>
           <li>③ 在工具「第 1 步」把码文件拖进去 —— <strong>可一次拖入多个文件自动合并去重</strong>；本平台单次最多可生成 50 万条，导出文件可直接拖入，无需分批多次生成。</li>
           <li>④ 在工具「第 2 步」设置码制（QR / DataMatrix）、模块大小（<strong>DataMatrix 建议 ≥4 像素/格</strong>）、静区白边（<strong>务必 ≥2</strong>），选好输出文件夹后导出 PNG。</li>
