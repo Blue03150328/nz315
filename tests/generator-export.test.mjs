@@ -5,13 +5,23 @@ import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import XLSX from 'xlsx'
-import { planGeneratorExport, generatorExportText, MAX_EXPORT_FILES } from '../shared/utils/generator-export.ts'
+import { planGeneratorFiles, planGeneratorExport, generatorExportText, MAX_EXPORT_FILES } from '../shared/utils/generator-export.ts'
 import { TextZip } from '../shared/utils/text-zip.ts'
 
 const context = { traceBaseUrl: 'https://example.invalid/trace?code=', product: { name: '测试"药,甲', registrationNo: 'PD20991234', specCode: '001' }, companyName: '测试公司', generatedAt: '2026/10/23 10:00:00' }
 const codes = Array.from({ length: 8000 }, (_, index) => '11234561001' + String(index).padStart(21, '0'))
 const bundledPython = path.join(homedir(), '.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe')
 const python = process.env.NZ315_TEST_PYTHON || (existsSync(bundledPython) ? bundledPython : 'python3')
+
+test('生成前按每文件码数×文件数量计算总量，允许单文件和50万条边界', () => {
+  assert.deepEqual(planGeneratorFiles(20, 400), { fileCount: 20, codesPerFile: 400, total: 8000 })
+  assert.equal(planGeneratorFiles(1, 100).total, 100)
+  assert.equal(planGeneratorFiles(1000, 500).total, 500000)
+  assert.equal(planGeneratorFiles(1, 500000).total, 500000)
+  assert.throws(() => planGeneratorFiles(20, 25001), /生成数量须为/)
+  for (const value of [0, -1, 0.5, NaN, Infinity, 1001]) assert.throws(() => planGeneratorFiles(value, 400))
+  for (const value of [0, -1, 0.5, NaN, Infinity, Number.MAX_SAFE_INTEGER]) assert.throws(() => planGeneratorFiles(20, value))
+})
 
 test('20份×400条恰好8000条；部分导出和后续剩余数量明确', () => {
   assert.deepEqual(planGeneratorExport(8000, 20, 400), { fileCount: 20, codesPerFile: 400, total: 8000, remaining: 0 })

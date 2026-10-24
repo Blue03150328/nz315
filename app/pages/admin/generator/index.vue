@@ -6,13 +6,12 @@
 // 只读账号（viewer）在模板中隐藏全部写操作入口
 import {
   MAX_CODES_PER_BATCH,
-  GENERATE_QUANTITY_ERROR,
   GENERATE_QUANTITY_RANGE_TEXT,
   LARGE_BATCH_CONFIRM_THRESHOLD,
   estimateCodesSizeMb,
   estimateGenerateMs,
 } from '#shared/utils/code-limits'
-import { MAX_EXPORT_FILES, planGeneratorExport, generatorExportText, type GeneratorExportFormat } from '#shared/utils/generator-export'
+import { MAX_EXPORT_FILES, planGeneratorFiles, generatorExportText, type GeneratorExportFormat } from '#shared/utils/generator-export'
 import { TextZip } from '#shared/utils/text-zip'
 
 const { canWrite } = useUser()
@@ -34,28 +33,25 @@ const FIXED_SEGMENTS = [
 
 const form = reactive({
   productId: null as number | null,
-  quantity: 100,
+  codesPerFile: 100,
+  fileCount: 1,
 })
+const generationPlan = computed(() => {
+  try {
+    return { ...planGeneratorFiles(Number(form.fileCount), Number(form.codesPerFile)), error: '' }
+  } catch (e) {
+    return { total: 0, error: (e as Error).message }
+  }
+})
+// 结果保留生成时的分文件设置；修改表单只影响下一次生成。
+const batchFilePlan = ref<ReturnType<typeof planGeneratorFiles> | null>(null)
 const generating = ref(false)
 const result = ref<any>(null)
 // 本批码仅保存在页面内存；尚未导出时，刷新或关闭页面前提示保存。
 const exportedCodeCount = ref(0)
 const hasUnsavedResult = computed(() => !!result.value?.allCodes?.length && exportedCodeCount.value < result.value.allCodes.length)
-const showExport = ref(false)
 const exporting = ref(false)
 const exportProgress = ref(0)
-const exportFormat = ref<GeneratorExportFormat>('txt')
-const exportSettings = reactive({ fileCount: 1, codesPerFile: 100 })
-const exportStart = computed(() => exportedCodeCount.value < (result.value?.allCodes?.length || 0) ? exportedCodeCount.value : 0)
-const exportAvailable = computed(() => (result.value?.allCodes?.length || 0) - exportStart.value)
-const exportPlan = computed(() => {
-  try {
-    return { ...planGeneratorExport(exportAvailable.value, Number(exportSettings.fileCount), Number(exportSettings.codesPerFile)), error: '' }
-  } catch (e) {
-    return { total: 0, remaining: exportAvailable.value, error: (e as Error).message }
-  }
-})
-const exportFormatLabel = computed(() => ({ txt: 'TXT', urls: 'urls.txt', csv: 'CSV' })[exportFormat.value])
 const onBeforeUnload = (e: BeforeUnloadEvent) => {
   if (!hasUnsavedResult.value) return
   e.preventDefault()
@@ -84,12 +80,13 @@ const SEGMENT_COLORS = ['b-tag-danger', 'b-tag-info', 'b-tag-warning', 'b-tag-su
 // 页内【重置】：清空生成表单与全部结果/预览，恢复页面初始状态（Keep-Alive 缓存页互不影响）
 const resetPage = () => {
   if (generating.value || exporting.value) return
-  Object.assign(form, { productId: null, quantity: 100 })
+  Object.assign(form, { productId: null, codesPerFile: 100, fileCount: 1 })
   selectedProduct.value = null
   showBigConfirm.value = false
   result.value = null
   exportedCodeCount.value = 0
-  showExport.value = false
+  batchFilePlan.value = null
+  pendingGeneration.value = null
   toast.add({ title: '已重置，页面恢复初始状态', color: 'primary' })
 }
 
@@ -97,9 +94,9 @@ const resetPage = () => {
 // 目的：50 万条一次生成时，页面要把全部码值留在内存中（导出 urls.txt 约 31MB、CSV 约 80MB），
 // 先在确认框里把体积与耗时讲清楚，避免误操作、避免低配机直接卡死
 const showBigConfirm = ref(false)
-const pendingQuantity = ref(0)
+const pendingGeneration = ref<({ productId: number } & ReturnType<typeof planGeneratorFiles>) | null>(null)
 const bigConfirmText = computed(() => {
-  const q = pendingQuantity.value
+  const q = pendingGeneration.value?.total || 0
   return {
     quantity: q.toLocaleString(),
     elapsed: (estimateGenerateMs(q) / 1000).toFixed(1),
@@ -112,12 +109,11 @@ const bigConfirmText = computed(() => {
 const doGenerate = () => {
   if (generating.value || exporting.value) return
   if (!form.productId) { toast.add({ title: '请选择产品', color: 'warning' }); return }
-  // 区间校验文案与接口 400 文案同源（GENERATE_QUANTITY_ERROR），避免前后端提示不一致
-  if (!Number.isInteger(Number(form.quantity)) || form.quantity < 1 || form.quantity > MAX_CODES_PER_BATCH) {
-    toast.add({ title: GENERATE_QUANTITY_ERROR, color: 'warning' }); return
+  if (generationPlan.value.error) {
+    toast.add({ title: generationPlan.value.error, color: 'warning' }); return
   }
-  if (form.quantity > LARGE_BATCH_CONFIRM_THRESHOLD) {
-    pendingQuantity.value = Number(form.quantity)
+  pendingGeneration.value = { productId: form.productId, ...planGeneratorFiles(Number(form.fileCount), Number(form.codesPerFile)) }
+  if (pendingGeneration.value.total > LARGE_BATCH_CONFIRM_THRESHOLD) {
     showBigConfirm.value = true
     return
   }
@@ -126,17 +122,22 @@ const doGenerate = () => {
 
 // 真正调用生成接口（大数量场景由确认弹窗确认后调用）
 const runGenerate = async () => {
+  if (generating.value || exporting.value || !pendingGeneration.value) return
+  const { productId, ...plan } = pendingGeneration.value
   showBigConfirm.value = false
   generating.value = true
   try {
-    result.value = await $fetch('/api/admin/codes/generate', { method: 'POST', body: { ...form } })
+    const batch = await $fetch<any>('/api/admin/codes/generate', { method: 'POST', body: { productId, quantity: plan.total } })
+    if (batch.allCodes?.length !== plan.total) throw new Error('生成数量不足，无法按指定文件数量生成，请重新生成')
+    result.value = batch
+    batchFilePlan.value = plan
     exportedCodeCount.value = 0
-    showExport.value = false
     toast.add({ title: '生成成功：' + result.value.quantity + ' 条' + (result.value.duplicates ? '（跳过重码 ' + result.value.duplicates + ' 条）' : ''), color: 'success' })
   } catch (e: any) {
-    toast.add({ title: e?.data?.statusMessage || '生成失败', color: 'error' })
+    toast.add({ title: e?.data?.statusMessage || e?.message || '生成失败', color: 'error' })
   } finally {
     generating.value = false
+    pendingGeneration.value = null
   }
 }
 
@@ -173,23 +174,13 @@ const download = (blob: Blob, name: string) => {
   }
 }
 
-const openExport = (format: GeneratorExportFormat) => {
-  if (!result.value?.allCodes?.length || generating.value || exporting.value) return
-  exportFormat.value = format
-  Object.assign(exportSettings, { fileCount: 1, codesPerFile: exportAvailable.value })
-  showExport.value = true
-}
-
-// 所有格式共用连续切分；只有下载触发成功后才推进已导出范围。
-const confirmExport = async () => {
-  if (exporting.value || generating.value || !result.value?.allCodes?.length) return
-  if (exportPlan.value.error) { toast.add({ title: exportPlan.value.error, color: 'warning' }); return }
-  const { fileCount, codesPerFile } = exportSettings
-  const count = Number(fileCount), perFile = Number(codesPerFile)
-  const start = exportStart.value
+// 直接按生成时的设置导出整批；重下或切换格式仍使用同一组码及文件边界。
+const exportBatch = async (format: GeneratorExportFormat) => {
+  if (exporting.value || generating.value || !result.value?.allCodes?.length || !batchFilePlan.value) return
+  const { fileCount: count, codesPerFile: perFile } = batchFilePlan.value
+  const start = 0
   const batch = result.value
   const prefix = defaultFilePrefix()
-  const format = exportFormat.value
   const context = { traceBaseUrl, product: batch.product, companyName: batch.companyName, generatedAt: new Date().toLocaleString('zh-CN', { hour12: false }) }
   exporting.value = true
   exportProgress.value = 0
@@ -209,7 +200,6 @@ const confirmExport = async () => {
     }
     if (zip) download(zip.toBlob(), `${prefix}_${count}份_每份${perFile}条_${start + 1}-${start + count * perFile}.zip`)
     exportedCodeCount.value = Math.max(exportedCodeCount.value, start + count * perFile)
-    showExport.value = false
     toast.add({ title: `已发起下载：${count} 个文件，每文件 ${perFile} 条，共 ${count * perFile} 条`, color: 'success' })
   } catch (e) {
     toast.add({ title: (e as Error).message || '导出失败，请重试', color: 'error' })
@@ -260,7 +250,7 @@ const OFFLINE_TOOL = {
             <label class="b-label">产品<span class="b-required">*</span></label>
             <ProductPicker
               v-model="form.productId"
-              :disabled="generating"
+              :disabled="generating || exporting || showBigConfirm"
               @selected="selectedProduct = $event"
             />
             <p v-if="selectedProduct" class="b-help">
@@ -280,9 +270,20 @@ const OFFLINE_TOOL = {
           </div>
 
           <div>
-            <label class="b-label">生成数量 <span class="b-required">*</span></label>
-            <UInput v-model.number="form.quantity" type="number" min="1" :max="MAX_CODES_PER_BATCH"  class="w-full" />
-            <p class="b-help">{{ GENERATE_QUANTITY_RANGE_TEXT }}</p>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label for="generate-codes-per-file" class="b-label">每个文件的追溯码数量 <span class="b-required">*</span></label>
+                <UInput id="generate-codes-per-file" v-model.number="form.codesPerFile" type="number" min="1" :max="MAX_CODES_PER_BATCH" step="1" :disabled="generating || exporting || showBigConfirm" class="w-full" />
+              </div>
+              <div>
+                <label for="generate-file-count" class="b-label">生成文件数量 <span class="b-required">*</span></label>
+                <UInput id="generate-file-count" v-model.number="form.fileCount" type="number" min="1" :max="MAX_EXPORT_FILES" step="1" :disabled="generating || exporting || showBigConfirm" class="w-full" />
+                <p class="b-help">最多 {{ MAX_EXPORT_FILES }} 个文件</p>
+              </div>
+            </div>
+            <p v-if="generationPlan.error" role="alert" class="mt-2 text-sm text-red-600">{{ generationPlan.error }}</p>
+            <p v-else class="b-help">本次生成 {{ form.fileCount }} 个文件 × {{ form.codesPerFile }} 条，共 {{ generationPlan.total.toLocaleString() }} 条追溯码。导出时按此设置下载。</p>
+            <p class="b-help">生成总量 {{ GENERATE_QUANTITY_RANGE_TEXT }}；多个文件打包为 ZIP。</p>
           </div>
         </div>
 
@@ -305,7 +306,7 @@ const OFFLINE_TOOL = {
 
         <div class="b-card-foot">
           <span class="b-card-extra">生成后请导出，生产采集后入库</span>
-          <UButton v-if="canWrite" color="neutral" variant="solid" icon="i-lucide-wand-2" :loading="generating" :disabled="exporting" @click="doGenerate">
+          <UButton v-if="canWrite" color="neutral" variant="solid" icon="i-lucide-wand-2" :loading="generating" :disabled="exporting || !!generationPlan.error" @click="doGenerate">
             生成追溯码
           </UButton>
         </div>
@@ -397,38 +398,16 @@ const OFFLINE_TOOL = {
       </div>
 
       <div class="b-card-foot">
-        <span class="b-card-extra">导出格式：纯码 / 扫码网址 / CSV</span>
+        <span class="b-card-extra">{{ batchFilePlan?.fileCount }} 个文件 · 每文件 {{ batchFilePlan?.codesPerFile }} 条</span>
         <div class="flex flex-wrap items-center gap-2">
-          <UButton variant="outline" color="neutral" icon="i-lucide-file-text" :disabled="generating || exporting" @click="openExport('txt')">导出 TXT</UButton>
-          <UButton variant="outline" color="neutral" icon="i-lucide-link" :disabled="generating || exporting" @click="openExport('urls')">导出 urls.txt</UButton>
-          <UButton color="neutral" variant="solid" icon="i-lucide-file-spreadsheet" :disabled="generating || exporting" @click="openExport('csv')">导出 CSV</UButton>
+          <UButton variant="outline" color="neutral" icon="i-lucide-file-text" :disabled="generating || exporting" @click="exportBatch('txt')">导出 TXT</UButton>
+          <UButton variant="outline" color="neutral" icon="i-lucide-link" :disabled="generating || exporting" @click="exportBatch('urls')">导出 urls.txt</UButton>
+          <UButton color="neutral" variant="solid" icon="i-lucide-file-spreadsheet" :disabled="generating || exporting" @click="exportBatch('csv')">导出 CSV</UButton>
         </div>
       </div>
     </div>
 
-    <UModal v-model:open="showExport" :dismissible="!exporting" :title="'导出 ' + exportFormatLabel" description="设置文件数量和每个文件的追溯码数量">
-      <template #content>
-        <div class="b-modal">
-          <div class="b-modal-head"><h3 class="b-modal-title">导出 {{ exportFormatLabel }}</h3></div>
-          <div class="b-modal-body space-y-4">
-            <p class="text-sm">当前可导出 {{ exportAvailable.toLocaleString() }} 条，从本批第 {{ (exportStart + 1).toLocaleString() }} 条开始。</p>
-            <p v-if="exportedCodeCount && !hasUnsavedResult" class="b-help">本批已全部导出，再次导出将从第 1 条开始。</p>
-            <div class="grid gap-4 sm:grid-cols-2">
-              <div><label for="export-file-count" class="b-label">文件数量</label><UInput id="export-file-count" v-model.number="exportSettings.fileCount" type="number" min="1" :max="MAX_EXPORT_FILES" step="1" :disabled="exporting" class="w-full" /><p class="b-help">最多 {{ MAX_EXPORT_FILES }} 个文件</p></div>
-              <div><label for="export-codes-per-file" class="b-label">每个文件的追溯码数量</label><UInput id="export-codes-per-file" v-model.number="exportSettings.codesPerFile" type="number" min="1" :max="exportAvailable" step="1" :disabled="exporting" class="w-full" /></div>
-            </div>
-            <p v-if="exportPlan.error" role="alert" class="text-sm text-red-600">{{ exportPlan.error }}</p>
-            <div v-else class="b-note"><p class="b-note-text">本次导出 <strong>{{ exportSettings.fileCount }} 个文件 × {{ exportSettings.codesPerFile }} 条 = {{ exportPlan.total.toLocaleString() }} 条</strong>。<template v-if="exportPlan.remaining">导出后剩余 {{ exportPlan.remaining.toLocaleString() }} 条，下次从剩余码继续导出。</template><template v-else>本次导出全部可用码。</template></p></div>
-            <p class="b-help">多个文件会打包为一个 ZIP，解压后每个文件包含指定数量的追溯码，各文件按顺序编号、互不重复。仅导出码文本；二维码图片可通过下方离线工具生成。</p>
-            <p v-if="exporting" role="status" class="b-help">正在准备文件：{{ exportProgress }} / {{ exportSettings.fileCount }}</p>
-          </div>
-          <div class="b-modal-foot">
-            <UButton variant="outline" color="neutral" :disabled="exporting" @click="showExport = false">取消</UButton>
-            <UButton color="neutral" :loading="exporting" :disabled="!!exportPlan.error || generating" @click="confirmExport">{{ exportSettings.fileCount > 1 ? '打包下载 ZIP' : '下载文件' }}</UButton>
-          </div>
-        </div>
-      </template>
-    </UModal>
+    <p v-if="exporting" role="status" class="b-help">正在准备文件：{{ exportProgress }} / {{ batchFilePlan?.fileCount }}</p>
 
     <!-- 二维码图片输出：官方离线工具（合规第一条：QR/DM 码制） -->
     <div class="b-card">
@@ -444,7 +423,7 @@ const OFFLINE_TOOL = {
           <p class="b-note-text">二维码图片改由官方<strong>离线工具</strong>在本机生成，不再经过服务器：万张级批量不受网络与服务器限制，印刷厂、生产车间均可离线自行出图。<strong>码值统一由本平台生成</strong>（生产采集后入库绑定），工具只负责把码渲染成 PNG —— 两边不会再出现规格码或码结构对不上的情况。码内容为完整扫码地址（<span class="font-code">{{ traceBaseUrl }}32位码</span>）。</p>
         </div>
         <ol class="space-y-1.5 text-[13px] leading-6 text-[var(--b-text-muted)]">
-          <li>① 在上方「生成结果」区点【导出 urls.txt】，可设置文件数量和每个文件的码数（如 20 个文件，每文件 400 条，需先生成至少 8000 条）。多文件 ZIP 请先解压，再导入码文件；TXT 和 CSV 同样支持。</li>
+          <li>① 先在「生成设置」填写每文件码数和文件数量（如每文件 400 条、20 个文件，共生成 8000 条），生成后点【导出 urls.txt】按该设置下载。多文件 ZIP 请先解压，再导入码文件；TXT 和 CSV 同样支持。</li>
           <li>② 下载并双击运行离线工具（便携版，免安装、无需联网）。</li>
           <li>③ 在工具「第 1 步」把码文件拖进去 —— <strong>可一次拖入多个文件自动合并去重</strong>；本平台单次最多可生成 50 万条，导出文件可直接拖入，无需分批多次生成。</li>
           <li>④ 在工具「第 2 步」设置码制（QR / DataMatrix）、模块大小（<strong>DataMatrix 建议 ≥4 像素/格</strong>）、静区白边（<strong>务必 ≥2</strong>），选好输出文件夹后导出 PNG。</li>

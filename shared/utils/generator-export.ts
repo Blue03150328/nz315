@@ -1,3 +1,12 @@
+import { MAX_CODES_PER_BATCH, GENERATE_QUANTITY_ERROR } from './code-limits.ts'
+
+/** 生成前确定文件数量和每文件码数，所有格式共用本批设置。 */
+export function planGeneratorFiles(fileCount: number, codesPerFile: number) {
+  const plan = planGeneratorExport(Number.MAX_SAFE_INTEGER, fileCount, codesPerFile)
+  if (plan.total > MAX_CODES_PER_BATCH) throw new Error(GENERATE_QUANTITY_ERROR)
+  return { fileCount, codesPerFile, total: plan.total }
+}
+
 /** 分文件仅切分当前批次中的连续码，不重新生成，也不补齐或丢弃码。 */
 export const MAX_EXPORT_FILES = 1000
 export type GeneratorExportFormat = 'txt' | 'urls' | 'csv'
